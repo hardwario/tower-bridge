@@ -10,7 +10,7 @@ use tower_bridge_core::acquisition::{AcqCommand, AcqConfig, AcqEvent, Acquisitio
 use tower_bridge_core::bus::discovery::{BackendPref, Discovery};
 use tower_bridge_core::bus::mock::SimulatedBridge;
 use tower_bridge_core::bus::{BusError, I2cBus, SystemClock};
-use tower_bridge_core::climate::{ChannelMode, ClimateModule, select_channel};
+use tower_bridge_core::climate::{ChannelMode, Sensors, select_channel};
 use tower_bridge_core::model::{STANDARD_SEA_LEVEL_PA, Values, altitude};
 use tower_bridge_core::relay::RelayModule;
 
@@ -20,7 +20,7 @@ struct Cli {
     /// Transport to use.
     #[arg(long, value_enum, default_value_t = BackendArg::Auto, global = true)]
     backend: BackendArg,
-    /// I2C switch channel of the Climate Module.
+    /// I2C switch channels to use (automatic: both).
     #[arg(long, value_enum, default_value_t = ChannelArg::Auto, global = true)]
     channel: ChannelArg,
     /// Hex-dump every FT260 report to stderr.
@@ -37,7 +37,8 @@ struct Cli {
 enum Command {
     /// List connected bridges.
     Scan,
-    /// Run measurement cycles and print the values.
+    /// Find the sensors, run measurement cycles and print the values of each
+    /// channel.
     Probe {
         /// Number of cycles (timing is printed for each).
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=1000))]
@@ -56,6 +57,8 @@ enum Command {
     },
     /// List I2C addresses that acknowledge on a switch channel.
     I2cScan,
+    /// Identify the sensor chips on each switch channel.
+    I2cIdentify,
     /// Find the Relay Module and show its state or switch it to true or false.
     Relay {
         #[arg(value_enum, default_value_t = RelayAction::Status)]
@@ -143,6 +146,7 @@ fn run(cli: Cli) -> Result<()> {
                 .context("LED write failed")
         }
         Command::I2cScan => i2c_scan(&cli),
+        Command::I2cIdentify => i2c_identify(&cli),
         Command::Relay { action } => relay(&cli, action),
     }
 }
@@ -241,27 +245,42 @@ fn print_values(v: &Values) {
 fn probe(cli: &Cli, cycles: u32) -> Result<()> {
     let mut bus = open(cli)?;
     let clock = SystemClock::new();
-    let mut module = ClimateModule::new(cli.channel.into());
-    let Some(det) = module.detect(bus.as_mut(), &clock)? else {
-        bail!("No Climate Module found on the bridge");
-    };
-    eprintln!(
-        "Climate Module {} on I2C channel {}",
-        det.revision.as_str(),
-        det.channel
-    );
+    let mut sensors = Sensors::new(cli.channel.into());
+    sensors.detect(bus.as_mut(), &clock)?;
+    if sensors.is_empty() {
+        bail!("No sensors found on the bridge");
+    }
+    for s in sensors.sources() {
+        eprintln!(
+            "channel {}: {} {} 0x{:02x} ({})",
+            s.channel,
+            s.module.name(),
+            s.sensor,
+            s.address,
+            s.metric.as_str()
+        );
+    }
     let mut failures = 0u32;
     let mut durations = Vec::new();
     for n in 1..=cycles {
-        let report = module.measure(bus.as_mut(), &clock)?;
-        for (sensor, err) in &report.errors {
-            eprintln!("cycle {n}: {}: {err}", sensor.name());
+        let reports = sensors.measure(bus.as_mut(), &clock)?;
+        let mut took = 0;
+        let mut measured = false;
+        for (channel, report) in &reports {
+            for (sensor, err) in &report.errors {
+                eprintln!("cycle {n}, channel {channel}: {}: {err}", sensor.name());
+            }
+            failures += report.errors.len() as u32;
+            took += report.duration.as_millis();
+            measured |= !report.values.is_empty();
+            if reports.len() > 1 {
+                println!("# channel {channel}");
+            }
+            print_values(&report.values);
         }
-        failures += report.errors.len() as u32;
-        durations.push(report.duration.as_millis());
-        eprintln!("Cycle {n} took {} ms", report.duration.as_millis());
-        print_values(&report.values);
-        if report.values.is_empty() {
+        durations.push(took);
+        eprintln!("Cycle {n} took {took} ms");
+        if !measured {
             bail!("all sensors failed");
         }
     }
@@ -293,12 +312,38 @@ fn watch(cli: &Cli, interval: Duration) -> Result<()> {
             AcqEvent::Device(state) => eprintln!("device: {state:?}"),
             AcqEvent::Relay(relay) => eprintln!("relay: {relay:?}"),
             AcqEvent::Reading(r) => {
-                println!("# ts={} device={}", r.ts, r.device);
+                println!("# ts={} device={} channel={}", r.ts, r.device, r.channel);
                 print_values(&r.values);
             }
         }
     }
     let _ = commands.send(AcqCommand::Shutdown);
+    Ok(())
+}
+
+fn i2c_identify(cli: &Cli) -> Result<()> {
+    let mut bus = open(cli)?;
+    let channels: &[u8] = match cli.channel {
+        ChannelArg::Auto => &[0, 1],
+        ChannelArg::Zero => &[0],
+        ChannelArg::One => &[1],
+    };
+    for &ch in channels {
+        select_channel(bus.as_mut(), ch).context("I2C switch not responding")?;
+        let found = tower_bridge_core::sensors::identify::scan(bus.as_mut())?;
+        let list: Vec<String> = found
+            .iter()
+            .map(|f| format!("0x{:02x} {}", f.address, f.part))
+            .collect();
+        println!(
+            "channel {ch}: {}",
+            if list.is_empty() {
+                "-".into()
+            } else {
+                list.join(", ")
+            }
+        );
+    }
     Ok(())
 }
 

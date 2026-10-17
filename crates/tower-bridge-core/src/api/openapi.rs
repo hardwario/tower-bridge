@@ -24,7 +24,8 @@ pub fn document(info: &ApiInfo) -> Value {
             "title": "TOWER Bridge API",
             "version": info.version,
             "description": "Local API of the TOWER Bridge desktop app. Values are SI units: temperature °C, \
-    humidity %RH, illuminance lx, pressure Pa, altitude m. Timestamps are Unix milliseconds.",
+    humidity %RH, illuminance lx, pressure Pa, altitude m. Timestamps are Unix milliseconds. Sensors can sit \
+    on I2C channel 0 and 1 of the bridge; readings and alerts carry the channel.",
             "license": { "name": "MIT" }
         },
         "components": {
@@ -44,9 +45,19 @@ pub fn document(info: &ApiInfo) -> Value {
                     "type": "object",
                     "properties": {
                         "ts": { "type": "integer" }, "time": { "type": "string" }, "device": { "type": "string" },
+                        "channel": { "type": "integer", "description": "I2C switch channel of the sensors" },
                         "temperature": { "type": ["number", "null"] }, "humidity": { "type": ["number", "null"] },
                         "illuminance": { "type": ["number", "null"] }, "pressure": { "type": ["number", "null"] },
-                        "altitude": { "type": ["number", "null"] }, "stale": { "type": "boolean" }
+                        "altitude": { "type": ["number", "null"] }
+                    }
+                },
+                "Latest": {
+                    "type": "object",
+                    "properties": {
+                        "ts": { "type": "integer", "description": "Newest reading" }, "time": { "type": "string" },
+                        "stale": { "type": "boolean", "description": "The bridge is not working right now" },
+                        "readings": { "type": "array", "items": { "$ref": "#/components/schemas/Reading" },
+                            "description": "One per I2C channel, in channel order" }
                     }
                 },
                 "AlertRule": {
@@ -69,21 +80,21 @@ pub fn document(info: &ApiInfo) -> Value {
         "paths": {
             "/api/v1/status": { "get": { "summary": "App and device status", "responses": { "200": { "description": "Status" } } } },
             "/api/v1/readings/latest": { "get": {
-                "summary": "Latest reading",
+                "summary": "Latest reading of each I2C channel",
                 "responses": {
-                    "200": { "description": "Reading", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Reading" } } } },
+                    "200": { "description": "Readings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Latest" } } } },
                     "404": { "description": "No measurement yet" }
                 }
             } },
             "/api/v1/readings": { "get": {
-                "summary": "Averaged history (columnar; t in seconds, avg/min/max per metric)",
+                "summary": "Averaged history (columnar; t in seconds; per metric one avg/min/max series for each entry of 'channels')",
                 "parameters": range_params.as_array().cloned().unwrap_or_default().into_iter()
                     .chain([json!({ "name": "max_points", "in": "query", "schema": { "type": "integer", "default": 500 } })])
                     .collect::<Vec<_>>(),
                 "responses": { "200": { "description": "History" } }
             } },
             "/api/v1/readings.csv": { "get": {
-                "summary": "Individual readings as CSV",
+                "summary": "Individual readings as CSV, one row per measurement and I2C channel",
                 "parameters": range_params,
                 "responses": { "200": { "description": "CSV", "content": { "text/csv": {} } } }
             } },
@@ -103,7 +114,7 @@ pub fn document(info: &ApiInfo) -> Value {
             },
             "/api/v1/device/identify": { "post": { "summary": "Blink the bridge LED", "description": control,
                 "responses": { "200": { "description": "OK" }, "403": { "description": "Changes disabled" } } } },
-            "/api/v1/device/rescan": { "post": { "summary": "Re-detect the Climate Module", "description": control,
+            "/api/v1/device/rescan": { "post": { "summary": "Look for the sensors again", "description": control,
                 "responses": { "200": { "description": "OK" }, "403": { "description": "Changes disabled" } } } },
             "/api/v1/relay": {
                 "get": { "summary": "Relay Module state (true, false or null when unknown)",
@@ -119,14 +130,15 @@ pub fn document(info: &ApiInfo) -> Value {
             "/api/v1/relay/pulse": { "post": {
                 "summary": "Switch the relay to a state for a while, then back",
                 "description": format!("{control} Without a state the relay switches to the opposite of its current one \
-    (false when unknown); without duration_ms the length from the app settings is used (500 ms to 1 h)."),
+    (false when unknown), or a running pulse is extended; without duration_ms the length from the app settings is used \
+    (500 ms to 1 h)."),
                 "requestBody": { "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "state": { "type": "boolean" },
                         "duration_ms": { "type": "integer", "minimum": 500, "maximum": 3_600_000 }
                     } } } } },
-                "responses": { "200": { "description": "State during the pulse (pulseUntil set)" },
+                "responses": { "200": { "description": "State during the pulse (pulse_until set)" },
                     "403": { "description": "Changes disabled" }, "404": { "description": "No Relay Module connected" } } } },
             "/metrics": { "get": { "summary": "Prometheus metrics", "responses": { "200": { "description": "Text exposition format" } } } },
             "/mcp": { "post": { "summary": "MCP endpoint (Streamable HTTP)", "responses": { "200": { "description": "JSON-RPC response" } } } }

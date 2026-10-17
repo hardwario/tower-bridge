@@ -1,8 +1,10 @@
 # TOWER Bridge
 
 Desktop app for the HARDWARIO **TOWER Bridge Module** with a **TOWER Climate
-Module** and, optionally, a **TOWER Relay Module**. It lives in the menu bar (macOS) or system tray (Windows, Linux) and
-shows temperature, humidity, illuminance and barometric pressure at a glance.
+Module** or TOWER sensor tags (Humidity, Temperature, Lux Meter, Barometer) on
+either of its two I²C channels and, optionally, a **TOWER Relay Module**. It
+lives in the menu bar (macOS) or system tray (Windows, Linux) and shows
+temperature, humidity, illuminance and barometric pressure at a glance.
 
 - Current value right in the menu bar / tray icon, all readings in the tray menu
 - Dashboard with live values and interactive charts: min / avg / max with
@@ -10,13 +12,16 @@ shows temperature, humidity, illuminance and barometric pressure at a glance.
   span, drag to pan through all stored data, Ctrl/⌘+scroll, pinch or
   Shift+drag to zoom, line colours from an 8-colour palette, history from
   1 h to 30 days or a custom range, and a table view; dashboard panels can be
-  rearranged by dragging and charts maximized
+  rearranged by dragging and charts maximized; with sensors on both channels,
+  each panel shows a line per channel
 - Relay Module control (true / false / timed pulse) on the dashboard, over
   REST, MCP and MQTT when one is connected
 - Notifications when a value leaves its range (with hysteresis and repeat
   interval), and when the bridge is disconnected
 - CSV and XLSX export of the stored history
-- Optional built-in MQTT broker publishing every reading (`tower/temperature`, `tower/humidity`, …)
+- Optional MQTT to your own broker (Mosquitto, Home Assistant), publishing
+  every reading with its I²C channel
+  (`tower/temperature/0`, `tower/humidity/1`, …) and the app's availability
 - Optional local REST API, Prometheus metrics and MCP server, so scripts,
   Grafana and AI assistants (Claude, Cursor, VS Code) can use the readings
 - Open at login
@@ -65,8 +70,10 @@ notifications (`HKCU\Software\Classes\AppUserModelId\com.hardwario.tower-bridge`
   menu.
 - Readings are stored in SQLite (default retention 90 days) in the data folder
   shown in *Settings → Data*.
-- The MQTT broker is described in [docs/mqtt.md](docs/mqtt.md), the REST API,
+- MQTT is described in [docs/mqtt.md](docs/mqtt.md), the REST API,
   metrics and MCP server in [docs/api.md](docs/api.md).
+- The user manual is built in: open *Manual* in the sidebar. Its source, in all
+  five languages, is in [docs/manual](docs/manual/en.md).
 
 ## Building from source
 
@@ -78,7 +85,7 @@ libudev-dev`).
 ```sh
 npm ci
 npm run tauri dev                         # run with hot reload
-TOWER_BRIDGE_SIMULATE=1 npm run tauri dev # no hardware: simulated Climate Module
+TOWER_BRIDGE_SIMULATE=1 npm run tauri dev # no hardware: simulated Climate Module and tags
 npm run tauri build                       # release bundles (dmg / AppImage)
 npm run tauri build -- --no-bundle        # Windows portable exe
 ```
@@ -100,6 +107,9 @@ Development helpers:
 `npm run dev` and opening `http://localhost:1420/preview.html` runs the
 dashboard in a browser against a mocked backend.
 
+`npm run manual:screenshots` regenerates the screenshots of the user manual
+from that preview, in every language and theme (needs Google Chrome).
+
 Translations: the dashboard dictionaries are `src/lib/i18n/{en,cs,sk,de,pl}.ts`
 (English is the reference; the others are type-checked against it). Tray
 menu, notification and dialog texts are in `src-tauri/src/i18n.rs`.
@@ -110,22 +120,30 @@ Tests and checks:
 cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features
 npm run check && npm test
+npm run test:ui          # browser smoke test of every view (needs Google Chrome)
+npm run test:ui:webkit   # the same in WebKit (npx playwright-core install webkit)
 ```
 
 ## Project layout
 
 | Path | Contents |
 |---|---|
-| `crates/tower-bridge-core` | FT260 transport (hidapi, Linux i2c-dev), sensor drivers, Climate Module logic, acquisition thread, alert engine, SQLite store, MQTT broker, REST/MCP server |
-| `crates/tower-bridge-cli` | `tower-bridge-cli` diagnostics tool (`scan`, `probe`, `watch`, `led`, `i2c-scan`) |
+| `crates/tower-bridge-core` | FT260 transport (hidapi, Linux i2c-dev), sensor drivers, sensor detection on both I²C channels, acquisition thread, alert engine, SQLite store, MQTT client, REST/MCP server |
+| `crates/tower-bridge-cli` | `tower-bridge-cli` diagnostics tool (`scan`, `probe`, `watch`, `led`, `i2c-scan`, `i2c-identify`, `relay`) |
 | `src-tauri` | Desktop app: tray, dashboard window, settings, notifications, commands |
 | `src` | Dashboard UI (Svelte 5, uPlot); translations in `src/lib/i18n/` |
-| `docs` | [Hardware protocol](docs/hardware.md), [Linux](docs/linux.md), [MQTT](docs/mqtt.md), [REST API & MCP](docs/api.md) |
+| `docs` | [Hardware protocol](docs/hardware.md), [Linux](docs/linux.md), [MQTT](docs/mqtt.md), [REST API & MCP](docs/api.md), [user manual](docs/manual/en.md) |
 | `packaging/linux` | udev rule |
+
+## Contributing
+
+Read [AGENTS.md](AGENTS.md) first: architecture, commands, conventions and
+lessons learned, for people and coding agents alike. Work in progress is listed
+in [TODO.md](TODO.md).
 
 ## License
 
-MIT, © 2026 HARDWARIO a.s. — see [LICENSE](LICENSE).
+MIT, © 2026 HARDWARIO a.s. See [LICENSE](LICENSE).
 
 The MIT license covers the source code. The HARDWARIO and TOWER names and the
 HARDWARIO logo are trademarks of HARDWARIO a.s. and are not licensed for use in
@@ -133,7 +151,7 @@ derived products.
 
 Third-party components include [Tauri](https://tauri.app) (MIT/Apache-2.0),
 [hidapi](https://github.com/libusb/hidapi) (BSD-3-Clause),
-[rumqttd](https://github.com/bytebeamio/rumqtt) (Apache-2.0),
+[rumqttc](https://github.com/bytebeamio/rumqtt) (Apache-2.0),
 [axum](https://github.com/tokio-rs/axum) (MIT),
 [SQLite](https://sqlite.org) (public domain), [uPlot](https://github.com/leeoniya/uPlot)
 (MIT), [Svelte](https://svelte.dev) (MIT), icons from

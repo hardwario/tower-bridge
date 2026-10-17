@@ -2,7 +2,6 @@
 //! thread and fans them out to the database, alert engine, MQTT broker, tray
 //! and dashboard. A single consumer keeps ordering simple.
 
-use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -11,8 +10,8 @@ use crossbeam_channel::{Receiver, Sender, select, tick};
 use tauri::{AppHandle, Emitter, Manager};
 use tower_bridge_core::acquisition::AcqEvent;
 use tower_bridge_core::alerts::{AlertEngine, AlertEvent, AlertKind, Bound};
-use tower_bridge_core::model::{DeviceState, Reading, altitude};
-use tower_bridge_core::mqtt::{self, BrokerConfig, MqttCommand, Publisher};
+use tower_bridge_core::model::{DeviceState, Reading, altitude, source_label};
+use tower_bridge_core::mqtt::{self, ClientConfig, LinkEvent, MqttCommand, Publisher};
 use tower_bridge_core::relay::RelayInfo;
 use tower_bridge_core::store::Store;
 use tracing::{error, info, warn};
@@ -20,7 +19,7 @@ use tracing::{error, info, warn};
 use crate::format;
 use crate::i18n::{Lang, fill};
 use crate::notify;
-use crate::settings::{MqttSettings, Settings};
+use crate::settings::Settings;
 use crate::state::{AppState, MqttState};
 
 const RETENTION_EVERY: Duration = Duration::from_secs(3600);
@@ -36,39 +35,83 @@ pub enum HubMsg {
     Shutdown,
 }
 
-/// Identity of a running broker listener.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ListenerKey {
-    port: u16,
-    allow_lan: bool,
-    username: String,
-    password: String,
+/// When to say that the bridge went away and came back.
+#[derive(Debug, Default)]
+struct Presence {
+    /// Since when the bridge is gone (after it had worked).
+    lost_since: Option<Instant>,
+    /// The time to report it ran out (notified or not).
+    lost_reported: bool,
+    /// The "disconnected" notification was shown.
+    lost_shown: bool,
+    was_ready: bool,
 }
 
-impl From<&MqttSettings> for ListenerKey {
-    fn from(m: &MqttSettings) -> Self {
-        let (port, allow_lan, username, password) = m.listener_key();
-        Self {
-            port,
-            allow_lan,
-            username: username.into(),
-            password: password.into(),
+impl Presence {
+    /// A new device state; returns whether to announce the bridge is back.
+    fn device(&mut self, d: &DeviceState, now: Instant) -> bool {
+        match d {
+            DeviceState::Ready { .. } => {
+                let back = self.lost_shown;
+                *self = Presence {
+                    was_ready: true,
+                    ..Presence::default()
+                };
+                back
+            }
+            // The bridge is there and only the sensors are missing: not a
+            // disconnect. A shown "disconnected" waits for the sensors.
+            DeviceState::NoModule { .. } => {
+                self.lost_since = None;
+                self.lost_reported = self.lost_shown;
+                false
+            }
+            DeviceState::Searching | DeviceState::Error { .. } => {
+                if self.was_ready && self.lost_since.is_none() && !self.lost_reported {
+                    self.lost_since = Some(now);
+                }
+                false
+            }
         }
     }
+
+    /// Returns whether to announce that the bridge is gone (only when
+    /// `notify` is on; "back" is then announced too, and only then).
+    fn tick(&mut self, now: Instant, notify: bool) -> bool {
+        match self.lost_since {
+            Some(since)
+                if !self.lost_reported && now.duration_since(since) >= DEVICE_LOST_AFTER =>
+            {
+                self.lost_reported = true;
+                self.lost_shown = notify;
+                notify
+            }
+            _ => false,
+        }
+    }
+}
+
+/// The connection to the user's MQTT broker.
+struct MqttClient {
+    config: ClientConfig,
+    prefix: String,
+    address: String,
+    publisher: Publisher,
+    /// News of this connection only (an old one's cannot get mixed in).
+    events: Receiver<LinkEvent>,
+    connected: bool,
 }
 
 struct Hub {
     app: AppHandle,
     store: Option<Store>,
     engine: AlertEngine,
-    broker: Option<(ListenerKey, Publisher)>,
+    /// The MQTT broker connection, replaced whenever its settings change.
+    mqtt: Option<MqttClient>,
     /// Where the broker delivers relay commands.
     mqtt_commands: Sender<MqttCommand>,
-    publishing: bool,
     last_retention: Option<Instant>,
-    lost_since: Option<Instant>,
-    lost_notified: bool,
-    was_ready: bool,
+    presence: Presence,
 }
 
 pub fn spawn(
@@ -86,13 +129,10 @@ pub fn spawn(
                 app,
                 store,
                 engine: AlertEngine::new(settings.alerts.clone()),
-                broker: None,
+                mqtt: None,
                 mqtt_commands,
-                publishing: false,
                 last_retention: None,
-                lost_since: None,
-                lost_notified: false,
-                was_ready: false,
+                presence: Presence::default(),
             };
             hub.run(acq_rx, hub_rx);
         })
@@ -106,7 +146,16 @@ impl Hub {
     fn run(&mut self, acq_rx: Receiver<AcqEvent>, hub_rx: Receiver<HubMsg>) {
         let ticker = tick(Duration::from_secs(5));
         loop {
+            let link_events = self
+                .mqtt
+                .as_ref()
+                .map_or_else(crossbeam_channel::never, |e| e.events.clone());
             select! {
+                recv(link_events) -> ev => {
+                    if let Ok(ev) = ev {
+                        self.on_link_event(ev);
+                    }
+                },
                 recv(acq_rx) -> ev => match ev {
                     Ok(AcqEvent::Reading(r)) => self.on_reading(r),
                     Ok(AcqEvent::Device(d)) => self.on_device(d),
@@ -121,6 +170,12 @@ impl Hub {
                 recv(ticker) -> _ => self.on_tick(),
             }
         }
+        // A goodbye skips the broker's last will: say "offline" ourselves and
+        // give the client a moment to send it.
+        if self.mqtt.as_ref().is_some_and(|e| e.connected) {
+            self.stop_mqtt();
+            std::thread::sleep(Duration::from_millis(300));
+        }
         info!("hub stopped");
     }
 
@@ -133,7 +188,7 @@ impl Hub {
         let mqtt = state.mqtt.read().clone();
         state
             .tray
-            .update(&device, latest.as_ref(), &settings, &alerts, &mqtt);
+            .update(&device, &latest, &settings, &alerts, &mqtt);
     }
 
     fn on_init(&mut self) {
@@ -156,24 +211,20 @@ impl Hub {
             error!("cannot store reading: {e}");
         }
 
-        let events = self.engine.evaluate(r.ts, &r.values);
-        if !events.is_empty() {
-            for ev in &events {
-                self.on_alert(ev, &settings);
-            }
-            let active = self.engine.active();
-            *self.state().alerts.write() = active.clone();
-            let _ = self.app.emit("alerts-active", &active);
+        let events = self.engine.evaluate(r.ts, r.channel, &r.values);
+        for ev in &events {
+            self.on_alert(ev, &settings);
         }
+        // Also while alerts stay active: their values follow the readings.
+        self.publish_active_alerts();
 
-        if self.publishing
-            && let Some((_, publisher)) = self.broker.as_mut()
+        if let Some(publisher) = self.publisher()
             && let Err(e) = publisher.publish_reading(&r)
         {
             warn!("MQTT publish failed: {e}");
         }
 
-        *self.state().latest.write() = Some(r.clone());
+        self.state().set_latest(r.clone());
         self.refresh_tray();
         let _ = self.app.emit("reading", &r);
     }
@@ -191,8 +242,9 @@ impl Hub {
         let unit = settings.temperature_unit;
         let lang = Lang::effective(settings.language);
         let tr = lang.tr();
-        let value = format::full(ev.metric, ev.value, unit, lang);
-        let limit = format::full(ev.metric, ev.threshold, unit, lang);
+        let dec = settings.decimal(lang);
+        let value = format::full(ev.metric, ev.value, unit, dec);
+        let limit = format::full(ev.metric, ev.threshold, unit, dec);
         let vars = [("value", value.as_str()), ("limit", limit.as_str())];
         let (title, body) = match (ev.kind, ev.bound) {
             (AlertKind::Triggered, Bound::High) => {
@@ -206,21 +258,53 @@ impl Hub {
                 fill(tr.within_limits, &vars),
             ),
         };
+        // With the metric measured on several channels, say which one.
+        let device = self.state().device.read().clone();
+        let title = match source_label(device.sources(), ev.metric, ev.channel) {
+            Some(source) => format!("{title} · {source}"),
+            None => title,
+        };
         notify::send(&self.app, &title, &body);
     }
 
+    /// Store and announce the active alerts when they changed.
+    fn publish_active_alerts(&self) {
+        let active = self.engine.active();
+        let state = self.state();
+        if *state.alerts.read() == active {
+            return;
+        }
+        *state.alerts.write() = active.clone();
+        let _ = self.app.emit("alerts-active", &active);
+    }
+
     fn on_device(&mut self, d: DeviceState) {
-        let ready = d.is_ready();
-        if ready {
-            if self.lost_notified {
-                let tr = self.lang().tr();
-                notify::send(&self.app, tr.reconnected_title, tr.reconnected_body);
+        if self.presence.device(&d, Instant::now()) {
+            let tr = self.lang().tr();
+            notify::send(&self.app, tr.reconnected_title, tr.reconnected_body);
+        }
+        if let DeviceState::Ready { sources, .. } = &d {
+            // A channel without sensors has no current values, alerts or
+            // MQTT topics any more.
+            let channels: Vec<u8> = sources.iter().map(|s| s.channel).collect();
+            let mut gone: Vec<u8> = Vec::new();
+            self.state().latest.write().retain(|r| {
+                let keep = channels.contains(&r.channel);
+                if !keep {
+                    gone.push(r.channel);
+                }
+                keep
+            });
+            if self.engine.retain_channels(&channels) {
+                self.publish_active_alerts();
             }
-            self.lost_since = None;
-            self.lost_notified = false;
-            self.was_ready = true;
-        } else if self.was_ready && self.lost_since.is_none() {
-            self.lost_since = Some(Instant::now());
+            if let Some(publisher) = self.publisher() {
+                for channel in gone {
+                    if let Err(e) = publisher.clear_channel(channel) {
+                        warn!("MQTT publish failed: {e}");
+                    }
+                }
+            }
         }
         *self.state().device.write() = d.clone();
         self.refresh_tray();
@@ -235,25 +319,103 @@ impl Hub {
 
     fn publish_relay(&mut self) {
         let relay = *self.state().relay.read();
-        if self.publishing
-            && let Some((_, publisher)) = self.broker.as_mut()
+        if let Some(publisher) = self.publisher()
             && let Err(e) = publisher.publish_relay(relay.as_ref())
         {
             warn!("MQTT publish failed: {e}");
         }
     }
 
+    /// Where readings go now: the MQTT broker, while connected.
+    fn publisher(&mut self) -> Option<&mut Publisher> {
+        match &mut self.mqtt {
+            Some(c) if c.connected => Some(&mut c.publisher),
+            _ => None,
+        }
+    }
+
+    /// Everything current, after (re)connecting or a prefix change: the
+    /// broker may have lost the retained values.
+    fn republish(&mut self) {
+        let latest = self.state().latest.read().clone();
+        if let Some(publisher) = self.publisher() {
+            let mut result = publisher.publish_status(true);
+            for r in &latest {
+                result = result.and(publisher.publish_reading(r));
+            }
+            if let Err(e) = result {
+                warn!("MQTT publish failed: {e}");
+            }
+        }
+        self.publish_relay();
+    }
+
+    fn on_link_event(&mut self, ev: LinkEvent) {
+        let Some(client) = self.mqtt.as_mut() else {
+            return;
+        };
+        let address = client.address.clone();
+        match ev {
+            LinkEvent::Connected => {
+                client.connected = true;
+                self.set_mqtt_state(MqttState::Connected { address });
+                self.republish();
+            }
+            LinkEvent::Disconnected(error) => {
+                client.connected = false;
+                self.set_mqtt_state(MqttState::Connecting {
+                    address,
+                    error: Some(error),
+                });
+            }
+        }
+    }
+
+    /// Disconnect from the MQTT broker, saying goodbye.
+    fn stop_mqtt(&mut self) {
+        if let Some(mut e) = self.mqtt.take()
+            && e.connected
+            && let Err(err) = e.publisher.publish_status(false)
+        {
+            warn!("MQTT publish failed: {err}");
+        }
+    }
+
+    fn start_mqtt(&mut self, config: ClientConfig, prefix: &str) {
+        let address = format!("{}:{}", config.host, config.port);
+        let (tx, events) = crossbeam_channel::unbounded();
+        match mqtt::connect(&config, prefix, self.mqtt_commands.clone(), tx) {
+            Ok(publisher) => {
+                self.mqtt = Some(MqttClient {
+                    config,
+                    prefix: mqtt::sanitize_prefix(prefix),
+                    address: address.clone(),
+                    publisher,
+                    events,
+                    connected: false,
+                });
+                self.set_mqtt_state(MqttState::Connecting {
+                    address,
+                    error: None,
+                });
+            }
+            Err(e) => {
+                warn!("{e}");
+                self.set_mqtt_state(MqttState::Error {
+                    message: e.to_string(),
+                });
+            }
+        }
+    }
+
     fn on_tick(&mut self) {
         let settings = self.state().settings();
-        if let Some(since) = self.lost_since
-            && !self.lost_notified
-            && since.elapsed() >= DEVICE_LOST_AFTER
+        if self
+            .presence
+            .tick(Instant::now(), settings.notify_device_lost)
         {
-            self.lost_notified = true;
-            if settings.notify_device_lost {
-                let tr = Lang::effective(settings.language).tr();
-                notify::send(&self.app, tr.lost_title, tr.lost_body);
-            }
+            let tr = Lang::effective(settings.language).tr();
+            notify::send(&self.app, tr.lost_title, tr.lost_body);
         }
         if self
             .last_retention
@@ -291,11 +453,11 @@ impl Hub {
             self.apply_mqtt(new);
         }
         if old.sea_level_pressure_pa != new.sea_level_pressure_pa {
-            // Recompute altitude of the latest reading for the UI.
+            // Recompute the altitude of the latest readings for the UI.
             let latest = {
                 let state = self.state();
                 let mut guard = state.latest.write();
-                if let Some(r) = guard.as_mut() {
+                for r in guard.iter_mut() {
                     r.altitude = r
                         .values
                         .pressure
@@ -303,7 +465,7 @@ impl Hub {
                 }
                 guard.clone()
             };
-            if let Some(r) = latest {
+            for r in latest {
                 let _ = self.app.emit("reading", &r);
             }
         }
@@ -322,72 +484,119 @@ impl Hub {
 
     fn apply_mqtt(&mut self, settings: &Settings) {
         let m = &settings.mqtt;
-        let key = ListenerKey::from(m);
-        match (&mut self.broker, m.enabled) {
-            (None, false) => {
-                self.publishing = false;
-                self.set_mqtt_state(MqttState::Disabled);
-            }
-            (None, true) => {
-                let bind = if m.allow_lan {
-                    IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-                } else {
-                    IpAddr::V4(Ipv4Addr::LOCALHOST)
-                };
-                let credentials =
-                    (!m.username.is_empty()).then(|| (m.username.clone(), m.password.clone()));
-                let cfg = BrokerConfig {
-                    bind,
-                    port: m.port,
-                    credentials,
-                };
-                match mqtt::start(&cfg, &m.topic_prefix, self.mqtt_commands.clone()) {
-                    Ok(publisher) => {
-                        self.broker = Some((key, publisher));
-                        self.publishing = true;
-                        self.set_mqtt_state(MqttState::Running {
-                            address: format!("{bind}:{}", m.port),
-                        });
-                        let latest = self.state().latest.read().clone();
-                        if let (Some(r), Some((_, p))) = (latest, self.broker.as_mut()) {
-                            let _ = p.publish_reading(&r);
-                        }
-                        if self.state().relay.read().is_some() {
-                            self.publish_relay();
-                        }
-                    }
-                    Err(e) => {
-                        warn!("{e}");
-                        self.publishing = false;
-                        self.set_mqtt_state(MqttState::Error {
-                            message: e.to_string(),
-                        });
-                    }
-                }
-            }
-            (Some((running, publisher)), true) if *running == key => {
-                publisher.set_prefix(&m.topic_prefix);
-                self.publishing = true;
-                if self.state().relay.read().is_some() {
-                    self.publish_relay();
-                }
-                let bind = if m.allow_lan { "0.0.0.0" } else { "127.0.0.1" };
-                self.set_mqtt_state(MqttState::Running {
-                    address: format!("{bind}:{}", m.port),
-                });
-            }
-            (Some(_), enabled) => {
-                self.publishing = false;
-                // Codes are translated by the dashboard.
-                let reason = if enabled {
-                    "apply_settings"
-                } else {
-                    "stop_broker"
-                };
-                self.set_mqtt_state(MqttState::RestartRequired {
-                    reason: reason.into(),
-                });
-            }
+        if !m.enabled {
+            self.stop_mqtt();
+            self.set_mqtt_state(MqttState::Disabled);
+            return;
         }
+        let Some(config) = m.client_config() else {
+            self.stop_mqtt();
+            // The dashboard translates this code.
+            self.set_mqtt_state(MqttState::Error {
+                message: "no_host".into(),
+            });
+            return;
+        };
+        let prefix = mqtt::sanitize_prefix(&m.topic_prefix);
+        if self
+            .mqtt
+            .as_ref()
+            .is_some_and(|c| c.config == config && c.prefix == prefix)
+        {
+            return;
+        }
+        // A prefix change moves the topics: clear the old ones.
+        if let Some(c) = self.mqtt.as_mut()
+            && c.connected
+            && c.prefix != prefix
+            && let Err(e) = c.publisher.clear_all()
+        {
+            warn!("MQTT publish failed: {e}");
+        }
+        self.stop_mqtt();
+        self.start_mqtt(config, &prefix);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tower_bridge_core::model::{Backend, DeviceErrorKind, DeviceInfo};
+
+    use super::*;
+
+    fn info() -> DeviceInfo {
+        DeviceInfo {
+            backend: Backend::Hid,
+            serial: "SN".into(),
+            path: "p".into(),
+            chip: None,
+            bridges_connected: 1,
+        }
+    }
+
+    fn ready() -> DeviceState {
+        DeviceState::Ready {
+            device: info(),
+            sources: Vec::new(),
+        }
+    }
+
+    fn gone() -> DeviceState {
+        DeviceState::Error {
+            kind: DeviceErrorKind::NotFound,
+            message: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_lost_bridge_is_reported_after_a_minute_and_its_return_too() {
+        let t0 = Instant::now();
+        let mut p = Presence::default();
+        assert!(!p.device(&ready(), t0));
+        assert!(!p.device(&gone(), t0));
+        assert!(!p.tick(t0 + Duration::from_secs(30), true), "too early");
+        assert!(p.tick(t0 + DEVICE_LOST_AFTER, true));
+        assert!(!p.tick(t0 + DEVICE_LOST_AFTER * 2, true), "once");
+        assert!(p.device(&ready(), t0 + DEVICE_LOST_AFTER * 3), "back");
+    }
+
+    #[test]
+    fn the_return_is_silent_when_the_loss_was_not_announced() {
+        let t0 = Instant::now();
+        let mut p = Presence::default();
+        p.device(&ready(), t0);
+        p.device(&gone(), t0);
+        assert!(!p.tick(t0 + DEVICE_LOST_AFTER, false), "notifications off");
+        assert!(!p.device(&ready(), t0 + DEVICE_LOST_AFTER * 2));
+    }
+
+    #[test]
+    fn missing_sensors_are_not_a_usb_disconnect() {
+        let t0 = Instant::now();
+        let mut p = Presence::default();
+        p.device(&ready(), t0);
+        p.device(&DeviceState::NoModule { device: info() }, t0);
+        assert!(!p.tick(t0 + DEVICE_LOST_AFTER * 2, true));
+        assert!(!p.device(&ready(), t0 + DEVICE_LOST_AFTER * 3));
+    }
+
+    #[test]
+    fn a_short_blip_is_not_reported() {
+        let t0 = Instant::now();
+        let mut p = Presence::default();
+        p.device(&ready(), t0);
+        p.device(&gone(), t0);
+        p.device(&ready(), t0 + Duration::from_secs(5));
+        assert!(!p.tick(t0 + DEVICE_LOST_AFTER * 2, true));
+    }
+
+    #[test]
+    fn nothing_is_reported_before_the_bridge_ever_worked() {
+        let t0 = Instant::now();
+        let mut p = Presence::default();
+        p.device(&gone(), t0);
+        assert!(!p.tick(t0 + DEVICE_LOST_AFTER * 2, true));
     }
 }

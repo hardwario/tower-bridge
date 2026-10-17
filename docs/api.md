@@ -7,7 +7,7 @@ TOWER Bridge can run a small HTTP server with:
 - an **MCP server** (`/mcp`) so AI assistants can read the sensors.
 
 Everything is off by default: the API server, the MCP endpoint (a separate
-switch) and the MQTT broker. Turn them on in **Settings → API & MCP**. The
+switch) and MQTT. Turn them on in **Settings → API & MCP**. The
 server can be turned off or moved to another port at any time; no restart is
 needed.
 
@@ -18,7 +18,7 @@ needed.
 | *Allow network access* off (default) | Listens on `127.0.0.1` only. Local clients need no token. |
 | *Allow network access* on | Listens on all interfaces. Every request must carry the token. |
 | *Allow changes* off (default) | Read-only. |
-| *Allow changes* on | Clients may change alert limits, blink the bridge LED and re-detect the module. |
+| *Allow changes* on | Clients may change alert limits, blink the bridge LED, look for the sensors again and switch the relay. |
 
 Send the token from the settings page as `Authorization: Bearer <token>`. A
 request with a valid token is always accepted.
@@ -36,24 +36,49 @@ JSON keys are lowercase with underscores (`bucket_ms`, `pulse_until`, …). Time
 accept Unix milliseconds or RFC 3339. The OpenAPI description is at
 `/api/v1/openapi.json`.
 
+Sensors can sit on I²C channel 0 and 1 of the Bridge Module, for example a
+Climate Module on channel 0 and sensor tags on channel 1. Readings, sensors and
+alerts carry their `channel`.
+
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/v1/status` | App version, device state (with the sensor and I²C address behind each value), last reading time, active alerts |
-| GET | `/api/v1/readings/latest` | Latest reading (`stale: true` while the bridge is disconnected) |
+| GET | `/api/v1/status` | App version, device state (with the channel, module, sensor and I²C address behind each value), last reading time, active alerts |
+| GET | `/api/v1/readings/latest` | Latest reading of each channel (`stale: true` while the bridge is disconnected) |
 | GET | `/api/v1/readings?hours=24&max_points=500` | Averaged history (`from`, `to` also accepted), columnar like the dashboard charts |
-| GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV |
+| GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV, one row per measurement and channel |
 | GET | `/api/v1/alerts` | Alert rules and active alerts |
 | GET | `/api/v1/alerts/log?limit=50` | Recent alert events |
 | GET | `/api/v1/alerts/{metric}` | One rule (`temperature`, `humidity`, `illuminance`, `pressure`) |
 | PATCH / PUT | `/api/v1/alerts/{metric}` | Update fields of a rule, e.g. `{"enabled": true, "max": 26}` *(changes)* |
 | POST | `/api/v1/device/identify` | Blink the bridge LED *(changes)* |
-| POST | `/api/v1/device/rescan` | Re-detect the Climate Module *(changes)* |
+| POST | `/api/v1/device/rescan` | Look for the sensors again *(changes)* |
 | GET | `/api/v1/relay` | Relay Module state: `{"state": true, "channel": 0, "address": 59, "pulse_until": null}`; `state` is `true`, `false` or `null` (unknown); 404 without a relay |
 | PUT | `/api/v1/relay` | `{"state": true}` or `false`; ends a running pulse *(changes)* |
-| POST | `/api/v1/relay/pulse` | Switch to a state for a while, then back. Body optional: `{"state": false, "duration_ms": 2000}`; defaults are the opposite state and the configured length *(changes)* |
+| POST | `/api/v1/relay/pulse` | Switch to a state for a while, then back. Body optional: `{"state": false, "duration_ms": 2000}`; defaults are the opposite state (or, while a pulse runs, extending it) and the configured length *(changes)* |
 | GET | `/metrics` | Prometheus text format |
 
 Errors are JSON: `{"error": {"code": "…", "message": "…"}}`.
+
+The latest readings:
+
+```json
+{
+  "ts": 1792245600000,
+  "time": "2026-10-17T16:00:00+02:00",
+  "stale": false,
+  "readings": [
+    { "ts": 1792245600000, "time": "…", "device": "TB4F2A91", "channel": 0,
+      "temperature": 22.81, "humidity": 41.2, "illuminance": 318.5, "pressure": 100421.0, "altitude": 75.6 },
+    { "ts": 1792245600000, "time": "…", "device": "TB4F2A91", "channel": 1,
+      "temperature": 12.44, "humidity": 70.3, "illuminance": 9120.0, "pressure": 100433.0, "altitude": 74.6 }
+  ]
+}
+```
+
+The history has a series per channel: `channels` lists them (e.g. `[0, 1]`),
+and each metric holds one `{"avg": [...], "min": [...], "max": [...]}` per
+entry of `channels`, aligned with `t` (seconds). A channel without a value in
+a bucket has `null` there.
 
 ```sh
 curl http://127.0.0.1:8180/api/v1/readings/latest
@@ -67,7 +92,11 @@ curl -X POST http://127.0.0.1:8180/api/v1/relay/pulse
 
 The relay state is `null` until the relay has been switched: it is latching
 and cannot be read back. `/metrics` exports a known state as
-`tower_bridge_relay_state 1` (`true`) or `0` (`false`).
+`tower_bridge_relay_state{channel="0"} 1` (`true`) or `0` (`false`).
+
+Every value in `/metrics` carries a `channel` label, for example
+`tower_bridge_temperature_celsius{device="TB4F2A91",channel="1"} 12.44`;
+alert gauges are labelled with the metric, channel and bound.
 
 Prometheus scrape config:
 
@@ -84,10 +113,10 @@ The tools use friendly units (°C, %, lx, **hPa**):
 
 | Tool | Description |
 |---|---|
-| `get_current_readings` | Latest values, measurement time, active alerts |
-| `get_history` | Averaged points and min/avg/max for `hours` back or a `from`/`to` range |
-| `get_alerts` | Alert limits, active alerts, recent events |
-| `get_device_status` | Bridge and Climate Module status, serial number, sensors and their I²C addresses, interval, relay state |
+| `get_current_readings` | Latest values of each channel with the module that measured them, measurement time, active alerts |
+| `get_history` | Averaged points and min/avg/max per channel for `hours` back or a `from`/`to` range |
+| `get_alerts` | Alert limits, active alerts, recent events (with the channel) |
+| `get_device_status` | Bridge status, serial number, the modules and sensors on each channel with their I²C addresses, interval, relay state |
 | `set_alert_threshold` | Change one metric's limits *(only with "Allow changes")* |
 | `identify_device` | Blink the bridge LED *(only with "Allow changes")* |
 | `set_relay` | Switch the Relay Module: `state` `true` or `false` *(only with "Allow changes")* |

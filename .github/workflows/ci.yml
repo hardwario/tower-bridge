@@ -39,6 +39,11 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      # Every view and state in the browser preview: in Chrome (as Windows
+      # renders the app) and in WebKit (as macOS and Linux do).
+      - run: npm run test:ui
+      - run: npx playwright-core install --with-deps webkit
+      - run: npm run test:ui:webkit
       - run: npm run build
 
   app:

@@ -58,8 +58,8 @@ impl ApiBackend for OfflineBackend {
     fn device(&self) -> DeviceState {
         DeviceState::Searching
     }
-    fn latest(&self) -> Option<Reading> {
-        None
+    fn latest(&self) -> Vec<Reading> {
+        Vec::new()
     }
     fn sample_interval_s(&self) -> u64 {
         0
@@ -298,7 +298,7 @@ mod tests {
                 .is_some_and(|t| t.len() == 4)
         );
         assert_eq!(
-            out[2]["result"]["structuredContent"]["temperature_c"],
+            out[2]["result"]["structuredContent"]["readings"][0]["temperature_c"],
             23.46
         );
         Ok(())

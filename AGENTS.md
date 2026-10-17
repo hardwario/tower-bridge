@@ -1,0 +1,207 @@
+# AGENTS.md
+
+Working notes for everyone who changes this repository, people and coding agents alike. This file covers:
+
+- the architecture,
+- the commands,
+- the conventions,
+- the rules for working safely next to real hardware,
+- what earlier sessions learned the hard way.
+
+Keep it current. If a change makes a statement here wrong, fix the statement in the same change. If you learn something non-obvious, add it to [Key learnings](#key-learnings).
+
+Open and ongoing work is tracked in [TODO.md](TODO.md); released changes go in [CHANGELOG.md](CHANGELOG.md).
+
+## What this is
+
+TOWER Bridge is a tray-first desktop app (Tauri 2, Rust, Svelte 5) for the HARDWARIO TOWER Bridge Module, an FTDI FT260 USB-HID to I²C bridge. It:
+
+- reads the TOWER Climate Module and the TOWER sensor tags (temperature, humidity, illuminance, pressure) on both I²C channels of the bridge;
+- switches the TOWER Relay Module;
+- stores the history in SQLite;
+- shows charts and alerts;
+- offers MQTT, REST, Prometheus metrics and MCP.
+
+It continues the CLI tool hardwario/enmon. MIT license, © HARDWARIO a.s.
+
+## Commands
+
+Prerequisites: Rust 1.99+, Node 22+. On Linux, see the CI workflow for the apt packages.
+
+```sh
+npm ci                                       # once
+npm run dev                                  # browser preview, open http://localhost:1420/preview.html
+npm run tauri dev                            # the real app with hot reload
+TOWER_BRIDGE_SIMULATE=1 npm run tauri dev    # no hardware needed
+cargo run -p tower-bridge-cli -- --help      # hardware CLI: scan, probe, watch, i2c-scan, i2c-identify, relay
+```
+
+A debug binary that embeds the built frontend and needs no dev server:
+
+```sh
+npm run build && cargo build -p tower-bridge --features tauri/custom-protocol
+./target/debug/tower-bridge --simulate
+```
+
+Run all of these before handing work over; CI runs the same:
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+npm run check
+npm test
+npm run test:ui          # every view and device state in the browser preview, in Chrome
+npm run test:ui:webkit   # the same in WebKit, which macOS and Linux render the app with
+                         # (once: npx playwright-core install webkit)
+npm run build
+```
+
+After a visible UI change, regenerate the manual's screenshots with `npm run manual:screenshots`. It needs Google Chrome and takes about a minute.
+
+### The browser preview
+
+`preview.html` runs the whole UI in a browser with a mocked backend (`src/preview.ts`). Query parameters select the situation, for example `?tab=manual&lang=de&theme=dark&relay=unknown`, or `tags=0` for a Climate Module alone. The full list is at the top of `src/preview.ts`. `scripts/ui-smoke.mjs` (`npm run test:ui`) walks through it and fails on errors; add a case there for every new view or state.
+
+Use it with headless Chrome or Playwright to check layouts in every language and theme before touching the real app. `scripts/manual-screenshots.mjs` is a worked example.
+
+## Architecture
+
+```
+crates/tower-bridge-core/   hardware, data and protocols; no Tauri dependency
+  bus/                      I2cBus trait: FT260 over hidapi, Linux i2c-dev, mock
+  sensors/                  SHT30, SHT20, TMP112, OPT3001, MPL3115A2, CRC, identify (I²C part detection)
+  climate.rs                I²C switch, sensor detection per channel and part, measurement cycles
+  relay.rs                  Relay Module (TCA9534A/TCA9534 driving a latching relay)
+  acquisition.rs            the thread that owns the device: reconnects, measures, runs commands
+  alerts.rs                 pure alert engine (limits, hysteresis, repeat interval)
+  store/                    SQLite schema, bucketed history, retention, CSV and XLSX export
+  mqtt.rs                   client of the user's broker (rumqttc), publishing, relay commands
+  api/                      REST, OpenAPI, MCP (HTTP and stdio), security
+crates/tower-bridge-cli/    command line tool for hardware bring-up
+src-tauri/                  the desktop app (package "tower-bridge")
+  lib.rs                    startup, plugins, single instance, flags
+  hub.rs                    fans out acquisition events
+  actions.rs                user actions shared by the UI, tray, REST, MCP and MQTT
+  commands.rs               Tauri commands for the webview
+  settings.rs               settings.json with versioned migrations
+  tray/, window.rs          tray menu and icon, the dashboard window
+  i18n.rs                   tray and notification texts
+src/                        Svelte 5 frontend, no router
+  App.svelte                shell: sidebar navigation, tabs
+  views/                    Overview (the Dashboard), Data (table and export), Alerts, Settings, Manual
+  lib/live.svelte.ts        app state and backend events
+  lib/chart-group.svelte.ts shared zoom and pan of the charts on a page
+  lib/i18n/                 UI texts in en, cs, sk, de, pl
+  lib/manual.ts             renders docs/manual for the Manual tab
+docs/                       api.md, mqtt.md, hardware.md, manual/
+```
+
+### Data flow
+
+```
+FT260 ─USB HID─> bus ─> acquisition thread ──AcqEvent──> hub thread ─┬─> AppState (latest values)
+                          ▲                                          ├─> SQLite writer
+                          │ AcqCommand                               ├─> alert engine ─> notifications
+                          │                                          ├─> MQTT publisher
+  webview / tray / REST / MCP / MQTT ─> actions.rs                   ├─> tray title, icon, menu
+                                                                     └─> webview events
+```
+
+- **Several bridges.** Only the first bridge found is opened. The acquisition thread counts the plugged-in bridges (`Bridges::count`, on its own thread, since it owns the HID access) when one opens, every minute and on Rescan, and reports `DeviceInfo.bridges_connected`; the card and the tray warn above one.
+- **One device owner.** Only the acquisition thread touches the bus. Everything else sends an `AcqCommand` over a channel; replies come back on a one-shot channel. This covers identify, rescan, interval and channel changes, and relay set and pulse.
+- **Sensors on two channels.** The bridge's I²C switch has channels 0 and 1, and both may carry sensors (for example a Climate Module on 0 and tags on 1). `climate::Sensors` probes each part on each channel and names the module from the parts found. Every reading, sensor source, alert, export row and history series carries its channel; channels measured in one cycle share the timestamp. Parts are probed again every minute, and a part that fails three times in a row is dropped.
+- **Measurement cycle.** A channel takes about 1 s because its sensors convert in parallel; channels are measured one after the other. `ClimateModule::measure_with` calls an idle hook while it waits, so relay commands run within about 25 ms instead of after the cycle. When the hook used the bus, the cycle re-selects the I²C switch channel.
+- **Startup.** The app starts with no window; the dashboard webview is created on demand and destroyed when closed. Development instances (`--simulate` or `TOWER_BRIDGE_DATA_DIR`) skip the single-instance check, so they can run next to an installed copy.
+- **Settings.** `settings.json` uses snake_case serde. On load, `snake_case_keys` converts files from older camelCase builds. `SETTINGS_VERSION` triggers upgrade steps; see `ChartStyles::upgrade_from_v1`. `save_settings` diffs the old and new settings and applies only what changed.
+- **Storage.** The `readings` table holds one row per timestamp and device in SI units; NULL means the sensor failed. History queries bucket rows to about 1000 points and return columns ready for uPlot.
+- **Relay.** The state is `Option<bool>`: `true` is the T direction (green LED), `false` the F direction (red LED), and `None` is unknown (after power-up, since the relay is latching). On the wire unknown is `null`. A pulse switches, waits `duration_ms` measured from the moment the coil switched, then switches back. Clicking the running pulse again ends it early.
+
+### Frontend
+
+- Svelte 5 runes. State lives in `live.svelte.ts`, which loads a snapshot and then follows backend events.
+- Charts use uPlot through `TimeChart.svelte`. All charts on a page share a `ChartGroup`:
+  - a plain drag pans and Shift+drag selects a range;
+  - zoom needs Ctrl/⌘ with the scroll wheel, or a pinch, so plain scrolling still scrolls the page;
+  - panning stays within the stored data.
+- Chart line colours come from the 8-colour palette in `src/lib/palette.ts`, with separate light and dark values. These values passed the dataviz validator, so re-validate any change. The status colours (good, warning, critical) are reserved for status and are never used as series colours.
+- The Dashboard layout (panel order) is kept in localStorage.
+- **The drag handle is the rightmost tool** in every card header (the user, 2026-10-17).
+- **State never changes the font weight.** Active, current, selected or pressed items show it with colour, background, a border or an indicator. Bolder text is wider, so buttons grow and menus reflow (the user noticed it in the relay card and the manual's contents).
+
+## Conventions
+
+- **MQTT:** the app is only a client (rumqttc) of the user's broker; there is no built-in broker (rumqttd was removed on 2026-10-17: barely maintained, 157 crates, and it could not be stopped without an app restart). The client is replaced whenever its settings change. Publishing goes through `mqtt::Publisher`, which tracks its retained topics so it can clear them. The tests use a tiny broker in `mqtt.rs` (`TestBroker`), not a real one.
+- **MQTT topics:** `{prefix}/{metric}/{channel}`, e.g. `tower/temperature/0`; the relay is `{prefix}/relay/{channel}` with `/set` and `/pulse` below it. The channel is always present (topics must not change when a second sensor appears), and topics never name hardware. Agreed with the user on 2026-10-17.
+- **JSON:** keys are lowercase snake_case everywhere: REST, MQTT payloads, MCP, `settings.json`, Tauri IPC. Durations are integer milliseconds with an `_ms` suffix (`duration_ms`, `pulse_duration_ms`). Enum values are snake_case too. Names defined by a protocol keep their spelling (MCP `structuredContent`).
+- **No em or en dashes.** This applies everywhere: code, comments, docs, UI texts and commit messages. Use a comma, a semicolon, a colon or parentheses, or split the sentence. A plain hyphen is fine. `src/repo.test.ts` fails on any long dash.
+- **I²C:** write "I²C" in UI texts and docs, and `i2c` in identifiers.
+- **Product names** keep their capitals: TOWER Bridge Module, TOWER Climate Module, TOWER Relay Module. The tags' full names are HARDWARIO Humidity Tag, HARDWARIO Temperature Tag, HARDWARIO Lux Meter Tag and HARDWARIO Barometer Tag (the user, 2026-10-17). The Bridge Module card lists the full names with the revision set small; tight places (legends, tray, status) use the short ones.
+- **Five languages:** English, Czech, Slovak, German, Polish. Every UI text goes into all five files in `src/lib/i18n/`; a test checks that the keys match. Tray and notification texts are in `src-tauri/src/i18n.rs`.
+- **Rust:** edition 2024; `unwrap` and `expect` are denied by clippy outside tests. The core crate must not depend on Tauri.
+- **Comments** explain why, not what, at the density of the surrounding code.
+- **Settings migrations:** when a default or a format changes for existing users, bump `SETTINGS_VERSION`, add an upgrade step and test it with a file from the previous version.
+
+## The user manual
+
+The manual is part of the product. It ships inside the app (the Manual tab) and is written in `docs/manual/<lang>.md` for all five languages.
+
+- **Update it with every user-visible change, in all five languages, in the same change.** Use the exact UI labels from `src/lib/i18n/`.
+- **Headings** are `## Title {#id}`. The ids are English, stable and the same in every language, because links and the table of contents use them.
+- **Diagrams** are SVG files in `docs/manual/diagrams/`. They are inlined in the app, so they follow the theme.
+  - Style them with the `mg-` classes and CSS variables with fallbacks. Presentation attributes cannot use `var()`; use `style`.
+  - A `<text data-i18n="relay.pulseTrue">` element shows that UI label in the reader's language.
+  - Keep other text language neutral, or number the callouts and explain them in the Markdown.
+- **Screenshots** are `docs/manual/images/<lang>/<name>.webp`, each with a `.dark.webp` twin. Regenerate them with `npm run manual:screenshots`, never by hand.
+- **Tests** in `src/lib/manual.test.ts` check that:
+  - all manuals have the same sections and images;
+  - the UI labels in `LABELS` appear verbatim in each manual;
+  - every diagram label has a translation.
+
+  When a label is renamed in the app, the test points at every manual to update.
+
+## Rules for agents
+
+- **Commit only when the user asks.** End commit messages with the attribution line requested in the session.
+- **Respect the user's running copy.** The user runs TOWER Bridge from `/Applications` or from `./target/debug/tower-bridge` with their real data, and it holds the bridge.
+  - Never kill or restart it unless the user asks.
+  - Test with `--simulate` or `TOWER_BRIDGE_DATA_DIR=<temp dir>`, and stop test instances by PID.
+- **Only one program can open the FT260 at a time.** The CLI fails while the app holds the device. Ask before freeing it.
+- **Keep TODO.md current.** List what is in progress, what comes next and what waits on hardware or a decision, so the next person can continue without a handover.
+- **Record key learnings.** When you find a hardware quirk, a library pitfall, or a decision whose reason is not obvious from the code, add a dated bullet below in the same change.
+- **Update the docs with the code:** README, `docs/*.md`, CHANGELOG and the manual.
+- **Ask before deciding user-facing names and protocols:** MQTT topics, JSON fields, UI wording. The user has firm preferences: see the conventions above.
+
+## Key learnings
+
+Newest at the end. One bullet per learning, with the date and the reason.
+
+- 2026-10-17. FT260 output and feature reports are padded to 64 bytes; macOS accepts this, as Windows requires. hidapi opens the device exclusively, so enmon, HARDWARIO Playground and this app exclude each other.
+- 2026-10-17. Climate Module R1 is SHT20 (0x40) + TMP112 (0x48) + OPT3001 (0x44) + MPL3115A2 (0x60). R2 replaces SHT20 and TMP112 with SHT30 (0x45). Revision detection uses command writes (soft reset), not read probes.
+- 2026-10-17. The Relay Module uses a TCA9534A at 0x38 to 0x3F (0x3B, 0x3F on the module) or a TCA9534 at 0x20 to 0x27 (0x23, 0x27). Probe both.
+- 2026-10-17. The relay's left and right markings are swapped in hardware, so the states are named `true` and `false`, never left and right.
+- 2026-10-17. Relay commands sent during a measurement used to wait up to a second. Serving them from the idle hook in `measure_with` fixed apparent "lost" MQTT commands.
+- 2026-10-17. A pulse must be timed from the moment the coil switched, after the 300 ms recharge, not from when the command arrived; otherwise short pulses end early. There is a regression test.
+- 2026-10-17. The sensor tags on channel 1 use the same chips as Climate Module R1, minus the TMP112: Humidity Tag SHT20 0x40, Lux Meter Tag OPT3001 0x44, Barometer Tag MPL3115A2 0x60. Use `tower-bridge-cli i2c-identify --channel 1` to check.
+- 2026-10-17. axum 0.8 writes path parameters as `/{param}`; the old `/:param` panics at startup.
+- 2026-10-17. rust_xlsxwriter 0.100 returns a `Result` from `add_worksheet_with_constant_memory()`.
+- 2026-10-17. TypeScript 7 lacks the compiler API that svelte-check uses; stay on TypeScript 6.0.x until svelte-check supports it.
+- 2026-10-17. WebKit squeezes an empty flex item to zero width when its neighbour's text overflows. Status dots need `flex-shrink: 0`, or they turn into a thin bar.
+- 2026-10-17. Cards must not use `overflow: hidden`, because it clips popovers such as the ⓘ source info. The red alert edge is an inset `box-shadow`.
+- 2026-10-17. Simulated mode keeps its data and settings in `<data dir>/simulated/`, apart from real data.
+- 2026-10-17. In SVG, `marker-end` marks only the last vertex of a path; draw every arrow as its own path.
+- 2026-10-17. Chrome's DevTools `Page.captureScreenshot` encodes WebP, and `clip.scale: 2` renders sharp 2x images; no image tools are needed. Headless Chrome `--screenshot` with virtual time does not run smooth scrolling; use Playwright for anything interactive.
+- 2026-10-17. Shell heredocs and some editing tools turn a backslash-u escape (such as the one for U+2013) into the character itself, which then trips the dash test. Write such escapes from Python, doubling the backslash.
+- 2026-10-17. Climate Module R1 and the Humidity Tag share the SHT20 at 0x40; only the TMP112 tells them apart. A channel is named a Climate Module from its set of parts, and the SHT20 is the thermometer only when there is no TMP112 (or SHT30).
+- 2026-10-17. Probing absent parts is harmless between measurements (soft reset writes and ID reads), so the periodic probe can run next to a working Climate Module and find a tag plugged in later.
+- 2026-10-17. SQLite cannot change a primary key in place: adding the channel to `readings` meant copying into a new table (schema migration 2); the alert log only needed `ADD COLUMN`.
+- 2026-10-17. A broker replays retained messages to a client whenever it subscribes (also after a prefix change), with `retain` set. Retained commands are therefore ignored; act only on live ones.
+- 2026-10-17. The API server runs a current-thread tokio runtime: any backend call that waits for the bridge must go through `blocking()`, or every other request stalls.
+- 2026-10-17. With `#[serde(default)]` on a struct, a missing `version` field reads as the current version and silently skips migrations. The loader inserts version 1 when the key is missing.
+- 2026-10-17. Svelte 5 `$state` deep-proxies large objects such as a whole History. Use `$state.raw` for data that is replaced whole, and depend on a derived key rather than an array prop that is rebuilt on every render (uPlot otherwise redraws on every reading).
+- 2026-10-17. macOS and Linux render the app with WebKit, Windows with Chromium. WebKit-only layout bugs (like the flex squeeze above) show up only in `npm run test:ui:webkit` (Playwright's WebKit) or on a Mac.
+- 2026-10-17. uPlot leaves series with `show: false` out of drawing, bands, cursor points and the y auto-range, so hiding a chart line needs no data changes (`TimeChart` `lines[].hidden`).
+- 2026-10-17. There is no prettier config or dependency: the TypeScript, CSS and Markdown style is prettier with `--print-width 120`, and Svelte files are not run through prettier. A plain `npx prettier --write` rewraps everything at 80 columns, and objects it splits stay split even after a later run at 120 (prettier keeps an object expanded when a newline follows its `{`).
+- 2026-10-17. The FT260 reports no USB serial number (hidapi gives none; `tower-bridge-cli scan` shows `serial=-`), so the app names every bridge "ft260" and cannot tell two apart. Discovery opens the first usable one in enumeration order.
+- 2026-10-17. Charts live on the Dashboard only; the History page duplicated them and became the Data page (table, custom range, export) at the user's request.
+- 2026-10-17. Manual screenshots have no reserved size, so a lazily loaded one grows while the page scrolls to a chapter and pushes the chapter away. They load eagerly, and a jump waits for them. During a jump the contents keep the clicked chapter; letting the scroll spy run would sweep the highlight through every chapter passed. Never change the font weight of the active entry: wider text reflows the menu.

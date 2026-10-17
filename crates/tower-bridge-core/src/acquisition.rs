@@ -13,8 +13,8 @@ use tracing::{error, info, warn};
 
 use crate::bus::discovery::{BackendPref, Discovery, OpenError};
 use crate::bus::{BusError, Clock, I2cBus, SystemClock};
-use crate::climate::{ChannelMode, ClimateModule};
-use crate::model::{ClimateRevision, DeviceState, Reading};
+use crate::climate::{ChannelMode, Sensors};
+use crate::model::{DeviceInfo, DeviceState, Reading, SensorSource};
 use crate::relay::{MAX_PULSE, MIN_PULSE, RelayInfo, RelayModule};
 
 pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(2);
@@ -22,8 +22,9 @@ pub const NO_MODULE_RETRY: Duration = Duration::from_secs(2);
 pub const MIN_INTERVAL: Duration = Duration::from_secs(2);
 const FAILED_CYCLES_REDETECT: u32 = 3;
 const FAILED_CYCLES_REOPEN: u32 = 5;
-/// How often to look for a Relay Module that was not found.
-const RELAY_PROBE_INTERVAL: Duration = Duration::from_secs(60);
+/// How often to look for sensors and a Relay Module that were not found
+/// (a tag may be plugged in while the app runs).
+const PROBE_INTERVAL: Duration = Duration::from_secs(60);
 /// Switch channels searched for a Relay Module.
 const RELAY_CHANNELS: [u8; 2] = [0, 1];
 /// A measurement cycle takes about a second; one is not started when a relay
@@ -45,14 +46,11 @@ pub enum AcqError {
     Bus(String),
 }
 
-/// Result of re-detecting the Climate Module.
+/// Result of looking for the sensors again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RescanOutcome {
-    Found {
-        revision: ClimateRevision,
-        channel: u8,
-    },
+    Found { sources: Vec<SensorSource> },
     NoModule,
 }
 
@@ -65,8 +63,8 @@ pub enum AcqCommand {
     SetChannel(ChannelMode),
     /// Blink the bridge LED; replies when the blinking has finished.
     Identify(Option<Reply<()>>),
-    /// Forget the detected module and detect again right away; replies with
-    /// the detection result.
+    /// Forget the detected sensors and look again right away; replies with
+    /// the result.
     Rescan(Option<Reply<RescanOutcome>>),
     /// Switch the Relay Module to `true` or `false`; ends a
     /// running pulse. Replies with its new state.
@@ -85,7 +83,8 @@ pub enum AcqCommand {
 #[derive(Clone, Debug)]
 pub enum AcqEvent {
     Device(DeviceState),
-    /// A completed measurement (`altitude` is not filled in here).
+    /// A completed measurement of one channel (`altitude` is not filled in
+    /// here). Channels measured in the same cycle share the timestamp.
     Reading(Reading),
     /// Relay Module found, switched or gone (`None`).
     Relay(Option<RelayInfo>),
@@ -106,13 +105,43 @@ impl Default for AcqConfig {
     }
 }
 
-/// Opens a bridge. Called again after every disconnect.
-pub type Opener = Box<dyn FnMut() -> Result<Box<dyn I2cBus>, OpenError> + Send>;
+/// Opens a bridge (again after every disconnect) and counts the bridges.
+pub trait Bridges: Send {
+    fn open(&mut self) -> Result<Box<dyn I2cBus>, OpenError>;
+
+    /// TOWER Bridge Modules plugged in, the open one included.
+    fn count(&mut self) -> usize {
+        1
+    }
+}
+
+/// A closure that opens a bridge, with one bridge plugged in.
+impl<F> Bridges for F
+where
+    F: FnMut() -> Result<Box<dyn I2cBus>, OpenError> + Send,
+{
+    fn open(&mut self) -> Result<Box<dyn I2cBus>, OpenError> {
+        self()
+    }
+}
+
+pub type Opener = Box<dyn Bridges>;
+
+struct Hardware(Discovery);
+
+impl Bridges for Hardware {
+    fn open(&mut self) -> Result<Box<dyn I2cBus>, OpenError> {
+        self.0.open_first()
+    }
+
+    fn count(&mut self) -> usize {
+        self.0.count()
+    }
+}
 
 /// Opener for real hardware.
 pub fn hardware_opener(pref: BackendPref) -> Opener {
-    let mut discovery = Discovery::new(pref);
-    Box::new(move || discovery.open_first())
+    Box::new(Hardware(Discovery::new(pref)))
 }
 
 /// Opener that yields a simulated bridge (development without hardware).
@@ -235,8 +264,10 @@ struct PendingPulse {
 /// What a wait on a connected bridge can act on.
 struct Session<'a> {
     bus: &'a mut dyn I2cBus,
-    module: &'a mut ClimateModule,
+    sensors: &'a mut Sensors,
     relay: &'a mut Option<RelayModule>,
+    /// Waiting for the next measurement tick (a new interval re-aligns it).
+    ticking: bool,
 }
 
 struct Worker {
@@ -263,6 +294,40 @@ impl Worker {
         if self.last_state.as_ref() != Some(&state) {
             self.last_state = Some(state.clone());
             let _ = self.events.send(AcqEvent::Device(state));
+        }
+    }
+
+    /// Report the sensors found (they changed, or someone asked).
+    fn report_sensors(&mut self, device: &DeviceInfo, sensors: &Sensors) {
+        let sources = sensors.sources();
+        self.resolve_rescan(Ok(RescanOutcome::Found {
+            sources: sources.clone(),
+        }));
+        self.emit_state(DeviceState::Ready {
+            device: device.clone(),
+            sources,
+        });
+    }
+
+    /// Count the bridges plugged in; a change is reported with the device.
+    fn recount(&mut self, opener: &mut Opener, device: &mut DeviceInfo) {
+        let n = u32::try_from(opener.count().max(1)).unwrap_or(u32::MAX);
+        if n == device.bridges_connected {
+            return;
+        }
+        if n > 1 {
+            warn!(
+                "{n} TOWER Bridge Modules are connected; only {} is read",
+                device.path
+            );
+        }
+        device.bridges_connected = n;
+        if let Some(mut state) = self.last_state.clone()
+            && let DeviceState::Ready { device: d, .. } | DeviceState::NoModule { device: d } =
+                &mut state
+        {
+            d.clone_from(device);
+            self.emit_state(state);
         }
     }
 
@@ -443,8 +508,8 @@ impl Worker {
             if self.last_state.is_none() {
                 self.emit_state(DeviceState::Searching);
             }
-            match opener() {
-                Ok(bus) => match self.run_connected(bus) {
+            match opener.open() {
+                Ok(bus) => match self.run_connected(bus, opener) {
                     Exit::Shutdown => {
                         self.pulse = None;
                         self.emit_relay(None);
@@ -459,6 +524,11 @@ impl Worker {
                         self.emit_relay(None);
                         warn!("bridge lost: {e}");
                         self.emit_state(DeviceState::Searching);
+                        // A bridge that opens but fails right away must not
+                        // be reopened in a tight loop; commands are served.
+                        if self.wait(RECONNECT_INTERVAL, None) == Flow::Shutdown {
+                            return;
+                        }
                     }
                 },
                 Err(e) => {
@@ -475,48 +545,43 @@ impl Worker {
         }
     }
 
-    fn run_connected(&mut self, mut bus: Box<dyn I2cBus>) -> Exit {
+    fn run_connected(&mut self, mut bus: Box<dyn I2cBus>, opener: &mut Opener) -> Exit {
         let bus = bus.as_mut();
-        let device = bus.info().clone();
+        let mut device = bus.info().clone();
+        self.recount(opener, &mut device);
         let _ = self.blink(bus, 1);
-        let mut module = ClimateModule::new(self.config.channel);
+        let mut sensors = Sensors::new(self.config.channel);
         let mut relay: Option<RelayModule> = None;
-        let mut relay_probed = self.clock.now();
+        let mut probed = self.clock.now();
         let mut failed_cycles = 0u32;
         let mut deadline: Option<Duration> = None;
 
         loop {
-            if module.detection().is_none() {
-                if relay.is_none() {
-                    if let Err(e) = self.probe_relay(bus, &mut relay) {
-                        return Exit::Lost(e);
-                    }
-                    relay_probed = self.clock.now();
+            if sensors.is_empty() {
+                if relay.is_none()
+                    && let Err(e) = self.probe_relay(bus, &mut relay)
+                {
+                    return Exit::Lost(e);
                 }
-                match module.detect(bus, self.clock.as_ref()) {
-                    Ok(Some(d)) => {
-                        failed_cycles = 0;
+                probed = self.clock.now();
+                self.recount(opener, &mut device);
+                match sensors.detect(bus, self.clock.as_ref()) {
+                    // Failed cycles keep counting: sensors that are found
+                    // again but still fail end in a reopen.
+                    Ok(_) if !sensors.is_empty() => {
                         deadline = None;
-                        self.resolve_rescan(Ok(RescanOutcome::Found {
-                            revision: d.revision,
-                            channel: d.channel,
-                        }));
-                        self.emit_state(DeviceState::Ready {
-                            device: device.clone(),
-                            revision: d.revision,
-                            channel: d.channel,
-                            sources: crate::climate::sources(d.revision),
-                        });
+                        self.report_sensors(&device, &sensors);
                     }
-                    Ok(None) => {
+                    Ok(_) => {
                         self.resolve_rescan(Ok(RescanOutcome::NoModule));
                         self.emit_state(DeviceState::NoModule {
                             device: device.clone(),
                         });
                         let session = Session {
                             bus: &mut *bus,
-                            module: &mut module,
+                            sensors: &mut sensors,
                             relay: &mut relay,
+                            ticking: false,
                         };
                         match self.wait(NO_MODULE_RETRY, Some(session)) {
                             Flow::Shutdown => return self.close(bus),
@@ -530,23 +595,32 @@ impl Worker {
             if let Some(d) = deadline {
                 let session = Session {
                     bus: &mut *bus,
-                    module: &mut module,
+                    sensors: &mut sensors,
                     relay: &mut relay,
+                    ticking: true,
                 };
                 match self.wait(d, Some(session)) {
                     Flow::Shutdown => return self.close(bus),
                     Flow::Elapsed | Flow::Now => {}
                 }
-                if module.detection().is_none() {
+                if sensors.is_empty() {
                     continue;
                 }
             }
 
-            if relay.is_none() && self.clock.now() - relay_probed >= RELAY_PROBE_INTERVAL {
-                if let Err(e) = self.probe_relay(bus, &mut relay) {
+            if self.clock.now() - probed >= PROBE_INTERVAL {
+                self.recount(opener, &mut device);
+                if relay.is_none()
+                    && let Err(e) = self.probe_relay(bus, &mut relay)
+                {
                     return Exit::Lost(e);
                 }
-                relay_probed = self.clock.now();
+                match sensors.detect(bus, self.clock.as_ref()) {
+                    Ok(true) => self.report_sensors(&device, &sensors),
+                    Ok(false) => {}
+                    Err(e) => return Exit::Lost(e),
+                }
+                probed = self.clock.now();
             }
 
             // Let a relay pulse that ends during the cycle end first.
@@ -555,13 +629,14 @@ impl Worker {
                 if left < PULSE_GUARD {
                     let session = Session {
                         bus: &mut *bus,
-                        module: &mut module,
+                        sensors: &mut sensors,
                         relay: &mut relay,
+                        ticking: false,
                     };
                     if self.wait(left, Some(session)) == Flow::Shutdown {
                         return self.close(bus);
                     }
-                    if module.detection().is_none() {
+                    if sensors.is_empty() {
                         continue;
                     }
                 }
@@ -569,34 +644,46 @@ impl Worker {
 
             let ts = unix_ms();
             let clock = Arc::clone(&self.clock);
-            let measured = module.measure_with(bus, clock.as_ref(), &mut |bus, until| {
+            let before = sensors.sources();
+            let measured = sensors.measure_with(bus, clock.as_ref(), &mut |bus, until| {
                 self.measure_idle(bus, &mut relay, until)
             });
             match measured {
-                Ok(report) => {
-                    for (sensor, err) in &report.errors {
-                        warn!("{}: {err}", sensor.name());
+                Ok(reports) => {
+                    let mut measured_any = false;
+                    for (channel, report) in reports {
+                        for (sensor, err) in &report.errors {
+                            warn!("{} on channel {channel}: {err}", sensor.name());
+                        }
+                        if !report.values.is_empty() {
+                            measured_any = true;
+                            let _ = self.events.send(AcqEvent::Reading(Reading {
+                                ts,
+                                device: device.serial.clone(),
+                                channel,
+                                values: report.values,
+                                altitude: None,
+                            }));
+                        }
                     }
-                    if report.values.is_empty() {
-                        failed_cycles += 1;
-                    } else {
+                    if measured_any {
                         failed_cycles = 0;
-                        let _ = self.events.send(AcqEvent::Reading(Reading {
-                            ts,
-                            device: device.serial.clone(),
-                            values: report.values,
-                            altitude: None,
-                        }));
+                    } else {
+                        failed_cycles += 1;
                     }
                 }
                 Err(e) => return Exit::Lost(e),
+            }
+            // Parts that stopped answering were dropped.
+            if !sensors.is_empty() && sensors.sources() != before {
+                self.report_sensors(&device, &sensors);
             }
             if failed_cycles >= FAILED_CYCLES_REOPEN {
                 return Exit::Lost(BusError::Protocol("no sensor responds".into()));
             }
             if failed_cycles == FAILED_CYCLES_REDETECT {
                 let _ = bus.recover();
-                module.forget();
+                sensors.forget();
             }
             deadline = Some(until_next_tick(self.config.interval));
         }
@@ -647,7 +734,7 @@ impl Worker {
                 AcqCommand::Shutdown => return Flow::Shutdown,
                 AcqCommand::SetInterval(i) => {
                     self.config.interval = i.max(MIN_INTERVAL);
-                    if target.is_some() {
+                    if target.as_ref().is_some_and(|t| t.ticking) {
                         // Re-align to the new interval.
                         return self.wait(until_next_tick(self.config.interval), target);
                     }
@@ -655,7 +742,7 @@ impl Worker {
                 AcqCommand::SetChannel(mode) => {
                     self.config.channel = mode;
                     if let Some(s) = target.as_mut() {
-                        s.module.set_mode(mode);
+                        s.sensors.set_mode(mode);
                         return Flow::Now;
                     }
                 }
@@ -663,8 +750,8 @@ impl Worker {
                     // Answered after the next detection (or failed open).
                     self.pending_rescan.extend(reply);
                     if let Some(s) = target.as_mut() {
-                        s.module.forget();
-                        // Looked for again together with the Climate Module
+                        s.sensors.forget();
+                        // Looked for again together with the sensors
                         // (unless a pulse still has to switch it back).
                         if self.pulse.is_none() {
                             *s.relay = None;
@@ -734,7 +821,7 @@ mod tests {
 
     use super::*;
     use crate::bus::mock::{MockBus, MockClock};
-    use crate::model::{ClimateRevision, DeviceErrorKind, Values};
+    use crate::model::{ClimateRevision, DeviceErrorKind, ModuleKind, Values};
 
     fn recv_until<F: Fn(&AcqEvent) -> bool>(rx: &Receiver<AcqEvent>, f: F) -> Option<AcqEvent> {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -785,6 +872,97 @@ mod tests {
             other => panic!("unexpected {other:?}"),
         }
         acq.shutdown(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn both_channels_are_measured_in_one_cycle() {
+        let indoor = Arc::new(Mutex::new(Values {
+            temperature: Some(22.0),
+            ..Values::default()
+        }));
+        let outdoor = Arc::new(Mutex::new(Values {
+            temperature: Some(4.0),
+            humidity: Some(85.0),
+            ..Values::default()
+        }));
+        let opener: Opener = Box::new(move || {
+            let mut bus = MockBus::with_climate(ClimateRevision::R1, 0, indoor.clone());
+            bus.attach(
+                1,
+                0x40,
+                Box::new(crate::bus::mock::SimSht20::new(outdoor.clone())),
+            );
+            Ok(Box::new(bus) as Box<dyn I2cBus>)
+        });
+        let (tx, rx) = unbounded();
+        let acq = match Acquisition::spawn(
+            AcqConfig::default(),
+            opener,
+            Box::new(MockClock::new()),
+            tx,
+        ) {
+            Ok(a) => a,
+            Err(e) => panic!("spawn failed: {e}"),
+        };
+        let ready = recv_until(&rx, |e| {
+            matches!(e, AcqEvent::Device(DeviceState::Ready { .. }))
+        });
+        let Some(AcqEvent::Device(DeviceState::Ready { sources, .. })) = ready else {
+            panic!("not ready: {ready:?}");
+        };
+        assert_eq!(
+            crate::model::modules(&sources),
+            vec![
+                (0, ModuleKind::ClimateModuleR1),
+                (1, ModuleKind::HumidityTag)
+            ]
+        );
+        let mut readings = Vec::new();
+        while readings.len() < 2 {
+            match recv_until(&rx, |e| matches!(e, AcqEvent::Reading(_))) {
+                Some(AcqEvent::Reading(r)) => readings.push(r),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(
+            readings.iter().map(|r| r.channel).collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        assert_eq!(readings[0].ts, readings[1].ts, "one cycle, one timestamp");
+        let t1 = readings[1].values.temperature.unwrap_or_default();
+        assert!((t1 - 4.0).abs() < 0.1, "the tag's thermometer: {t1}");
+        acq.shutdown(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_bridge_that_fails_at_once_is_retried_slowly_and_still_shuts_down() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let opened = Arc::new(AtomicUsize::new(0));
+        let count = opened.clone();
+        let opener: Opener = Box::new(move || {
+            count.fetch_add(1, Ordering::Relaxed);
+            let mut bus = MockBus::new();
+            bus.inject = vec![BusError::Hid("gone".into()); 1000];
+            Ok(Box::new(bus) as Box<dyn I2cBus>)
+        });
+        let (tx, _rx) = unbounded();
+        let acq = match Acquisition::spawn(
+            AcqConfig::default(),
+            opener,
+            Box::new(MockClock::new()),
+            tx,
+        ) {
+            Ok(a) => a,
+            Err(e) => panic!("spawn failed: {e}"),
+        };
+        std::thread::sleep(Duration::from_millis(1000));
+        assert_eq!(opened.load(Ordering::Relaxed), 1, "no tight reopen loop");
+        let started = Instant::now();
+        acq.shutdown(Duration::from_secs(3));
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "shutdown served"
+        );
     }
 
     #[test]
@@ -845,13 +1023,48 @@ mod tests {
 
         let (reply, done) = crossbeam_channel::bounded(1);
         let _ = acq.sender().send(AcqCommand::Rescan(Some(reply)));
-        assert_eq!(
-            done.recv_timeout(Duration::from_secs(5)),
-            Ok(Ok(RescanOutcome::Found {
-                revision: ClimateRevision::R1,
-                channel: 1
-            }))
-        );
+        match done.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(RescanOutcome::Found { sources })) => assert_eq!(
+                crate::model::modules(&sources),
+                vec![(1, ModuleKind::ClimateModuleR1)]
+            ),
+            other => panic!("unexpected {other:?}"),
+        }
+        acq.shutdown(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn says_when_more_bridges_are_plugged_in() {
+        struct Two;
+        impl Bridges for Two {
+            fn open(&mut self) -> Result<Box<dyn I2cBus>, OpenError> {
+                let env = Arc::new(Mutex::new(Values {
+                    temperature: Some(21.0),
+                    ..Values::default()
+                }));
+                Ok(Box::new(MockBus::with_climate(ClimateRevision::R2, 0, env)) as Box<dyn I2cBus>)
+            }
+            fn count(&mut self) -> usize {
+                2
+            }
+        }
+        let (tx, rx) = unbounded();
+        let acq = match Acquisition::spawn(
+            AcqConfig::default(),
+            Box::new(Two),
+            Box::new(MockClock::new()),
+            tx,
+        ) {
+            Ok(a) => a,
+            Err(e) => panic!("spawn failed: {e}"),
+        };
+        let ready = recv_until(&rx, |e| {
+            matches!(e, AcqEvent::Device(DeviceState::Ready { .. }))
+        });
+        let Some(AcqEvent::Device(DeviceState::Ready { device, .. })) = ready else {
+            panic!("no ready state");
+        };
+        assert_eq!(device.bridges_connected, 2);
         acq.shutdown(Duration::from_secs(2));
     }
 

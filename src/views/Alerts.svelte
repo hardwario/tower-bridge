@@ -9,6 +9,7 @@
   import { fmtDateTime, fmtWithUnit } from "../lib/format";
   import { fill, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
+  import { channelLabel, metricChannels } from "../lib/source";
   import { METRICS, type AlertLogEntry } from "../lib/types";
 
   let log = $state<AlertLogEntry[]>([]);
@@ -75,7 +76,7 @@
       {#if log.length === 0}
         <div class="empty muted">{t().alerts.none}</div>
       {:else}
-        {#each log as e (`${e.ts}-${e.metric}-${e.bound}-${e.kind}`)}
+        {#each log as e (`${e.ts}-${e.metric}-${e.channel}-${e.bound}-${e.kind}`)}
           <div class="entry">
             <span class="kind" class:recovered={e.kind === "recovered"}>
               <Icon name={e.kind === "recovered" ? "check" : "warning"} size={14} />
@@ -85,7 +86,13 @@
                   ? t().common.aboveLimit
                   : t().common.belowLimit}
             </span>
-            <span class="what">{t().metrics[e.metric]} {fmtWithUnit(e.metric, e.value, unit)}</span>
+            <span class="what"
+              >{t().metrics[e.metric]}
+              {#if e.channel !== 0 || metricChannels(live.device, e.metric, null, live.latest).length > 1}
+                <span class="muted">({channelLabel(live.device, e.metric, e.channel)})</span>
+              {/if}
+              {fmtWithUnit(e.metric, e.value, unit)}</span
+            >
             <span class="muted">{fill(t().alerts.limit, { value: fmtWithUnit(e.metric, e.threshold, unit) })}</span>
             <span class="muted when tabular">{fmtDateTime(e.ts)}</span>
           </div>

@@ -487,6 +487,7 @@ mod tests {
             serial: "TEST".into(),
             path: "fake".into(),
             chip: None,
+            bridges_connected: 1,
         }
     }
 

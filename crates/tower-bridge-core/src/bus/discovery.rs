@@ -149,6 +149,21 @@ impl Discovery {
         Ok(out)
     }
 
+    /// How many bridges are plugged in. On Linux the HID devices and the
+    /// kernel I2C adapters are two views of the same chips: the larger count.
+    pub fn count(&mut self) -> usize {
+        let Ok(candidates) = self.scan() else {
+            return 0;
+        };
+        let usable = |b: Backend| {
+            candidates
+                .iter()
+                .filter(|c| c.backend == b && c.usable)
+                .count()
+        };
+        usable(Backend::Hid).max(usable(Backend::I2cDev))
+    }
+
     /// Open and initialise the first usable bridge.
     pub fn open_first(&mut self) -> Result<Box<dyn I2cBus>, OpenError> {
         let candidates = self.scan()?;
@@ -219,6 +234,7 @@ impl Discovery {
             serial: c.serial.clone().unwrap_or_else(|| "ft260".into()),
             path: c.path.clone(),
             chip: None,
+            bridges_connected: 1,
         };
         let mut bus = Ft260::new(dev, info).with_timing(timing);
         bus.initialize().map_err(|e| {

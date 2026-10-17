@@ -8,9 +8,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 pub fn init(logs_dir: &Path) -> Option<WorkerGuard> {
-    let filter = EnvFilter::try_from_env("TOWER_BRIDGE_LOG").unwrap_or_else(|_| {
-        EnvFilter::new("info,rumqttd=warn,rumqttd::router::routing=off,tao=warn,wry=warn")
-    });
+    let filter = EnvFilter::try_from_env("TOWER_BRIDGE_LOG")
+        .unwrap_or_else(|_| EnvFilter::new("info,rumqttc=warn,tao=warn,wry=warn"));
     let _ = std::fs::create_dir_all(logs_dir);
     let file = tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::DAILY)

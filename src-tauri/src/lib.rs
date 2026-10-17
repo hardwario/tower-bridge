@@ -81,7 +81,6 @@ pub fn run() {
             commands::get_data_range,
             commands::pulse_relay,
             commands::rescan_device,
-            commands::restart_app,
             commands::open_data_folder,
             commands::reveal_file,
             commands::open_link,
@@ -169,7 +168,8 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
 
     app.manage(AppState {
         settings: RwLock::new(settings.clone()),
-        latest: RwLock::new(None),
+        settings_lock: parking_lot::Mutex::new(()),
+        latest: RwLock::new(Vec::new()),
         device: RwLock::new(DeviceState::Searching),
         relay: RwLock::new(None),
         alerts: RwLock::new(Vec::new()),
@@ -228,13 +228,28 @@ fn seed_simulated_history(store: &mut Store, interval_s: u64) {
     let mut batch = Vec::with_capacity(10_000);
     let mut ts = now - days * 86_400_000;
     while ts < now {
-        let n = [noise(), noise(), noise(), noise()];
-        batch.push(tower_bridge_core::model::Reading {
-            ts,
-            device: "SIMULATED".into(),
-            values: tower_bridge_core::bus::mock::simulated_values(ts as f64 / 1000.0, n),
-            altitude: None,
-        });
+        // The simulated Climate Module on channel 0 and tags on channel 1.
+        for channel in [0u8, 1] {
+            let n = [noise(), noise(), noise(), noise()];
+            let wall = ts as f64 / 1000.0;
+            let mut values = tower_bridge_core::bus::mock::simulated_values(
+                wall - 1800.0 * f64::from(channel),
+                n,
+            );
+            if channel == 1 {
+                values.temperature = values.temperature.map(|t| t - 3.5);
+                values.humidity = values.humidity.map(|h| (h + 9.0).min(100.0));
+                values.illuminance = values.illuminance.map(|l| l * 1.8);
+                values.pressure = values.pressure.map(|p| p + 12.0);
+            }
+            batch.push(tower_bridge_core::model::Reading {
+                ts,
+                device: "SIMULATED".into(),
+                channel,
+                values,
+                altitude: None,
+            });
+        }
         if batch.len() == 10_000 {
             let _ = store.insert_many(&batch);
             batch.clear();

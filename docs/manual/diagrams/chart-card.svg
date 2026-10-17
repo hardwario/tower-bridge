@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 330" width="680" height="330" role="img" aria-label="Parts of a chart panel, numbered 1 to 7">
+<style>
+.mg-card{fill:var(--surface,#fff);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-box{fill:var(--surface-2,#f8f8fa);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-dash{stroke-dasharray:5 4}
+.mg-line{fill:none;stroke:var(--text-muted,#85858e);stroke-width:1.5}
+.mg-guide{fill:none;stroke:var(--border-strong,#d6d6dc);stroke-width:1;stroke-dasharray:3 4}
+.mg-icon{fill:none;stroke:var(--text-muted,#85858e);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mg-t{font-family:var(--font,system-ui,-apple-system,"Segoe UI",sans-serif);font-size:13px;fill:var(--text,#252532)}
+.mg-s{font-size:11.5px;fill:var(--text-2,#55555f)}
+.mg-b{font-weight:600}
+.mg-accent{stroke:var(--accent,#e4002b)}
+.mg-good{fill:var(--good,#0ca30c)}
+.mg-bad{fill:var(--critical,#d03b3b)}
+.mg-crit{stroke:var(--critical,#d03b3b)}
+.mg-crit-weak{fill:var(--critical-weak,rgba(208,59,59,.1))}
+.mg-series{fill:none;stroke:var(--series,#2a78d6);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.mg-num circle{fill:var(--accent,#e4002b)}
+.mg-num text{font-family:var(--font,system-ui,sans-serif);font-size:11.5px;font-weight:700;fill:#fff}
+</style>
+<rect x="10" y="44" width="660" height="276" rx="12" class="mg-card"/>
+<g transform="translate(30 66) scale(.7)" class="mg-icon"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></g>
+<text x="52" y="80" class="mg-t mg-b" data-i18n="metrics.temperature">Temperature</text>
+<circle cx="470" cy="75" r="7" fill="#c25600"/>
+<g transform="translate(507 67) scale(.667)" class="mg-icon"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></g>
+<g transform="translate(637 67) scale(.667)" class="mg-icon"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></g>
+<g transform="translate(552 67) scale(.667)" class="mg-icon"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></g>
+<g transform="translate(597 67) scale(.667)" class="mg-icon"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></g>
+<text x="30" y="135" class="mg-t mg-b" style="font-size:40px">22.4</text><text x="122" y="135" class="mg-t mg-s" style="font-size:18px">°C</text>
+<path d="M130 160v95M250 160v95M370 160v95M490 160v95M610 160v95" class="mg-guide"/>
+<path d="M32 172H648M32 240H648" fill="none" stroke="#c25600" stroke-width="1.3" stroke-dasharray="6 5" opacity=".7"/>
+<path d="M32 205C80 190 110 196 150 210S230 238 280 226 360 196 420 190 520 178 560 186 620 180 648 176" fill="none" stroke="#c25600" stroke-width="2.2"/>
+<path d="M420 160v95" class="mg-line mg-dash"/>
+<circle cx="420" cy="190" r="4" fill="#c25600"/>
+<rect x="430" y="196" width="84" height="40" rx="6" class="mg-box"/>
+<text x="440" y="213" class="mg-t mg-b" style="font-size:12px">22.9 °C</text><text x="440" y="228" class="mg-t mg-s">14:20</text>
+<text x="30" y="282" class="mg-t mg-s mg-b" data-i18n="common.min">min</text><text x="30" y="300" class="mg-t">20.3 °C</text>
+<text x="110" y="282" class="mg-t mg-s mg-b" data-i18n="common.avg">avg</text><text x="110" y="300" class="mg-t">22.8 °C</text>
+<text x="190" y="282" class="mg-t mg-s mg-b" data-i18n="common.max">max</text><text x="190" y="300" class="mg-t">25.1 °C</text>
+<path d="M470 34v28M515 34v28M560 34v28M605 34v28M645 34v28" class="mg-line" style="stroke-width:1"/>
+<g class="mg-num">
+<circle cx="470" cy="22" r="11"/><text x="470" y="26" text-anchor="middle">1</text>
+<circle cx="515" cy="22" r="11"/><text x="515" y="26" text-anchor="middle">2</text>
+<circle cx="560" cy="22" r="11"/><text x="560" y="26" text-anchor="middle">3</text>
+<circle cx="605" cy="22" r="11"/><text x="605" y="26" text-anchor="middle">4</text>
+<circle cx="645" cy="22" r="11"/><text x="645" y="26" text-anchor="middle">5</text>
+<circle cx="350" cy="172" r="11"/><text x="350" y="176" text-anchor="middle">6</text>
+<circle cx="280" cy="291" r="11"/><text x="280" y="295" text-anchor="middle">7</text>
+</g>
+</svg>

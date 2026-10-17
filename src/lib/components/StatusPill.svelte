@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { fill, t } from "../i18n/index.svelte";
+  import { t } from "../i18n/index.svelte";
+  import { modulesByChannel } from "../source";
   import type { DeviceState } from "../types";
   let { device }: { device: DeviceState } = $props();
 
@@ -7,7 +8,8 @@
     const s = t().status;
     switch (device.status) {
       case "ready":
-        return { tone: "good", text: fill(s.module, { revision: device.revision }) };
+        // The modules on the first channel; the sidebar lists the others.
+        return { tone: "good", text: modulesByChannel(device.sources)[0]?.names.join(", ") ?? "" };
       case "no_module":
         return { tone: "warn", text: s.noModule };
       case "searching":

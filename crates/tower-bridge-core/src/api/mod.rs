@@ -72,7 +72,8 @@ pub trait ApiBackend: Send + Sync + 'static {
     fn info(&self) -> ApiInfo;
     fn policy(&self) -> Policy;
     fn device(&self) -> DeviceState;
-    fn latest(&self) -> Option<Reading>;
+    /// The latest reading of each I2C channel, in channel order.
+    fn latest(&self) -> Vec<Reading>;
     fn sample_interval_s(&self) -> u64;
     fn history(&self, from: i64, to: i64, max_points: usize) -> Result<History, ApiError>;
     /// CSV export of individual readings in `[from, to)`.
@@ -84,7 +85,7 @@ pub trait ApiBackend: Send + Sync + 'static {
     fn set_alert_rule(&self, metric: Metric, rule: AlertRule) -> Result<AlertRules, ApiError>;
     /// Blink the bridge LED.
     fn identify(&self) -> Result<(), ApiError>;
-    /// Re-detect the Climate Module.
+    /// Look for the sensors again.
     fn rescan(&self) -> Result<(), ApiError>;
     /// The Relay Module, when one is connected.
     fn relay(&self) -> Option<RelayInfo>;
@@ -130,7 +131,7 @@ pub(crate) mod testing {
 
     use super::*;
     use crate::alerts::Bound;
-    use crate::model::{Backend, ClimateRevision, DeviceInfo, Values};
+    use crate::model::{Backend, DeviceInfo, ModuleKind, SensorSource, Values};
     use crate::store::Series;
 
     /// Backend with fixed data for tests.
@@ -141,6 +142,8 @@ pub(crate) mod testing {
         pub relay: Mutex<Option<RelayInfo>>,
         /// Last pulse request.
         pub pulsed: Mutex<Option<(Option<bool>, Option<Duration>)>>,
+        /// How long a rescan takes.
+        pub rescan_time: Mutex<Duration>,
     }
 
     impl FakeBackend {
@@ -156,6 +159,7 @@ pub(crate) mod testing {
                     pulse_until: None,
                 })),
                 pulsed: Mutex::new(None),
+                rescan_time: Mutex::new(Duration::ZERO),
             }
         }
 
@@ -191,16 +195,30 @@ pub(crate) mod testing {
                     serial: "SN1".into(),
                     path: "fake".into(),
                     chip: None,
+                    bridges_connected: 1,
                 },
-                revision: ClimateRevision::R2,
-                channel: 0,
-                sources: crate::climate::sources(ClimateRevision::R2),
+                sources: [
+                    (Metric::Temperature, "SHT30", 0x45),
+                    (Metric::Humidity, "SHT30", 0x45),
+                    (Metric::Illuminance, "OPT3001", 0x44),
+                    (Metric::Pressure, "MPL3115A2", 0x60),
+                ]
+                .into_iter()
+                .map(|(metric, sensor, address)| SensorSource {
+                    metric,
+                    channel: 0,
+                    module: ModuleKind::ClimateModuleR2,
+                    sensor: sensor.into(),
+                    address,
+                })
+                .collect(),
             }
         }
-        fn latest(&self) -> Option<Reading> {
-            Some(Reading {
+        fn latest(&self) -> Vec<Reading> {
+            vec![Reading {
                 ts: NOW,
                 device: "SN1".into(),
+                channel: 0,
                 values: Values {
                     temperature: Some(23.456),
                     humidity: Some(41.25),
@@ -208,7 +226,7 @@ pub(crate) mod testing {
                     pressure: Some(100_322.0),
                 },
                 altitude: Some(83.2),
-            })
+            }]
         }
         fn sample_interval_s(&self) -> u64 {
             10
@@ -228,10 +246,11 @@ pub(crate) mod testing {
                     (from / 1000 + 60) as f64,
                     (from / 1000 + 120) as f64,
                 ],
-                temperature: series(22.0),
-                humidity: series(40.0),
-                illuminance: series(300.0),
-                pressure: series(100_000.0),
+                channels: vec![0],
+                temperature: vec![series(22.0)],
+                humidity: vec![series(40.0)],
+                illuminance: vec![series(300.0)],
+                pressure: vec![series(100_000.0)],
             })
         }
         fn csv(&self, _from: i64, _to: i64) -> Result<Vec<u8>, ApiError> {
@@ -243,6 +262,7 @@ pub(crate) mod testing {
         fn active_alerts(&self) -> Vec<ActiveAlert> {
             vec![ActiveAlert {
                 metric: Metric::Temperature,
+                channel: 0,
                 bound: Bound::High,
                 since: NOW - 60_000,
                 threshold: 23.0,
@@ -253,6 +273,7 @@ pub(crate) mod testing {
             Ok(vec![AlertLogEntry {
                 ts: NOW - 60_000,
                 metric: "temperature".into(),
+                channel: 0,
                 bound: "high".into(),
                 kind: "triggered".into(),
                 value: 23.4,
@@ -279,6 +300,8 @@ pub(crate) mod testing {
             Ok(())
         }
         fn rescan(&self) -> Result<(), ApiError> {
+            let wait = self.rescan_time.lock().map(|d| *d).unwrap_or_default();
+            std::thread::sleep(wait);
             Ok(())
         }
         fn relay(&self) -> Option<RelayInfo> {

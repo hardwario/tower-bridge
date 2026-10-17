@@ -12,10 +12,28 @@ use tracing::warn;
 
 use crate::hub::HubMsg;
 use crate::settings::Settings;
-use crate::state::{AppState, MqttState};
+use crate::state::AppState;
 
 /// Validate, persist and apply new settings.
 pub fn apply_settings(app: &AppHandle, new: Settings) -> std::io::Result<Arc<Settings>> {
+    let state = app.state::<AppState>();
+    let _guard = state.settings_lock.lock();
+    apply_locked(app, new)
+}
+
+/// Change part of the current settings and apply them.
+pub fn update_settings(
+    app: &AppHandle,
+    change: impl FnOnce(&mut Settings),
+) -> std::io::Result<Arc<Settings>> {
+    let state = app.state::<AppState>();
+    let _guard = state.settings_lock.lock();
+    let mut s = (*state.settings()).clone();
+    change(&mut s);
+    apply_locked(app, s)
+}
+
+fn apply_locked(app: &AppHandle, new: Settings) -> std::io::Result<Arc<Settings>> {
     let state = app.state::<AppState>();
     let new = Arc::new(new.validated());
     new.save(&state.paths.settings_file())?;
@@ -46,39 +64,11 @@ pub fn apply_settings(app: &AppHandle, new: Settings) -> std::io::Result<Arc<Set
 }
 
 pub fn toggle_mqtt(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    let mut s = (*state.settings()).clone();
-    s.mqtt.enabled = !s.mqtt.enabled;
-    let was_running = matches!(*state.mqtt.read(), MqttState::Running { .. });
-    let tr = crate::i18n::current(app).tr();
-    if let Err(e) = apply_settings(app, s.clone()) {
+    if let Err(e) = update_settings(app, |s| s.mqtt.enabled = !s.mqtt.enabled) {
+        let tr = crate::i18n::current(app).tr();
         let msg = crate::i18n::fill(tr.cannot_save_settings, &[("error", &e.to_string())]);
-        crate::notify::send(app, tr.mqtt_broker, &msg);
-        return;
+        crate::notify::send(app, "MQTT", &msg);
     }
-    if !s.mqtt.enabled && was_running {
-        ask_restart(app, tr.restart_to_stop_broker);
-    }
-}
-
-/// Offer to restart the app (needed to stop or re-bind the MQTT broker).
-pub fn ask_restart(app: &AppHandle, message: &str) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-    let handle = app.clone();
-    let tr = crate::i18n::current(app).tr();
-    app.dialog()
-        .message(message)
-        .title("TOWER Bridge")
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            tr.restart.into(),
-            tr.later.into(),
-        ))
-        .show(move |restart| {
-            if restart {
-                crate::shutdown(&handle, Duration::from_millis(500));
-                handle.restart();
-            }
-        });
 }
 
 /// Send a command to the acquisition thread and wait for its reply.
@@ -147,11 +137,19 @@ pub fn spawn_mqtt_commands(app: AppHandle, rx: Receiver<MqttCommand>) -> std::io
                     warn!("ignored MQTT relay command: relay control over MQTT is off");
                     continue;
                 }
+                let relay_channel = app.state::<AppState>().relay.read().map(|r| r.channel);
+                if relay_channel != Some(cmd.channel()) {
+                    warn!(
+                        "ignored MQTT relay command: no Relay Module on I2C channel {}",
+                        cmd.channel()
+                    );
+                    continue;
+                }
                 let result = match cmd {
-                    MqttCommand::SetRelay(p) => set_relay(&app, p),
-                    MqttCommand::PulseRelay { state, duration } => {
-                        pulse_relay(&app, state, duration)
-                    }
+                    MqttCommand::SetRelay { state, .. } => set_relay(&app, state),
+                    MqttCommand::PulseRelay {
+                        state, duration, ..
+                    } => pulse_relay(&app, state, duration),
                 };
                 if let Err(e) = result {
                     warn!("MQTT relay command failed: {e}");
@@ -161,7 +159,7 @@ pub fn spawn_mqtt_commands(app: AppHandle, rx: Receiver<MqttCommand>) -> std::io
         .map(|_| ())
 }
 
-/// Detect the Climate Module again and report what was found.
+/// Look for the sensors again and report what was found.
 pub fn rescan(app: &AppHandle) -> Result<RescanOutcome, AcqError> {
     request(
         app,

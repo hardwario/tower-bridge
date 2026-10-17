@@ -1,6 +1,6 @@
 import { api } from "./api";
 import { fill, t } from "./i18n/index.svelte";
-import { METRICS, type History, type Metric } from "./types";
+import { METRICS, type History, type Metric, type Series } from "./types";
 
 /** How to pan and zoom, with the platform's modifier key. */
 export function zoomHint(): string {
@@ -74,10 +74,22 @@ export class ChartGroup {
   }
 }
 
+/** The series of `metric` measured on `channel`. */
+export function seriesOf(h: History | null, metric: Metric, channel: number): Series | null {
+  if (!h) return null;
+  const i = h.channels.indexOf(channel);
+  return i < 0 ? null : (h[metric][i] ?? null);
+}
+
+/** Whether there is any value at index `i` (any metric, any channel). */
+export function hasValueAt(h: History, i: number): boolean {
+  return METRICS.some((m) => h[m].some((s) => s.avg[i] !== null));
+}
+
 /** First and last time with any reading (seconds), or null. */
 export function dataExtent(h: History | null): [number, number] | null {
   if (!h) return null;
-  const has = (i: number) => METRICS.some((m) => h[m].avg[i] !== null);
+  const has = (i: number) => hasValueAt(h, i);
   let i0 = 0;
   while (i0 < h.t.length && !has(i0)) i0++;
   let i1 = h.t.length - 1;
@@ -99,7 +111,8 @@ export function panBounds(range: { first: number; last: number } | null, h: Hist
  * overlaps the window, otherwise the base history.
  */
 export function zoomDetail(group: ChartGroup, maxPoints: number) {
-  let detail = $state<History | null>(null);
+  // Replaced whole, never changed in place: no deep reactivity needed.
+  let detail = $state.raw<History | null>(null);
   let seq = 0;
   let lastFetch = 0;
 
@@ -153,10 +166,16 @@ export interface WindowStats {
   avg: number;
 }
 
-/** min / avg / max of one metric inside the zoom window (or the whole history). */
-export function windowStats(h: History | null, metric: Metric, zoom: [number, number] | null): WindowStats | null {
+/** min / avg / max of one metric on one channel inside the zoom window (or the whole history). */
+export function windowStats(
+  h: History | null,
+  metric: Metric,
+  channel: number,
+  zoom: [number, number] | null,
+): WindowStats | null {
   if (!h) return null;
-  const s = h[metric];
+  const s = seriesOf(h, metric, channel);
+  if (!s) return null;
   let min = Infinity;
   let max = -Infinity;
   let sum = 0;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fmtInput, parseInput } from "../format";
+  import { NO_VALUE, fmtInput, parseInput } from "../format";
   import { fill, plural, t } from "../i18n/index.svelte";
   import type { AlertRule, Metric, TemperatureUnit } from "../types";
   import { deltaFromDisplay, deltaToDisplay, fromDisplay, roundFor, toDisplay, unitLabel } from "../units";
@@ -58,7 +58,7 @@
       <input
         class="input num"
         inputmode="decimal"
-        placeholder="—"
+        placeholder={NO_VALUE}
         value={show(rule.min)}
         disabled={!rule.enabled}
         onchange={(e) => setLimit("min", e.currentTarget.value)}
@@ -70,7 +70,7 @@
       <input
         class="input num"
         inputmode="decimal"
-        placeholder="—"
+        placeholder={NO_VALUE}
         value={show(rule.max)}
         disabled={!rule.enabled}
         onchange={(e) => setLimit("max", e.currentTarget.value)}

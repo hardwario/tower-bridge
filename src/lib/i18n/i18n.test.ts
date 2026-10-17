@@ -41,6 +41,37 @@ describe("i18n", () => {
     expect(fill("keep {unknown}", {})).toBe("keep {unknown}");
   });
 
+  it("has every plural form each language needs, with the same placeholders", () => {
+    const plurals = (o: object, prefix = ""): [string, Record<string, string>][] =>
+      Object.entries(o).flatMap(([k, v]) =>
+        v && typeof v === "object"
+          ? "one" in v
+            ? [[`${prefix}${k}`, v as Record<string, string>]]
+            : plurals(v, `${prefix}${k}.`)
+          : [],
+      );
+    const placeholders = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join();
+    const reference = Object.fromEntries(plurals(en));
+    for (const [lang, dict] of Object.entries({ cs, sk, de, pl })) {
+      const needed = new Intl.PluralRules(lang).resolvedOptions().pluralCategories;
+      const forms = plurals(dict);
+      expect(forms.length, lang).toBe(Object.keys(reference).length);
+      for (const [key, plural] of forms) {
+        for (const category of needed) {
+          // "other" covers decimals where a language has a separate form for them.
+          if (category === "many" && lang !== "pl") continue;
+          expect(plural[category] ?? plural.other, `${lang} ${key}.${category}`).toBeTruthy();
+          if (category !== "other" && category !== "one") {
+            expect(plural[category], `${lang} ${key} needs "${category}"`).toBeDefined();
+          }
+        }
+        for (const form of Object.values(plural)) {
+          expect(placeholders(form), `${lang} ${key}`).toBe(placeholders(reference[key].other));
+        }
+      }
+    }
+  });
+
   it("uses Czech plural forms", () => {
     i18n.set("cs");
     expect(plural(cs.units.minutes, 1)).toBe("1 minuta");

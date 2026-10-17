@@ -1,15 +1,31 @@
+<script lang="ts" module>
+  import type { WindowStats } from "../chart-group.svelte";
+  import type { Source } from "../source";
+
+  /** One I²C channel measuring the panel's metric. */
+  export interface PanelLine {
+    channel: number;
+    /** Module measuring it, e.g. "Humidity Tag". */
+    name: string;
+    value: number | null;
+    stats: WindowStats | null;
+    source: Source | null;
+  }
+</script>
+
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { ChartGroup, WindowStats } from "../chart-group.svelte";
+  import type { ChartGroup } from "../chart-group.svelte";
   import { fmtValue } from "../format";
   import { t } from "../i18n/index.svelte";
-  import { lineColor } from "../palette";
+  import { channelColor, hiddenChannels, lineColor, withChannelColor, withChannelHidden } from "../palette";
+  import { lineLabels } from "../source";
   import { theme } from "../theme.svelte";
   import type { ActiveAlert, AlertRule, ChartStyle, History, Metric, TemperatureUnit } from "../types";
   import { unitLabel } from "../units";
+  import ChartLegend from "./ChartLegend.svelte";
   import ChartStats from "./ChartStats.svelte";
   import ColorPicker from "./ColorPicker.svelte";
-  import type { Source } from "../source";
   import DragHandle from "./DragHandle.svelte";
   import ResetView from "./ResetView.svelte";
   import SourceInfo from "./SourceInfo.svelte";
@@ -18,13 +34,12 @@
 
   let {
     metric,
-    value,
+    lines,
     unit,
     history,
     group,
     rule,
-    stats,
-    alert,
+    alerts = [],
     footer,
     maximized = false,
     chartHeight = 120,
@@ -32,16 +47,16 @@
     ondragstart,
     style,
     onstyle,
-    source = null,
   }: {
     metric: Metric;
-    value: number | null;
+    /** At least one; several when sensors on both channels measure the metric. */
+    lines: PanelLine[];
     unit: TemperatureUnit;
     history: History | null;
     group: ChartGroup;
     rule?: AlertRule;
-    stats: WindowStats | null;
-    alert?: ActiveAlert;
+    /** Active alerts of this metric, on any channel. */
+    alerts?: ActiveAlert[];
     footer?: Snippet;
     maximized?: boolean;
     chartHeight?: number;
@@ -50,25 +65,43 @@
     ondragstart?: (e: PointerEvent) => void;
     style: ChartStyle;
     onstyle: (style: ChartStyle) => void;
-    /** Where the values come from, behind the header's info icon. */
-    source?: Source | null;
   } = $props();
 
-  const color = $derived(lineColor(style.color, theme.effective === "dark"));
+  const dark = $derived(theme.effective === "dark");
+  const colorOf = (channel: number) => lineColor(channelColor(style, metric, channel), dark);
+  const single = $derived(lines.length === 1 ? lines[0] : null);
+  const sources = $derived(lines.flatMap((l) => (l.source ? [l.source] : [])));
+  /** Line names, with the channel where two would read the same. */
+  const labels = $derived(lineLabels(lines));
+  const labelOf = (channel: number) => labels[lines.findIndex((l) => l.channel === channel)] ?? "";
+  /** One badge per direction: one channel may be above while another is below. */
+  const bounds = $derived((["high", "low"] as const).filter((b) => alerts.some((a) => a.bound === b)));
+  const alerting = (channel: number) => alerts.some((a) => a.channel === channel);
+  /** Lines the user took out of the chart (from the legend). */
+  const hidden = $derived(hiddenChannels(style, lines.map((l) => l.channel)));
 </script>
 
-<article class="card metric" class:alerting={!!alert} class:maximized aria-label={t().metrics[metric]}>
+<article class="card metric" class:alerting={alerts.length > 0} class:maximized aria-label={t().metrics[metric]}>
   <header>
     <span class="label"><Icon name={metric} size={15} /> {t().metrics[metric]}</span>
     <span class="tools">
-      {#if alert}
-        <span class="badge"
-          ><Icon name="warning" size={13} /> {alert.bound === "high" ? t().common.aboveLimit : t().common.belowLimit}</span
+      {#each bounds as bound (bound)}
+        {@const names = alerts.filter((a) => a.bound === bound).map((a) => labelOf(a.channel))}
+        <span class="badge" title={lines.length > 1 ? names.join(", ") : undefined}
+          ><Icon name="warning" size={13} />
+          {bound === "high" ? t().common.aboveLimit : t().common.belowLimit}{#if lines.length > 1}<span
+              class="visually-hidden"
+              >: {names.join(", ")}</span
+            >{/if}</span
         >
+      {/each}
+      {#if single}
+        <ColorPicker
+          value={channelColor(style, metric, single.channel)}
+          onchange={(c) => onstyle(withChannelColor(style, single.channel, c))}
+        />
       {/if}
-      <ColorPicker value={style.color} onchange={(c) => onstyle({ ...style, color: c })} />
-      {#if source}<SourceInfo {source} />{/if}
-      {#if ondragstart}<DragHandle onstart={ondragstart} />{/if}
+      {#if sources.length}<SourceInfo {sources} />{/if}
       <ResetView {group} />
       {#if onmaximize}
         <button
@@ -79,12 +112,29 @@
           onclick={onmaximize}><Icon name={maximized ? "minimize" : "maximize"} size={14} /></button
         >
       {/if}
+      <!-- Always the rightmost tool, as in every other card. -->
+      {#if ondragstart}<DragHandle onstart={ondragstart} />{/if}
     </span>
   </header>
-  <div class="value">
-    <span class="number">{fmtValue(metric, value, unit)}</span>
-    {#if value !== null}<span class="unit">{unitLabel(metric, unit)}</span>{/if}
-  </div>
+  {#if single}
+    <div class="value">
+      <span class="number">{fmtValue(metric, single.value, unit)}</span>
+      {#if single.value !== null}<span class="unit">{unitLabel(metric, unit)}</span>{/if}
+    </div>
+  {:else}
+    <div class="values">
+      {#each lines as line, i (line.channel)}
+        <div class="each" class:alerting={alerting(line.channel)}>
+          <div class="value">
+            <span class="number small">{fmtValue(metric, line.value, unit)}</span>
+            {#if line.value !== null}<span class="unit">{unitLabel(metric, unit)}</span>{/if}
+            {#if alerting(line.channel)}<Icon name="warning" size={14} />{/if}
+          </div>
+          <div class="who"><span class="dot" style:background={colorOf(line.channel)}></span>{labels[i]}</div>
+        </div>
+      {/each}
+    </div>
+  {/if}
   <!-- Once panned or zoomed, keep the chart (even over a gap) so it can be dragged back. -->
   {#if history && (history.t.length > 1 || group.zoom)}
     <TimeChart
@@ -93,7 +143,7 @@
       {unit}
       {group}
       {rule}
-      {color}
+      lines={lines.map((l, i) => ({ channel: l.channel, color: colorOf(l.channel), name: labels[i], hidden: hidden.has(l.channel) }))}
       show={{ min: style.show_min, avg: style.show_avg, max: style.show_max }}
       height={chartHeight}
       compact={!maximized}
@@ -101,8 +151,26 @@
   {:else}
     <div class="placeholder muted" style:height="{chartHeight}px">{t().overview.collecting}</div>
   {/if}
-  <footer>
-    <ChartStats {metric} {unit} {stats} {style} {color} onchange={onstyle} />
+  <footer class:stacked={!single}>
+    {#if single}
+      <ChartStats {metric} {unit} stats={single.stats} {style} color={colorOf(single.channel)} onchange={onstyle} />
+    {:else}
+      <ChartLegend
+        {metric}
+        {unit}
+        {style}
+        lines={lines.map((l, i) => ({
+          channel: l.channel,
+          name: labels[i],
+          stats: l.stats,
+          color: channelColor(style, metric, l.channel),
+          hidden: hidden.has(l.channel),
+        }))}
+        onchange={onstyle}
+        oncolor={(channel, c) => onstyle(withChannelColor(style, channel, c))}
+        ontoggle={(channel, off) => onstyle(withChannelHidden(style, channel, off))}
+      />
+    {/if}
     {#if footer}<span class="extra muted">{@render footer()}</span>{/if}
   </footer>
 </article>
@@ -185,10 +253,45 @@
     letter-spacing: -0.02em;
     line-height: 1.05;
   }
+  .number.small {
+    font-size: 30px;
+  }
+  /* A source beyond its limit: its value in the alert colour. */
+  .each.alerting .number,
+  .each.alerting .value :global(svg) {
+    color: var(--critical);
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .unit {
     font-size: 18px;
     color: var(--text-2);
     font-weight: 500;
+  }
+  .values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 28px;
+  }
+  .who {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
   }
   .placeholder {
     display: grid;
@@ -201,6 +304,14 @@
     justify-content: space-between;
     gap: 8px;
     margin: 0 -10px -4px;
+  }
+  footer.stacked {
+    flex-direction: column;
+    align-items: stretch;
+    margin: 0 -8px -4px;
+  }
+  footer.stacked .extra {
+    align-self: flex-end;
   }
   .extra {
     padding-right: 10px;

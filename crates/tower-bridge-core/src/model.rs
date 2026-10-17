@@ -68,14 +68,18 @@ impl Values {
     }
 }
 
-/// A timestamped reading from a specific bridge.
+/// A timestamped reading from the sensors on one switch channel of a bridge.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Reading {
-    /// Unix time in milliseconds (UTC) at the start of the measurement cycle.
+    /// Unix time in milliseconds (UTC) at the start of the measurement cycle;
+    /// the same for every channel measured in that cycle.
     pub ts: i64,
     /// Device identity (USB serial number or a stable substitute).
     pub device: String,
+    /// I2C switch channel the values come from.
+    #[serde(default)]
+    pub channel: u8,
     #[serde(flatten)]
     pub values: Values,
     /// Altitude in metres derived from pressure and the configured sea-level reference.
@@ -100,6 +104,40 @@ impl ClimateRevision {
     }
 }
 
+/// A TOWER module or tag that carries sensors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModuleKind {
+    ClimateModuleR1,
+    ClimateModuleR2,
+    HumidityTag,
+    TemperatureTag,
+    LuxMeterTag,
+    BarometerTag,
+}
+
+impl ModuleKind {
+    /// Product name, e.g. `Humidity Tag`.
+    pub fn name(self) -> &'static str {
+        match self {
+            ModuleKind::ClimateModuleR1 => "Climate Module R1",
+            ModuleKind::ClimateModuleR2 => "Climate Module R2",
+            ModuleKind::HumidityTag => "Humidity Tag",
+            ModuleKind::TemperatureTag => "Temperature Tag",
+            ModuleKind::LuxMeterTag => "Lux Meter Tag",
+            ModuleKind::BarometerTag => "Barometer Tag",
+        }
+    }
+
+    pub fn revision(self) -> Option<ClimateRevision> {
+        match self {
+            ModuleKind::ClimateModuleR1 => Some(ClimateRevision::R1),
+            ModuleKind::ClimateModuleR2 => Some(ClimateRevision::R2),
+            _ => None,
+        }
+    }
+}
+
 /// Which transport is used to reach the I2C bus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -119,6 +157,14 @@ pub struct DeviceInfo {
     pub path: String,
     /// FT260 chip version string when known.
     pub chip: Option<String>,
+    /// TOWER Bridge Modules plugged in, this one included. Only this one is
+    /// read, and the FT260 has no serial number to tell them apart.
+    #[serde(default = "one")]
+    pub bridges_connected: u32,
+}
+
+fn one() -> u32 {
+    1
 }
 
 /// Why the bridge cannot be used right now.
@@ -149,28 +195,92 @@ pub enum DeviceState {
         kind: DeviceErrorKind,
         message: String,
     },
-    /// The bridge is open but no Climate Module answers on the bus.
+    /// The bridge is open but no sensor answers on the bus.
     #[serde(rename_all = "snake_case")]
     NoModule { device: DeviceInfo },
-    /// Bridge and Climate Module are working.
+    /// The bridge works and sensors were found.
     #[serde(rename_all = "snake_case")]
     Ready {
         device: DeviceInfo,
-        revision: ClimateRevision,
-        channel: u8,
-        /// Which sensor provides each value.
+        /// Which sensor provides each value on each channel, ordered by
+        /// channel and metric.
         sources: Vec<SensorSource>,
     },
 }
 
-/// The sensor behind one value and its I2C address (behind the switch channel).
+/// The sensor behind one value: switch channel, module, part and I2C address.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SensorSource {
     pub metric: Metric,
+    pub channel: u8,
+    pub module: ModuleKind,
     /// Sensor part, e.g. `TMP112`.
     pub sensor: String,
     /// 7-bit I2C address.
     pub address: u8,
+}
+
+/// The modules on each channel, in channel order, without repeats.
+pub fn modules(sources: &[SensorSource]) -> Vec<(u8, ModuleKind)> {
+    let mut out: Vec<(u8, ModuleKind)> = sources.iter().map(|s| (s.channel, s.module)).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Which source of `metric` an alert on `channel` comes from, for a
+/// notification: `None` while only one channel measures the metric, else the
+/// module names (`Humidity Tag`), with the channel when both channels carry
+/// the same modules (`Humidity Tag, channel 1`).
+pub fn source_label(sources: &[SensorSource], metric: Metric, channel: u8) -> Option<String> {
+    let names = |c: u8| -> Vec<&str> {
+        let mut n: Vec<&str> = sources
+            .iter()
+            .filter(|s| s.metric == metric && s.channel == c)
+            .map(|s| s.module.name())
+            .collect();
+        n.dedup();
+        n
+    };
+    let mut channels: Vec<u8> = sources
+        .iter()
+        .filter(|s| s.metric == metric)
+        .map(|s| s.channel)
+        .collect();
+    channels.sort_unstable();
+    channels.dedup();
+    if channels.len() < 2 {
+        return None;
+    }
+    let mine = names(channel);
+    if mine.is_empty() {
+        return Some(format!("channel {channel}"));
+    }
+    let same = channels.iter().any(|&c| c != channel && names(c) == mine);
+    let label = mine.join(", ");
+    Some(if same {
+        format!("{label}, channel {channel}")
+    } else {
+        label
+    })
+}
+
+/// Human readable list, e.g. `Climate Module R1 (channel 0), Humidity Tag,
+/// Lux Meter Tag (channel 1)`.
+pub fn describe_modules(sources: &[SensorSource]) -> String {
+    let modules = modules(sources);
+    let mut parts = Vec::new();
+    let mut channels: Vec<u8> = modules.iter().map(|(c, _)| *c).collect();
+    channels.dedup();
+    for channel in channels {
+        let names: Vec<&str> = modules
+            .iter()
+            .filter(|(c, _)| *c == channel)
+            .map(|(_, m)| m.name())
+            .collect();
+        parts.push(format!("{} (channel {channel})", names.join(", ")));
+    }
+    parts.join(", ")
 }
 
 impl DeviceState {
@@ -183,6 +293,14 @@ impl DeviceState {
 
     pub fn is_ready(&self) -> bool {
         matches!(self, DeviceState::Ready { .. })
+    }
+
+    /// Sensor sources while ready, otherwise none.
+    pub fn sources(&self) -> &[SensorSource] {
+        match self {
+            DeviceState::Ready { sources, .. } => sources,
+            _ => &[],
+        }
     }
 }
 
@@ -209,6 +327,45 @@ mod tests {
     fn altitude_decreases_with_pressure() {
         let h = altitude(89_874.6, STANDARD_SEA_LEVEL_PA);
         assert!((h - 1000.0).abs() < 1.0, "h = {h}");
+    }
+
+    fn source(metric: Metric, channel: u8, module: ModuleKind) -> SensorSource {
+        SensorSource {
+            metric,
+            channel,
+            module,
+            sensor: "X".into(),
+            address: 0,
+        }
+    }
+
+    #[test]
+    fn source_labels_tell_channels_apart() {
+        let t = Metric::Temperature;
+        let one = [source(t, 0, ModuleKind::ClimateModuleR1)];
+        assert_eq!(
+            source_label(&one, t, 0),
+            None,
+            "a single source needs no label"
+        );
+        let two = [
+            source(t, 0, ModuleKind::ClimateModuleR1),
+            source(t, 1, ModuleKind::HumidityTag),
+        ];
+        assert_eq!(source_label(&two, t, 1).as_deref(), Some("Humidity Tag"));
+        assert_eq!(
+            source_label(&two, t, 0).as_deref(),
+            Some("Climate Module R1")
+        );
+        let twins = [
+            source(t, 0, ModuleKind::HumidityTag),
+            source(t, 1, ModuleKind::HumidityTag),
+        ];
+        assert_eq!(
+            source_label(&twins, t, 1).as_deref(),
+            Some("Humidity Tag, channel 1")
+        );
+        assert_eq!(source_label(&two, t, 5).as_deref(), Some("channel 5"));
     }
 
     #[test]

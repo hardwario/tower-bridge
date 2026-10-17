@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 266" width="680" height="266" role="img" aria-label="Computer, USB, TOWER Bridge Module with I²C channels 0 and 1, the Climate Module, the Relay Module and sensor tags">
+<style>
+.mg-card{fill:var(--surface,#fff);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-box{fill:var(--surface-2,#f8f8fa);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-dash{stroke-dasharray:5 4}
+.mg-line{fill:none;stroke:var(--text-muted,#85858e);stroke-width:1.5}
+.mg-guide{fill:none;stroke:var(--border-strong,#d6d6dc);stroke-width:1;stroke-dasharray:3 4}
+.mg-icon{fill:none;stroke:var(--text-muted,#85858e);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mg-t{font-family:var(--font,system-ui,-apple-system,"Segoe UI",sans-serif);font-size:13px;fill:var(--text,#252532)}
+.mg-s{font-size:11.5px;fill:var(--text-2,#55555f)}
+.mg-b{font-weight:600}
+.mg-accent{stroke:var(--accent,#e4002b)}
+.mg-good{fill:var(--good,#0ca30c)}
+.mg-bad{fill:var(--critical,#d03b3b)}
+.mg-crit{stroke:var(--critical,#d03b3b)}
+.mg-crit-weak{fill:var(--critical-weak,rgba(208,59,59,.1))}
+.mg-series{fill:none;stroke:var(--series,#2a78d6);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.mg-num circle{fill:var(--accent,#e4002b)}
+.mg-num text{font-family:var(--font,system-ui,sans-serif);font-size:11.5px;font-weight:700;fill:#fff}
+</style>
+<rect x="20" y="73" width="150" height="94" rx="8" class="mg-box"/>
+<path d="M75 167v14M115 167v14M60 183h70" class="mg-line"/>
+<text x="95" y="116" text-anchor="middle" class="mg-t mg-b">TOWER Bridge</text>
+<text x="95" y="135" text-anchor="middle" class="mg-t mg-s">macOS · Windows · Linux</text>
+<path d="M170 120h80" class="mg-line"/>
+<text x="210" y="112" text-anchor="middle" class="mg-t mg-s mg-b">USB</text>
+<rect x="250" y="80" width="150" height="80" rx="10" class="mg-box mg-accent" style="stroke-width:2"/>
+<text x="325" y="111" text-anchor="middle" class="mg-t mg-s">TOWER</text>
+<text x="325" y="129" text-anchor="middle" class="mg-t mg-b">Bridge Module</text>
+<text x="325" y="146" text-anchor="middle" class="mg-t mg-s">FT260</text>
+<path d="M400 100H440M440 57V129M440 57H490M440 129H490" class="mg-line"/>
+<path d="M400 140H460V210H490" class="mg-line"/>
+<text x="420" y="93" text-anchor="middle" class="mg-t mg-s mg-b">I²C 0</text>
+<text x="428" y="156" text-anchor="middle" class="mg-t mg-s mg-b">I²C 1</text>
+<rect x="490" y="22" width="170" height="70" rx="10" class="mg-box"/>
+<text x="575" y="44" text-anchor="middle" class="mg-t mg-s">TOWER</text>
+<text x="575" y="62" text-anchor="middle" class="mg-t mg-b">Climate Module</text>
+<text x="575" y="80" text-anchor="middle" class="mg-t mg-s">°C · % · lx · hPa</text>
+<rect x="490" y="104" width="170" height="50" rx="10" class="mg-box mg-dash"/>
+<text x="575" y="125" text-anchor="middle" class="mg-t mg-b">Relay Module</text>
+<circle cx="538" cy="140" r="4.5" class="mg-good"/><text x="546" y="144" class="mg-t mg-s">TRUE</text>
+<circle cx="590" cy="140" r="4.5" class="mg-bad"/><text x="598" y="144" class="mg-t mg-s">FALSE</text>
+<rect x="490" y="170" width="170" height="80" rx="10" class="mg-box mg-dash"/>
+<text x="575" y="193" text-anchor="middle" class="mg-t">Humidity Tag</text>
+<text x="575" y="212" text-anchor="middle" class="mg-t">Lux Meter Tag</text>
+<text x="575" y="231" text-anchor="middle" class="mg-t">Barometer Tag</text>
+</svg>

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 220" width="680" height="220" role="img" aria-label="Relay states">
+<style>
+.mg-card{fill:var(--surface,#fff);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-box{fill:var(--surface-2,#f8f8fa);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-dash{stroke-dasharray:5 4}
+.mg-line{fill:none;stroke:var(--text-muted,#85858e);stroke-width:1.5}
+.mg-guide{fill:none;stroke:var(--border-strong,#d6d6dc);stroke-width:1;stroke-dasharray:3 4}
+.mg-icon{fill:none;stroke:var(--text-muted,#85858e);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mg-t{font-family:var(--font,system-ui,-apple-system,"Segoe UI",sans-serif);font-size:13px;fill:var(--text,#252532)}
+.mg-s{font-size:11.5px;fill:var(--text-2,#55555f)}
+.mg-b{font-weight:600}
+.mg-accent{stroke:var(--accent,#e4002b)}
+.mg-good{fill:var(--good,#0ca30c)}
+.mg-bad{fill:var(--critical,#d03b3b)}
+.mg-crit{stroke:var(--critical,#d03b3b)}
+.mg-crit-weak{fill:var(--critical-weak,rgba(208,59,59,.1))}
+.mg-series{fill:none;stroke:var(--series,#2a78d6);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.mg-num circle{fill:var(--accent,#e4002b)}
+.mg-num text{font-family:var(--font,system-ui,sans-serif);font-size:11.5px;font-weight:700;fill:#fff}
+</style>
+<defs><marker id="mg-relay-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--text-muted,#85858e)"/></marker></defs>
+<rect x="20" y="85" width="150" height="50" rx="25" class="mg-box mg-dash"/>
+<circle cx="50" cy="110" r="5" fill="none" style="stroke:var(--text-muted,#85858e)" stroke-width="1.5"/>
+<text x="102" y="115" text-anchor="middle" class="mg-t mg-b" data-i18n="relay.unknown">Unknown</text>
+<rect x="400" y="20" width="160" height="50" rx="25" class="mg-box"/>
+<circle cx="432" cy="45" r="6" class="mg-good"/>
+<text x="488" y="50" text-anchor="middle" class="mg-t mg-b" data-i18n="relay.stateTrue">TRUE</text>
+<rect x="400" y="150" width="160" height="50" rx="25" class="mg-box"/>
+<circle cx="432" cy="175" r="6" class="mg-bad"/>
+<text x="488" y="180" text-anchor="middle" class="mg-t mg-b" data-i18n="relay.stateFalse">FALSE</text>
+<path d="M172 100C260 60 320 46 396 45" class="mg-line" marker-end="url(#mg-relay-arrow)"/>
+<path d="M172 120C260 160 320 174 396 175" class="mg-line" marker-end="url(#mg-relay-arrow)"/>
+<path d="M455 72V146" class="mg-line" marker-end="url(#mg-relay-arrow)"/>
+<path d="M505 148V74" class="mg-line" marker-end="url(#mg-relay-arrow)"/>
+<text x="270" y="56" text-anchor="middle" class="mg-t mg-s" data-i18n="relay.activateTrue">Activate TRUE</text>
+<text x="270" y="178" text-anchor="middle" class="mg-t mg-s" data-i18n="relay.activateFalse">Activate FALSE</text>
+<text x="447" y="114" text-anchor="end" class="mg-t mg-s" data-i18n="relay.activateFalse">Activate FALSE</text>
+<text x="513" y="114" class="mg-t mg-s" data-i18n="relay.activateTrue">Activate TRUE</text>
+</svg>

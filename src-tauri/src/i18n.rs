@@ -95,6 +95,7 @@ fn metric_index(m: Metric) -> usize {
     }
 }
 
+#[derive(Debug)]
 pub struct Tr {
     metrics: [&'static str; 4],
     high: [&'static str; 4],
@@ -105,9 +106,8 @@ pub struct Tr {
     pub within_limits: &'static str,
     pub open_dashboard: &'static str,
     pub open_at_login: &'static str,
-    pub mqtt_broker: &'static str,
     pub mqtt_error: &'static str,
-    pub mqtt_restart: &'static str,
+    pub mqtt_connecting: &'static str,
     pub quit: &'static str,
     pub searching: &'static str,
     pub measuring: &'static str,
@@ -118,14 +118,13 @@ pub struct Tr {
     pub busy: &'static str,
     pub bridge_error: &'static str,
     pub no_module: &'static str,
+    /// The tray status while several bridges are plugged in.
+    pub several_bridges: &'static str,
     pub lost_title: &'static str,
     pub lost_body: &'static str,
     pub reconnected_title: &'static str,
     pub reconnected_body: &'static str,
     pub test_body: &'static str,
-    pub restart_to_stop_broker: &'static str,
-    pub restart: &'static str,
-    pub later: &'static str,
     #[cfg_attr(not(windows), allow(dead_code))]
     pub webview2_missing: &'static str,
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -136,6 +135,7 @@ pub struct Tr {
     pub xlsx_sheet: &'static str,
     pub xlsx_time: &'static str,
     pub xlsx_device: &'static str,
+    pub xlsx_channel: &'static str,
     pub altitude: &'static str,
     pub move_to_applications: &'static str,
     pub cannot_save_settings: &'static str,
@@ -175,27 +175,24 @@ static EN: Tr = Tr {
     within_limits: "{value} is within limits again.",
     open_dashboard: "Open Dashboard…",
     open_at_login: "Open at Login",
-    mqtt_broker: "MQTT Broker",
     mqtt_error: "error",
-    mqtt_restart: "restart required",
+    mqtt_connecting: "connecting…",
     quit: "Quit TOWER Bridge",
     searching: "Searching for TOWER Bridge…",
     measuring: "Measuring…",
     updated: "Updated {time}",
     not_connected: "TOWER Bridge not connected",
-    no_permission: "No permission to open the bridge – see help",
-    i2c_dev_missing: "Kernel module i2c-dev not loaded – see help",
+    no_permission: "No permission to open the bridge (see help)",
+    i2c_dev_missing: "Kernel module i2c-dev not loaded (see help)",
     busy: "Bridge is used by another program",
-    bridge_error: "Bridge error – reconnecting…",
-    no_module: "Climate Module not found",
+    bridge_error: "Bridge error, reconnecting…",
+    no_module: "No sensors found",
+    several_bridges: "⚠ More than one TOWER Bridge Module connected",
     lost_title: "TOWER Bridge disconnected",
     lost_body: "No measurements for a minute. Check the USB connection.",
     reconnected_title: "TOWER Bridge reconnected",
     reconnected_body: "Measurements have resumed.",
     test_body: "Notifications are working. You will be alerted when a value crosses a limit.",
-    restart_to_stop_broker: "The MQTT broker stops when TOWER Bridge restarts. Restart now?",
-    restart: "Restart",
-    later: "Later",
     webview2_missing: "The dashboard needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\n\
 The tray icon keeps working. Download WebView2 now?",
     download: "Download",
@@ -204,6 +201,7 @@ The tray icon keeps working. Download WebView2 now?",
     xlsx_sheet: "Readings",
     xlsx_time: "Time",
     xlsx_device: "Device",
+    xlsx_channel: "I²C channel",
     altitude: "Altitude",
     move_to_applications: "Move TOWER Bridge to the Applications folder before enabling Open at Login.",
     cannot_save_settings: "Cannot save settings: {error}",
@@ -229,27 +227,24 @@ static CS: Tr = Tr {
     within_limits: "{value} je opět v povoleném rozsahu.",
     open_dashboard: "Otevřít přehled…",
     open_at_login: "Spouštět po přihlášení",
-    mqtt_broker: "MQTT broker",
     mqtt_error: "chyba",
-    mqtt_restart: "vyžaduje restart",
+    mqtt_connecting: "připojování…",
     quit: "Ukončit TOWER Bridge",
     searching: "Hledám TOWER Bridge…",
     measuring: "Měřím…",
     updated: "Aktualizováno {time}",
     not_connected: "TOWER Bridge není připojen",
-    no_permission: "Chybí oprávnění k zařízení – viz nápověda",
-    i2c_dev_missing: "Modul jádra i2c-dev není načten – viz nápověda",
+    no_permission: "Chybí oprávnění k zařízení (viz nápověda)",
+    i2c_dev_missing: "Modul jádra i2c-dev není načten (viz nápověda)",
     busy: "Zařízení používá jiný program",
-    bridge_error: "Chyba zařízení – připojuji znovu…",
-    no_module: "Climate Module nenalezen",
+    bridge_error: "Chyba zařízení, připojuji znovu…",
+    no_module: "Senzory nenalezeny",
+    several_bridges: "⚠ Připojeno více TOWER Bridge Module",
     lost_title: "TOWER Bridge odpojen",
     lost_body: "Už minutu žádné měření. Zkontrolujte připojení USB.",
     reconnected_title: "TOWER Bridge znovu připojen",
     reconnected_body: "Měření pokračuje.",
     test_body: "Oznámení fungují. Upozorníme vás, když hodnota překročí limit.",
-    restart_to_stop_broker: "MQTT broker se zastaví po restartu TOWER Bridge. Restartovat nyní?",
-    restart: "Restartovat",
-    later: "Později",
     webview2_missing: "Okno aplikace potřebuje Microsoft Edge WebView2 Runtime, který není nainstalován.\n\n\
 Ikona v oznamovací oblasti funguje dál. Stáhnout WebView2 nyní?",
     download: "Stáhnout",
@@ -258,6 +253,7 @@ Ikona v oznamovací oblasti funguje dál. Stáhnout WebView2 nyní?",
     xlsx_sheet: "Měření",
     xlsx_time: "Čas",
     xlsx_device: "Zařízení",
+    xlsx_channel: "Kanál I²C",
     altitude: "Nadmořská výška",
     move_to_applications: "Před zapnutím spouštění po přihlášení přesuňte TOWER Bridge do složky Aplikace.",
     cannot_save_settings: "Nastavení nelze uložit: {error}",
@@ -283,27 +279,24 @@ static SK: Tr = Tr {
     within_limits: "{value} je opäť v povolenom rozsahu.",
     open_dashboard: "Otvoriť prehľad…",
     open_at_login: "Spúšťať po prihlásení",
-    mqtt_broker: "MQTT broker",
     mqtt_error: "chyba",
-    mqtt_restart: "vyžaduje reštart",
+    mqtt_connecting: "pripájanie…",
     quit: "Ukončiť TOWER Bridge",
     searching: "Hľadám TOWER Bridge…",
     measuring: "Meriam…",
     updated: "Aktualizované {time}",
     not_connected: "TOWER Bridge nie je pripojený",
-    no_permission: "Chýba oprávnenie k zariadeniu – pozri pomocníka",
-    i2c_dev_missing: "Modul jadra i2c-dev nie je načítaný – pozri pomocníka",
+    no_permission: "Chýba oprávnenie k zariadeniu (pozri pomocníka)",
+    i2c_dev_missing: "Modul jadra i2c-dev nie je načítaný (pozri pomocníka)",
     busy: "Zariadenie používa iný program",
-    bridge_error: "Chyba zariadenia – pripájam znova…",
-    no_module: "Climate Module sa nenašiel",
+    bridge_error: "Chyba zariadenia, pripájam znova…",
+    no_module: "Senzory sa nenašli",
+    several_bridges: "⚠ Pripojených viac TOWER Bridge Module",
     lost_title: "TOWER Bridge odpojený",
     lost_body: "Už minútu žiadne meranie. Skontrolujte pripojenie USB.",
     reconnected_title: "TOWER Bridge znova pripojený",
     reconnected_body: "Meranie pokračuje.",
     test_body: "Oznámenia fungujú. Upozorníme vás, keď hodnota prekročí limit.",
-    restart_to_stop_broker: "MQTT broker sa zastaví po reštarte TOWER Bridge. Reštartovať teraz?",
-    restart: "Reštartovať",
-    later: "Neskôr",
     webview2_missing: "Okno aplikácie potrebuje Microsoft Edge WebView2 Runtime, ktorý nie je nainštalovaný.\n\n\
 Ikona v oblasti oznámení funguje ďalej. Stiahnuť WebView2 teraz?",
     download: "Stiahnuť",
@@ -312,6 +305,7 @@ Ikona v oblasti oznámení funguje ďalej. Stiahnuť WebView2 teraz?",
     xlsx_sheet: "Merania",
     xlsx_time: "Čas",
     xlsx_device: "Zariadenie",
+    xlsx_channel: "Kanál I²C",
     altitude: "Nadmorská výška",
     move_to_applications: "Pred zapnutím spúšťania po prihlásení presuňte TOWER Bridge do priečinka Aplikácie.",
     cannot_save_settings: "Nastavenia nie je možné uložiť: {error}",
@@ -342,27 +336,24 @@ static DE: Tr = Tr {
     within_limits: "{value} liegt wieder im zulässigen Bereich.",
     open_dashboard: "Dashboard öffnen…",
     open_at_login: "Bei Anmeldung öffnen",
-    mqtt_broker: "MQTT-Broker",
     mqtt_error: "Fehler",
-    mqtt_restart: "Neustart erforderlich",
+    mqtt_connecting: "verbinde…",
     quit: "TOWER Bridge beenden",
     searching: "Suche TOWER Bridge…",
     measuring: "Messung läuft…",
     updated: "Aktualisiert {time}",
     not_connected: "TOWER Bridge nicht verbunden",
-    no_permission: "Keine Berechtigung für das Gerät – siehe Hilfe",
-    i2c_dev_missing: "Kernelmodul i2c-dev nicht geladen – siehe Hilfe",
+    no_permission: "Keine Berechtigung für das Gerät (siehe Hilfe)",
+    i2c_dev_missing: "Kernelmodul i2c-dev nicht geladen (siehe Hilfe)",
     busy: "Gerät wird von einem anderen Programm verwendet",
-    bridge_error: "Gerätefehler – neue Verbindung…",
-    no_module: "Climate Module nicht gefunden",
+    bridge_error: "Gerätefehler, neue Verbindung…",
+    no_module: "Keine Sensoren gefunden",
+    several_bridges: "⚠ Mehr als ein TOWER Bridge Module angeschlossen",
     lost_title: "TOWER Bridge getrennt",
     lost_body: "Seit einer Minute keine Messwerte. Bitte die USB-Verbindung prüfen.",
     reconnected_title: "TOWER Bridge wieder verbunden",
     reconnected_body: "Die Messung läuft wieder.",
     test_body: "Benachrichtigungen funktionieren. Sie werden informiert, wenn ein Wert einen Grenzwert überschreitet.",
-    restart_to_stop_broker: "Der MQTT-Broker wird beim Neustart von TOWER Bridge beendet. Jetzt neu starten?",
-    restart: "Neu starten",
-    later: "Später",
     webview2_missing: "Das Dashboard benötigt die Microsoft Edge WebView2 Runtime, die nicht installiert ist.\n\n\
 Das Symbol im Infobereich funktioniert weiterhin. WebView2 jetzt herunterladen?",
     download: "Herunterladen",
@@ -371,6 +362,7 @@ Das Symbol im Infobereich funktioniert weiterhin. WebView2 jetzt herunterladen?"
     xlsx_sheet: "Messwerte",
     xlsx_time: "Zeit",
     xlsx_device: "Gerät",
+    xlsx_channel: "I²C-Kanal",
     altitude: "Höhe",
     move_to_applications: "Verschieben Sie TOWER Bridge in den Ordner „Programme“, bevor Sie „Bei Anmeldung öffnen“ aktivieren.",
     cannot_save_settings: "Einstellungen können nicht gespeichert werden: {error}",
@@ -396,27 +388,24 @@ static PL: Tr = Tr {
     within_limits: "{value} ponownie mieści się w zakresie.",
     open_dashboard: "Otwórz panel…",
     open_at_login: "Uruchamiaj przy logowaniu",
-    mqtt_broker: "Broker MQTT",
     mqtt_error: "błąd",
-    mqtt_restart: "wymaga ponownego uruchomienia",
+    mqtt_connecting: "łączenie…",
     quit: "Zakończ TOWER Bridge",
     searching: "Wyszukiwanie TOWER Bridge…",
     measuring: "Pomiar…",
     updated: "Zaktualizowano {time}",
     not_connected: "TOWER Bridge nie jest podłączony",
-    no_permission: "Brak uprawnień do urządzenia – zobacz pomoc",
-    i2c_dev_missing: "Moduł jądra i2c-dev nie jest załadowany – zobacz pomoc",
+    no_permission: "Brak uprawnień do urządzenia (zobacz pomoc)",
+    i2c_dev_missing: "Moduł jądra i2c-dev nie jest załadowany (zobacz pomoc)",
     busy: "Urządzenie jest używane przez inny program",
-    bridge_error: "Błąd urządzenia – ponowne łączenie…",
-    no_module: "Nie znaleziono Climate Module",
+    bridge_error: "Błąd urządzenia, ponowne łączenie…",
+    no_module: "Nie znaleziono czujników",
+    several_bridges: "⚠ Podłączono więcej niż jeden TOWER Bridge Module",
     lost_title: "TOWER Bridge odłączony",
     lost_body: "Brak pomiarów od minuty. Sprawdź połączenie USB.",
     reconnected_title: "TOWER Bridge ponownie podłączony",
     reconnected_body: "Pomiary zostały wznowione.",
     test_body: "Powiadomienia działają. Otrzymasz alert, gdy wartość przekroczy limit.",
-    restart_to_stop_broker: "Broker MQTT zatrzyma się po ponownym uruchomieniu TOWER Bridge. Uruchomić ponownie teraz?",
-    restart: "Uruchom ponownie",
-    later: "Później",
     webview2_missing: "Panel wymaga środowiska Microsoft Edge WebView2 Runtime, które nie jest zainstalowane.\n\n\
 Ikona w zasobniku działa dalej. Pobrać WebView2 teraz?",
     download: "Pobierz",
@@ -425,6 +414,7 @@ Ikona w zasobniku działa dalej. Pobrać WebView2 teraz?",
     xlsx_sheet: "Pomiary",
     xlsx_time: "Czas",
     xlsx_device: "Urządzenie",
+    xlsx_channel: "Kanał I²C",
     altitude: "Wysokość",
     move_to_applications: "Przed włączeniem uruchamiania przy logowaniu przenieś TOWER Bridge do folderu Aplikacje.",
     cannot_save_settings: "Nie można zapisać ustawień: {error}",
@@ -441,6 +431,60 @@ mod tests {
         assert_eq!(Lang::from_code("pl"), Some(Lang::Pl));
         assert_eq!(Lang::from_code("fr-FR"), None);
         assert_eq!(Lang::effective(LanguagePref::Sk), Lang::Sk);
+    }
+
+    /// Every text of a dictionary, by field (arrays get an index).
+    fn texts(tr: &Tr) -> Vec<(String, String)> {
+        // The Debug form lists the fields in order: name: "text" or [..].
+        let debug = format!("{tr:#?}");
+        let mut out = Vec::new();
+        let mut field = String::new();
+        let mut index = 0;
+        for line in debug.lines().map(str::trim) {
+            if let Some((name, rest)) = line.split_once(": ") {
+                field = name.to_string();
+                index = 0;
+                if rest.starts_with('"') {
+                    out.push((field.clone(), rest.trim_end_matches(',').to_string()));
+                }
+            } else if line.starts_with('"') {
+                out.push((
+                    format!("{field}[{index}]"),
+                    line.trim_end_matches(',').to_string(),
+                ));
+                index += 1;
+            }
+        }
+        out
+    }
+
+    fn placeholders(text: &str) -> Vec<String> {
+        let mut found: Vec<String> = text
+            .split('{')
+            .skip(1)
+            .filter_map(|part| part.split_once('}').map(|(name, _)| name.to_string()))
+            .collect();
+        found.sort();
+        found
+    }
+
+    #[test]
+    fn every_language_has_every_text_with_the_same_placeholders() {
+        let reference = texts(Lang::En.tr());
+        assert!(reference.len() > 40, "{} texts", reference.len());
+        for lang in [Lang::Cs, Lang::Sk, Lang::De, Lang::Pl] {
+            let other = texts(lang.tr());
+            assert_eq!(other.len(), reference.len(), "{lang:?}");
+            for ((field, en), (f2, text)) in reference.iter().zip(&other) {
+                assert_eq!(field, f2);
+                assert!(text.len() > 2, "{lang:?} {field} is empty");
+                assert_eq!(
+                    placeholders(text),
+                    placeholders(en),
+                    "{lang:?} {field}: {text}"
+                );
+            }
+        }
     }
 
     #[test]

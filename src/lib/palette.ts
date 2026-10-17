@@ -19,15 +19,19 @@ const SHADES: Record<ChartColor, readonly [light: string, dark: string]> = {
   graphite: ["#5c646f", "#8c95a0"],
 };
 
-/** A different colour per metric from the start (as in the app's settings defaults). */
-const DEFAULT_COLORS: Record<Metric, ChartColor> = {
-  temperature: "orange",
-  humidity: "blue",
-  illuminance: "gold",
-  pressure: "violet",
+/**
+ * A different colour per metric from the start, and a contrasting one for
+ * the second I²C channel (as in the app's settings defaults; each pair passes
+ * the colour-blindness checks in both themes).
+ */
+const DEFAULT_COLORS: Record<Metric, ChartColor[]> = {
+  temperature: ["orange", "teal"],
+  humidity: ["blue", "pink"],
+  illuminance: ["gold", "violet"],
+  pressure: ["violet", "green"],
 };
 
-const DEFAULT_LINES = { show_min: false, show_avg: true, show_max: false };
+const DEFAULT_LINES = { show_min: false, show_avg: true, show_max: false, hidden_channels: [] };
 
 export function lineColor(color: ChartColor | undefined, dark: boolean): string {
   const shades = SHADES[color ?? "blue"] ?? SHADES.blue;
@@ -41,5 +45,36 @@ export function bandColor(hex: string, dark: boolean): string {
 }
 
 export function chartStyle(charts: Partial<Record<Metric, ChartStyle>> | undefined, metric: Metric): ChartStyle {
-  return { color: DEFAULT_COLORS[metric], ...DEFAULT_LINES, ...charts?.[metric] };
+  const saved = charts?.[metric];
+  const colors: ChartColor[] = [];
+  DEFAULT_COLORS[metric].forEach((preferred, i) => {
+    // A default never repeats a colour another channel already shows.
+    const free = [preferred, ...CHART_COLORS].find((c) => !colors.includes(c)) ?? preferred;
+    colors.push(saved?.colors?.[i] ?? free);
+  });
+  return { ...DEFAULT_LINES, ...saved, colors };
+}
+
+/** The colour of `channel`'s line. */
+export function channelColor(style: ChartStyle, metric: Metric, channel: number): ChartColor {
+  return style.colors[channel] ?? DEFAULT_COLORS[metric][channel % DEFAULT_COLORS[metric].length];
+}
+
+/** Of `channels` (the lines a chart has), those hidden: never all, so a single line always shows. */
+export function hiddenChannels(style: ChartStyle, channels: number[]): Set<number> {
+  const hidden = channels.filter((c) => style.hidden_channels?.includes(c));
+  return new Set(hidden.length < channels.length ? hidden : []);
+}
+
+/** `style` with `channel`'s line hidden or shown. */
+export function withChannelHidden(style: ChartStyle, channel: number, hidden: boolean): ChartStyle {
+  const rest = (style.hidden_channels ?? []).filter((c) => c !== channel);
+  return { ...style, hidden_channels: hidden ? [...rest, channel].sort((a, b) => a - b) : rest };
+}
+
+/** `style` with `channel`'s line in `color`. */
+export function withChannelColor(style: ChartStyle, channel: number, color: ChartColor): ChartStyle {
+  const colors = [...style.colors];
+  colors[channel] = color;
+  return { ...style, colors };
 }

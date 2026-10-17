@@ -5,6 +5,7 @@
 //! decode functions that are unit tested against datasheet vectors.
 
 pub mod crc;
+pub mod identify;
 pub mod mpl3115a2;
 pub mod opt3001;
 pub mod sht20;

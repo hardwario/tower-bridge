@@ -9,17 +9,20 @@
   import { theme } from "./lib/theme.svelte";
   import StatusPill from "./lib/components/StatusPill.svelte";
   import { live } from "./lib/live.svelte";
+  import { modulesByChannel, sourcesOf } from "./lib/source";
   import Alerts from "./views/Alerts.svelte";
-  import History from "./views/History.svelte";
+  import Data from "./views/Data.svelte";
+  import Manual from "./views/Manual.svelte";
   import Overview from "./views/Overview.svelte";
   import Settings from "./views/Settings.svelte";
 
-  type Tab = "overview" | "history" | "alerts" | "settings";
+  type Tab = "overview" | "data" | "alerts" | "settings" | "manual";
   const TABS: { key: Tab; icon: string }[] = [
     { key: "overview", icon: "gauge" },
-    { key: "history", icon: "chart" },
+    { key: "data", icon: "table" },
     { key: "alerts", icon: "bell" },
     { key: "settings", icon: "sliders" },
+    { key: "manual", icon: "book" },
   ];
 
   let tab = $state<Tab>("overview");
@@ -29,9 +32,8 @@
     live.init().catch((e) => (failed = String(e)));
   });
 
-  const serial = $derived(
-    live.device.status === "ready" || live.device.status === "no_module" ? live.device.device.serial : null,
-  );
+  /** Modules on further channels, below the status pill. */
+  const moreModules = $derived(modulesByChannel(sourcesOf(live.device)).slice(1));
 </script>
 
 <div class="app">
@@ -75,6 +77,12 @@
     </div>
     <div class="status">
       <StatusPill device={live.device} />
+      {#each moreModules as entry (entry.channel)}
+        <span class="relay-status" title={fill(t().common.channel, { n: entry.channel })}>
+          <span class="dot"></span>
+          <span class="label">{entry.names.join(", ")}</span>
+        </span>
+      {/each}
       {#if live.relay}
         <span class="relay-status">
           <span class="dot"></span>
@@ -90,7 +98,6 @@
           >
         </span>
       {/if}
-      {#if serial}<div class="serial mono">{serial}</div>{/if}
     </div>
     <div class="about">
       <div class="links">
@@ -120,10 +127,12 @@
       <div class="center muted">{t().common.loading}</div>
     {:else if tab === "overview"}
       <Overview />
-    {:else if tab === "history"}
-      <History />
+    {:else if tab === "data"}
+      <Data />
     {:else if tab === "alerts"}
       <Alerts />
+    {:else if tab === "manual"}
+      <Manual />
     {:else}
       <Settings />
     {/if}
@@ -253,11 +262,6 @@
   }
   .relay-status .muted {
     font-weight: 400;
-  }
-  .serial {
-    font-size: 11.5px;
-    color: var(--text-muted);
-    padding-left: 15px;
   }
   .about {
     display: flex;

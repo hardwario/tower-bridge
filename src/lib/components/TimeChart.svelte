@@ -1,15 +1,16 @@
 <script lang="ts">
   /**
-   * Interactive time-series chart: average line with min/max band, a dotted
-   * line at the window's average, threshold lines, synced crosshair with a value
-   * tooltip and the exact time on the x-axis. The visible window is shared
+   * Interactive time-series chart: an average line with min/max band per
+   * I²C channel, lines at the window's minimum, average and maximum, threshold
+   * lines, synced crosshair with a value tooltip and the exact time on the
+   * x-axis. The visible window is shared
    * through a ChartGroup: drag to pan, Ctrl/Cmd+scroll or pinch to zoom around
    * the pointer, Shift+drag to zoom into a range. Plain
    * scrolling scrolls the page. The window never leaves the data.
    */
   import uPlot from "uplot";
   import { onDestroy, untrack } from "svelte";
-  import { zoomHint, type ChartGroup } from "../chart-group.svelte";
+  import { seriesOf, zoomHint, type ChartGroup } from "../chart-group.svelte";
   import { fmtAxis, fmtClock, fmtDateTime, fmtNumber } from "../format";
   import { i18n, t } from "../i18n/index.svelte";
   import { bandColor } from "../palette";
@@ -23,7 +24,7 @@
     unit,
     group,
     rule,
-    color,
+    lines,
     show = { min: false, avg: true, max: false },
     height = 170,
     compact = false,
@@ -33,8 +34,8 @@
     unit: TemperatureUnit;
     group: ChartGroup;
     rule?: AlertRule;
-    /** Line colour for the current theme. */
-    color: string;
+    /** One line per I²C channel, with its colour for the current theme and its name; hidden ones stay out of sight. */
+    lines: { channel: number; color: string; name?: string; hidden?: boolean }[];
     /** Horizontal lines at the window's minimum, average and maximum. */
     show?: { min: boolean; avg: boolean; max: boolean };
     height?: number;
@@ -56,10 +57,18 @@
     return arr.map((v) => (v === null ? null : toDisplay(metric, v, unit)));
   }
 
+  /** Each line takes three series after x: min, max, avg. */
   function chartData(): uPlot.AlignedData {
-    const s = history[metric];
-    return [history.t, convert(s.min), convert(s.max), convert(s.avg)];
+    const none = history.t.map(() => null);
+    const data: (number | null)[][] = [];
+    for (const line of lines) {
+      const s = seriesOf(history, metric, line.channel);
+      data.push(s ? convert(s.min) : none, s ? convert(s.max) : none, s ? convert(s.avg) : none);
+    }
+    return [history.t, ...data] as uPlot.AlignedData;
   }
+
+  const avgIndex = (k: number) => 3 + k * 3;
 
   function xRange(): [number, number] {
     return group.zoom ?? group.home ?? [history.from / 1000, history.to / 1000];
@@ -92,7 +101,7 @@
     return [i0, i1];
   }
 
-  function drawOverlays(u: uPlot, th: ChartTheme, lines: number[]) {
+  function drawOverlays(u: uPlot, th: ChartTheme, limits: number[]) {
     const ctx = u.ctx;
     const pr = uPlot.pxRatio;
     const { left, width: w } = u.bbox;
@@ -103,7 +112,7 @@
     ctx.strokeStyle = th.critical;
     ctx.lineWidth = 1.5 * pr;
     ctx.setLineDash([5 * pr, 4 * pr]);
-    for (const v of lines) {
+    for (const v of limits) {
       if (v < lo || v > hi) continue;
       const y = Math.round(u.valToPos(v, "y", true)) + 0.5;
       ctx.beginPath();
@@ -112,27 +121,8 @@
       ctx.stroke();
     }
 
-    // Minimum, average and maximum of the visible window.
+    // Minimum, average and maximum of the visible window, per line.
     const [i0, i1] = visibleRange(u);
-    const mins = u.data[1] as (number | null)[];
-    const maxs = u.data[2] as (number | null)[];
-    const avgs = u.data[3] as (number | null)[];
-    let sum = 0;
-    let n = 0;
-    let min = Infinity;
-    let max = -Infinity;
-    for (let i = i0; i <= i1; i++) {
-      const a = avgs[i];
-      if (a === null) continue;
-      sum += a;
-      n++;
-      min = Math.min(min, mins[i] ?? a);
-      max = Math.max(max, maxs[i] ?? a);
-    }
-    if (n === 0) {
-      ctx.restore();
-      return;
-    }
     const level = (v: number, stroke: string, dash: number[], width: number) => {
       const y = Math.round(u.valToPos(v, "y", true)) + 0.5;
       ctx.strokeStyle = stroke;
@@ -143,10 +133,30 @@
       ctx.lineTo(left + w, y);
       ctx.stroke();
     };
-    // Extremes dashed in the line's colour, the average dotted and neutral.
-    if (show.min) level(min, color, [6, 3], 1.25);
-    if (show.max) level(max, color, [6, 3], 1.25);
-    if (show.avg) level(sum / n, th.muted, [2, 3], 1);
+    lines.forEach((line, k) => {
+      if (line.hidden) return;
+      const mins = u.data[avgIndex(k) - 2] as (number | null)[];
+      const maxs = u.data[avgIndex(k) - 1] as (number | null)[];
+      const avgs = u.data[avgIndex(k)] as (number | null)[];
+      let sum = 0;
+      let n = 0;
+      let min = Infinity;
+      let max = -Infinity;
+      for (let i = i0; i <= i1; i++) {
+        const a = avgs[i];
+        if (a === null) continue;
+        sum += a;
+        n++;
+        min = Math.min(min, mins[i] ?? a);
+        max = Math.max(max, maxs[i] ?? a);
+      }
+      if (n === 0) return;
+      // Extremes dashed in the line's colour; the average dotted, neutral
+      // for a single line and in the line's colour when there are several.
+      if (show.min) level(min, line.color, [6, 3], 1.25);
+      if (show.max) level(max, line.color, [6, 3], 1.25);
+      if (show.avg) level(sum / n, lines.length > 1 ? line.color : th.muted, [2, 3], 1);
+    });
     ctx.setLineDash([]);
     ctx.restore();
   }
@@ -154,27 +164,48 @@
   function updateCursor(u: uPlot, d: number, label: string) {
     const idx = u.cursor.idx;
     const left = u.cursor.left ?? -1;
-    const avg = idx === null || idx === undefined ? null : (u.data[3][idx] as number | null);
-    if (idx === null || idx === undefined || avg === null || left < 0) {
+    const at = (series: number) => (idx === null || idx === undefined ? null : (u.data[series][idx] as number | null));
+    const values = lines
+      .map((line, k) => ({ line, avg: at(avgIndex(k)), lo: at(avgIndex(k) - 2), hi: at(avgIndex(k) - 1) }))
+      .filter((v) => !v.line.hidden);
+    if (idx === null || idx === undefined || left < 0 || values.every((v) => v.avg === null)) {
       tip.style.display = "none";
       pill.style.display = "none";
       return;
     }
-    const lo = u.data[1][idx] as number | null;
-    const hi = u.data[2][idx] as number | null;
     const ts = u.data[0][idx] * 1000;
 
     tip.replaceChildren();
-    const v = document.createElement("div");
-    v.className = "v";
-    v.textContent = `${fmtNumber(avg, d)} ${label}`;
-    tip.append(v);
-    const [loText, hiText] = [lo, hi].map((x) => (x === null ? null : fmtNumber(x, d)));
-    if (loText !== null && hiText !== null && loText !== hiText) {
-      const r = document.createElement("div");
-      r.className = "r";
-      r.textContent = `${loText} – ${hiText}`;
-      tip.append(r);
+    for (const { line, avg, lo, hi } of values) {
+      if (avg === null) continue;
+      const row = document.createElement("div");
+      row.className = "row";
+      const v = document.createElement("div");
+      v.className = "v";
+      if (lines.length > 1) {
+        // Which line: its colour.
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        dot.style.background = line.color;
+        v.append(dot);
+      }
+      v.append(`${fmtNumber(avg, d)} ${label}`);
+      if (lines.length > 1 && line.name) {
+        // Colour alone does not tell the lines apart for everyone.
+        const n = document.createElement("span");
+        n.className = "n";
+        n.textContent = line.name;
+        v.append(n);
+      }
+      row.append(v);
+      const [loText, hiText] = [lo, hi].map((x) => (x === null ? null : fmtNumber(x, d)));
+      if (loText !== null && hiText !== null && loText !== hiText) {
+        const r = document.createElement("div");
+        r.className = "r";
+        r.textContent = `${loText} … ${hiText}`;
+        row.append(r);
+      }
+      tip.append(row);
     }
     tip.style.display = "block";
     const x = u.over.offsetLeft + left;
@@ -264,7 +295,7 @@
     const th = chartTheme();
     const d = decimals(metric);
     const label = unitLabel(metric, unit);
-    const lines = thresholds();
+    const limits = thresholds();
     const fontFamily = getComputedStyle(document.documentElement).getPropertyValue("--font").trim();
     const axisFont = `${compact ? 10 : 11}px ${fontFamily}`;
 
@@ -284,10 +315,10 @@
           },
         },
         points: {
-          size: (_u, i) => (i === 3 ? 8 : 0),
+          size: (_u, i) => (i > 0 && i % 3 === 0 ? 8 : 0),
           width: 2,
           stroke: () => th.surface,
-          fill: () => color,
+          fill: (_u, i) => lines[Math.floor((i - 1) / 3)]?.color ?? th.muted,
         },
       },
       scales: {
@@ -331,13 +362,19 @@
       ],
       series: [
         {},
-        { stroke: "transparent", points: { show: false } },
-        { stroke: "transparent", points: { show: false } },
-        { stroke: color, width: 2, points: { show: false } },
+        // A hidden line's series are left out of the drawing and the y range.
+        ...lines.flatMap((line) => [
+          { stroke: "transparent", show: !line.hidden, points: { show: false } },
+          { stroke: "transparent", show: !line.hidden, points: { show: false } },
+          { stroke: line.color, width: 2, show: !line.hidden, points: { show: false } },
+        ]),
       ],
-      bands: [{ series: [2, 1], fill: bandColor(color, theme.effective === "dark") }],
+      bands: lines.map((line, k) => ({
+        series: [avgIndex(k) - 1, avgIndex(k) - 2] as [number, number],
+        fill: bandColor(line.color, theme.effective === "dark"),
+      })),
       hooks: {
-        draw: [(u) => drawOverlays(u, th, lines)],
+        draw: [(u) => drawOverlays(u, th, limits)],
         setCursor: [(u) => updateCursor(u, d, label)],
         setSelect: [
           (u) => {
@@ -360,7 +397,7 @@
     void [
       unit,
       rule,
-      color,
+      linesKey,
       show.min,
       show.avg,
       show.max,
@@ -371,14 +408,21 @@
       i18n.lang,
       i18n.dateFormat,
       i18n.timeFormat,
+      i18n.decimal,
       fontsReady,
     ];
     untrack(build);
   });
 
+  /** What the lines are; a new array with the same lines is no change. */
+  const linesKey = $derived(lines.map((l) => `${l.channel}:${l.color}:${l.name ?? ""}:${l.hidden ? 1 : 0}`).join());
+
   // New data or zoom: update in place, keeping the crosshair where it is.
+  // Only new data, a zoom or other lines count, not a parent re-rendering.
   $effect(() => {
-    const data = chartData();
+    void history;
+    void linesKey;
+    const data = untrack(chartData);
     const [xMin, xMax] = xRange();
     if (!plot) return;
     plot.setData(data);
@@ -393,7 +437,7 @@
   class:compact
   bind:clientWidth={width}
   style:height="{height}px"
-  style:--series={color}
+  style:--series={(lines.find((l) => !l.hidden) ?? lines[0])?.color}
   role="img"
   aria-label="{t().metrics[metric]} ({unitLabel(metric, unit)})"
   title={zoomHint()}
@@ -423,9 +467,26 @@
     pointer-events: none;
     white-space: nowrap;
   }
+  .tip :global(.row + .row) {
+    margin-top: 3px;
+  }
   .tip :global(.v) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
+  }
+  .tip :global(.n) {
+    margin-left: 4px;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+  .tip :global(.dot) {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
   }
   .tip :global(.r) {
     font-size: 12px;

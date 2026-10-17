@@ -19,19 +19,22 @@ use crate::tray::TrayController;
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum MqttState {
     Disabled,
+    /// Connecting to the broker, or again after it dropped; `error` says why
+    /// the last attempt failed.
     #[serde(rename_all = "snake_case")]
-    Running {
+    Connecting {
+        address: String,
+        error: Option<String>,
+    },
+    /// Publishing to the broker.
+    #[serde(rename_all = "snake_case")]
+    Connected {
         address: String,
     },
+    /// Cannot connect at all (`no_host`: no broker set).
     #[serde(rename_all = "snake_case")]
     Error {
         message: String,
-    },
-    /// Settings changed in a way that needs an app restart (the broker
-    /// cannot be stopped or re-bound while running).
-    #[serde(rename_all = "snake_case")]
-    RestartRequired {
-        reason: String,
     },
 }
 
@@ -55,7 +58,11 @@ pub enum ApiState {
 
 pub struct AppState {
     pub settings: RwLock<Arc<Settings>>,
-    pub latest: RwLock<Option<Reading>>,
+    /// Held across read, change, save and swap of the settings, so changes
+    /// from the dashboard, the tray and the API never overwrite each other.
+    pub settings_lock: parking_lot::Mutex<()>,
+    /// The latest reading of each I2C channel, in channel order.
+    pub latest: RwLock<Vec<Reading>>,
     pub device: RwLock<DeviceState>,
     /// Detected Relay Module, if any.
     pub relay: RwLock<Option<RelayInfo>>,
@@ -72,5 +79,14 @@ pub struct AppState {
 impl AppState {
     pub fn settings(&self) -> Arc<Settings> {
         self.settings.read().clone()
+    }
+
+    /// Keep `r` as the latest reading of its channel.
+    pub fn set_latest(&self, r: Reading) {
+        let mut latest = self.latest.write();
+        match latest.binary_search_by_key(&r.channel, |x| x.channel) {
+            Ok(i) => latest[i] = r,
+            Err(i) => latest.insert(i, r),
+        }
     }
 }

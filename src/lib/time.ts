@@ -1,11 +1,16 @@
-export type RangeKey = "1h" | "6h" | "24h" | "7d" | "30d" | "custom";
+export type Span = "1h" | "6h" | "24h" | "7d" | "30d" | "90d" | "365d";
 
-export const RANGES: { key: RangeKey; label: string; ms: number }[] = [
-  { key: "1h", label: "1 hour", ms: 3_600_000 },
-  { key: "6h", label: "6 hours", ms: 6 * 3_600_000 },
-  { key: "24h", label: "24 hours", ms: 86_400_000 },
-  { key: "7d", label: "7 days", ms: 7 * 86_400_000 },
-  { key: "30d", label: "30 days", ms: 30 * 86_400_000 },
+const DAY = 86_400_000;
+
+/** The time spans of the Dashboard and the Data page; longer ones refresh less often (a new reading barely moves them). */
+export const SPANS: { key: Span; ms: number; refreshMs: number }[] = [
+  { key: "1h", ms: 3_600_000, refreshMs: 5_000 },
+  { key: "6h", ms: 6 * 3_600_000, refreshMs: 30_000 },
+  { key: "24h", ms: DAY, refreshMs: 60_000 },
+  { key: "7d", ms: 7 * DAY, refreshMs: 300_000 },
+  { key: "30d", ms: 30 * DAY, refreshMs: 900_000 },
+  { key: "90d", ms: 90 * DAY, refreshMs: 1_800_000 },
+  { key: "365d", ms: 365 * DAY, refreshMs: 3_600_000 },
 ];
 
 export function startOfDay(ts = Date.now()): number {

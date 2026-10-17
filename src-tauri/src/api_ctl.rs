@@ -122,7 +122,7 @@ impl ApiBackend for AppApiBackend {
         self.state().device.read().clone()
     }
 
-    fn latest(&self) -> Option<Reading> {
+    fn latest(&self) -> Vec<Reading> {
         self.state().latest.read().clone()
     }
 
@@ -168,15 +168,13 @@ impl ApiBackend for AppApiBackend {
     }
 
     fn set_alert_rule(&self, metric: Metric, rule: AlertRule) -> Result<AlertRules, ApiError> {
-        let mut settings = (*self.state().settings()).clone();
-        match metric {
+        let saved = crate::actions::update_settings(&self.app, |settings| match metric {
             Metric::Temperature => settings.alerts.temperature = rule,
             Metric::Humidity => settings.alerts.humidity = rule,
             Metric::Illuminance => settings.alerts.illuminance = rule,
             Metric::Pressure => settings.alerts.pressure = rule,
-        }
-        let saved = crate::actions::apply_settings(&self.app, settings)
-            .map_err(|e| ApiError::Internal(format!("cannot save settings: {e}")))?;
+        })
+        .map_err(|e| ApiError::Internal(format!("cannot save settings: {e}")))?;
         Ok(saved.alerts.clone())
     }
 

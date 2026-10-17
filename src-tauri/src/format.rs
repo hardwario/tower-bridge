@@ -7,12 +7,28 @@ use std::sync::OnceLock;
 use crate::i18n::Lang;
 use crate::settings::{TemperatureUnit, TimeFormat};
 
-/// Use the language's decimal separator.
-fn localize(s: String, lang: Lang) -> String {
-    if lang.decimal_comma() {
-        s.replace('.', ",")
-    } else {
-        s
+/// The decimal separator of displayed numbers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decimal {
+    Point,
+    Comma,
+}
+
+/// The language's usual separator.
+impl From<Lang> for Decimal {
+    fn from(lang: Lang) -> Self {
+        if lang.decimal_comma() {
+            Decimal::Comma
+        } else {
+            Decimal::Point
+        }
+    }
+}
+
+fn localize(s: String, dec: impl Into<Decimal>) -> String {
+    match dec.into() {
+        Decimal::Comma => s.replace('.', ","),
+        Decimal::Point => s,
     }
 }
 
@@ -47,17 +63,37 @@ fn decimals(metric: Metric) -> usize {
     }
 }
 
+/// "-0.0" rounds a small negative number; it reads as "0.0".
+fn no_negative_zero(s: String) -> String {
+    match s.strip_prefix('-') {
+        Some(rest)
+            if rest
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .all(|c| c == '0' || c == '.') =>
+        {
+            rest.to_string()
+        }
+        _ => s,
+    }
+}
+
 /// "23.4 °C", "45.2 %", "320 lx", "1013.2 hPa" (decimal comma where usual)
-pub fn full(metric: Metric, v: f64, unit: TemperatureUnit, lang: Lang) -> String {
+pub fn full(metric: Metric, v: f64, unit: TemperatureUnit, dec: impl Into<Decimal>) -> String {
     let d = display_value(metric, v, unit);
     localize(
-        format!("{:.*} {}", decimals(metric), d, unit_label(metric, unit)),
-        lang,
+        no_negative_zero(format!(
+            "{:.*} {}",
+            decimals(metric),
+            d,
+            unit_label(metric, unit)
+        )),
+        dec,
     )
 }
 
 /// Compact form for the macOS menu bar / Linux indicator label.
-pub fn short(metric: Metric, v: f64, unit: TemperatureUnit, lang: Lang) -> String {
+pub fn short(metric: Metric, v: f64, unit: TemperatureUnit, dec: impl Into<Decimal>) -> String {
     let d = display_value(metric, v, unit);
     let s = match metric {
         Metric::Temperature => format!("{d:.1}°"),
@@ -65,21 +101,25 @@ pub fn short(metric: Metric, v: f64, unit: TemperatureUnit, lang: Lang) -> Strin
         Metric::Illuminance => format!("{d:.0} lx"),
         Metric::Pressure => format!("{d:.0} hPa"),
     };
-    localize(s, lang)
+    localize(no_negative_zero(s), dec)
 }
 
 /// At most four characters for the Windows tray tile.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn tile(metric: Metric, v: f64, unit: TemperatureUnit, lang: Lang) -> String {
+pub fn tile(metric: Metric, v: f64, unit: TemperatureUnit, dec: impl Into<Decimal>) -> String {
     let d = display_value(metric, v, unit);
-    let s = if d.abs() >= 9_999.5 {
-        format!("{:.0}k", d / 1000.0)
+    let k = d / 1000.0;
+    // "9.9k" but "10k": one decimal only while it stays below ten.
+    let s = if d.abs() >= 9_999.5
+        || (metric == Metric::Illuminance && (k * 10.0).round().abs() >= 100.0)
+    {
+        format!("{k:.0}k")
     } else if metric == Metric::Illuminance && d.abs() >= 999.5 {
-        format!("{:.1}k", d / 1000.0)
+        format!("{k:.1}k")
     } else {
         format!("{d:.0}")
     };
-    localize(s, lang)
+    localize(no_negative_zero(s), dec)
 }
 
 /// English regions whose usual clock is 12-hour. Like the dashboard, English
@@ -135,11 +175,49 @@ mod tests {
     }
 
     #[test]
+    fn a_tile_never_takes_more_than_four_characters() {
+        let c = TemperatureUnit::Celsius;
+        for metric in Metric::ALL {
+            let mut v = -60.0;
+            while v < 200_000.0 {
+                let t = tile(metric, v, c, Lang::En);
+                assert!(t.chars().count() <= 4, "{metric:?} {v} gives {t:?}");
+                v += if v < 2000.0 { 0.37 } else { 9.7 };
+            }
+        }
+        assert_eq!(tile(Metric::Illuminance, 9960.0, c, Lang::En), "10k");
+        assert_eq!(tile(Metric::Illuminance, 9940.0, c, Lang::En), "9.9k");
+    }
+
+    #[test]
+    fn small_negative_values_read_as_zero() {
+        let c = TemperatureUnit::Celsius;
+        assert_eq!(full(Metric::Temperature, -0.04, c, Lang::En), "0.0 °C");
+        assert_eq!(short(Metric::Temperature, -0.04, c, Lang::Cs), "0,0°");
+        assert_eq!(tile(Metric::Temperature, -0.4, c, Lang::En), "0");
+        assert_eq!(tile(Metric::Temperature, -4.4, c, Lang::En), "-4");
+        assert_eq!(full(Metric::Temperature, -0.06, c, Lang::En), "-0.1 °C");
+    }
+
+    #[test]
     fn decimal_comma() {
         let c = TemperatureUnit::Celsius;
         assert_eq!(full(Metric::Temperature, 23.456, c, Lang::Cs), "23,5 °C");
         assert_eq!(short(Metric::Temperature, 23.456, c, Lang::De), "23,5°");
         assert_eq!(tile(Metric::Illuminance, 1234.0, c, Lang::Pl), "1,2k");
+    }
+
+    #[test]
+    fn a_chosen_separator_beats_the_language() {
+        let c = TemperatureUnit::Celsius;
+        assert_eq!(
+            full(Metric::Temperature, 23.456, c, Decimal::Point),
+            "23.5 °C"
+        );
+        assert_eq!(
+            short(Metric::Temperature, 23.456, c, Decimal::Comma),
+            "23,5°"
+        );
     }
 
     #[test]

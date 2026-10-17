@@ -1,7 +1,6 @@
 //! Tauri commands used by the dashboard.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -64,7 +63,8 @@ pub struct AppInfo {
 pub struct Snapshot {
     device: DeviceState,
     relay: Option<RelayInfo>,
-    latest: Option<Reading>,
+    /// The latest reading of each I2C channel.
+    latest: Vec<Reading>,
     settings: Settings,
     open_at_login: bool,
     mqtt: MqttState,
@@ -271,6 +271,7 @@ pub async fn export_xlsx(
             sheet: tr.xlsx_sheet.into(),
             time: tr.xlsx_time.into(),
             device: tr.xlsx_device.into(),
+            channel: tr.xlsx_channel.into(),
             temperature: format!(
                 "{} ({})",
                 tr.metric(Metric::Temperature),
@@ -333,14 +334,6 @@ pub async fn rescan_device(app: AppHandle) -> CmdResult<RescanOutcome> {
     tauri::async_runtime::spawn_blocking(move || crate::actions::rescan(&app))
         .await?
         .map_err(acq_error)
-}
-
-/// Async so it runs off the main thread: shutdown waits for the hub thread,
-/// which may itself be waiting for the main thread (tray updates).
-#[tauri::command]
-pub async fn restart_app(app: AppHandle) {
-    crate::shutdown(&app, Duration::from_millis(500));
-    app.restart();
 }
 
 #[tauri::command]

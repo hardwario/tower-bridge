@@ -3,8 +3,9 @@ import { METRICS, type Metric } from "./types";
 /** Panels on the overview, in the order the user arranged them. */
 export type PanelId = Metric | "relay" | "device";
 
-const DEFAULT_ORDER: PanelId[] = [...METRICS, "relay", "device"];
-const KEY = "tower-bridge.overview.layout";
+const DEFAULT_ORDER: PanelId[] = ["relay", ...METRICS, "device"];
+/** v2: the relay moved to the top; earlier saved orders start over once. */
+const KEY = "tower-bridge.overview.layout.v2";
 
 function load(): { order: PanelId[]; maximized: Metric | null } {
   let saved: { order?: unknown; maximized?: unknown } = {};

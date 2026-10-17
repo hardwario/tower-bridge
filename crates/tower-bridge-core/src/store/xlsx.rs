@@ -20,6 +20,7 @@ pub struct XlsxLabels {
     pub sheet: String,
     pub time: String,
     pub device: String,
+    pub channel: String,
     pub temperature: String,
     pub humidity: String,
     pub illuminance: String,
@@ -71,6 +72,7 @@ fn start_sheet<'a>(
     let headers = [
         &labels.time,
         &labels.device,
+        &labels.channel,
         &labels.temperature,
         &labels.humidity,
         &labels.illuminance,
@@ -82,7 +84,7 @@ fn start_sheet<'a>(
             .write_string_with_format(0, col as u16, text.as_str(), &f.header)
             .map_err(xlsx_err)?;
     }
-    for (col, width) in [20.0, 14.0, 18.0, 16.0, 18.0, 16.0, 18.0]
+    for (col, width) in [20.0, 14.0, 12.0, 18.0, 16.0, 18.0, 16.0, 18.0]
         .iter()
         .enumerate()
     {
@@ -94,8 +96,8 @@ fn start_sheet<'a>(
     Ok(sheet)
 }
 
-/// Export readings in `[from, to)` to `path` (written to `<path>.part`,
-/// renamed on success). `progress(done, total)` may return `false` to cancel.
+/// Export readings in `[from, to)` to `path`, one row per cycle and I2C
+/// channel (written to `<path>.part`, renamed on success). `progress(done, total)` may return `false` to cancel.
 pub fn export_xlsx_to_file(
     conn: &Connection,
     path: &Path,
@@ -122,9 +124,9 @@ pub fn export_xlsx_to_file(
 
     let mut workbook = Workbook::new();
     let mut stmt = conn.prepare(
-        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure
+        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel
          FROM readings r JOIN devices d ON d.id = r.device_id
-         WHERE r.ts >= ?1 AND r.ts < ?2 ORDER BY r.ts",
+         WHERE r.ts >= ?1 AND r.ts < ?2 ORDER BY r.ts, r.channel",
     )?;
     let mut rows = stmt.query(params![from, to])?;
 
@@ -174,10 +176,14 @@ pub fn export_xlsx_to_file(
                 .map_err(xlsx_err)?;
         }
         sheet.write_string(row, 1, serial).map_err(xlsx_err)?;
+        let channel: i64 = r.get(6)?;
+        sheet
+            .write_number(row, 2, channel as f64)
+            .map_err(xlsx_err)?;
         for (i, v) in values.iter().enumerate() {
             if let Some(v) = v {
                 sheet
-                    .write_number_with_format(row, 2 + i as u16, *v, &formats.numbers[i])
+                    .write_number_with_format(row, 3 + i as u16, *v, &formats.numbers[i])
                     .map_err(xlsx_err)?;
             }
         }
@@ -190,7 +196,7 @@ pub fn export_xlsx_to_file(
     last_row_per_sheet.push(row);
     for (i, last) in last_row_per_sheet.iter().enumerate() {
         if let Ok(s) = workbook.worksheet_from_index(i) {
-            let _ = s.autofilter(0, 0, (*last).max(1), 6);
+            let _ = s.autofilter(0, 0, (*last).max(1), 7);
         }
     }
 
@@ -222,6 +228,7 @@ mod tests {
             sheet: "Měření".into(),
             time: "Čas".into(),
             device: "Zařízení".into(),
+            channel: "Kanál I²C".into(),
             temperature: "Teplota (°C)".into(),
             humidity: "Vlhkost (%)".into(),
             illuminance: "Osvětlení (lx)".into(),

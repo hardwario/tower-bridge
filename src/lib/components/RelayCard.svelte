@@ -96,7 +96,7 @@
       <span class="dot"></span>{relay.state === null ? m.unknown : name(relay.state)}
     </span>
     <span class="spacer"></span>
-    {#if source}<SourceInfo {source} />{/if}
+    {#if source}<SourceInfo sources={[source]} />{/if}
     {#if ondragstart}<DragHandle onstart={ondragstart} />{/if}
   </div>
 
@@ -118,6 +118,17 @@
     </div>
 
     <div class="group" role="group" aria-label={m.pulse}>
+      <label class="length">
+        <span class="muted">{m.pulseDuration}</span>
+        <input
+          class="input num"
+          inputmode="decimal"
+          value={fmtInput(pulseS)}
+          disabled={remaining !== null}
+          onchange={(e) => setPulseLength(e.currentTarget.value, e.currentTarget)}
+        />
+        <span class="muted">s</span>
+      </label>
       {#each STATES as to (to)}
         {@const running = pulsingTo === to}
         {@const hint = running ? m.stopPulse : fill(to ? m.pulseToTrue : m.pulseToFalse, { time: seconds(pulseS) })}
@@ -132,31 +143,18 @@
           disabled={busy || (remaining !== null && !running)}
           onclick={() => pulse(to)}
         >
-          <span class="label">{to ? m.pulseTrue : m.pulseFalse}</span>
+          <span class="label"
+            ><Icon name={to ? "pulse-high" : "pulse-low"} size={15} />{to ? m.pulseTrue : m.pulseFalse}</span
+          >
         </button>
       {/each}
-      <label class="length">
-        <span class="muted">{m.pulseDuration}</span>
-        <input
-          class="input num"
-          inputmode="decimal"
-          value={fmtInput(pulseS)}
-          disabled={remaining !== null}
-          onchange={(e) => setPulseLength(e.currentTarget.value, e.currentTarget)}
-        />
-        <span class="muted">s</span>
-      </label>
     </div>
   </div>
 
-  {#if error || remaining !== null || relay.state === null}
+  {#if error || relay.state === null}
     <p class="detail" class:error={!!error}>
       {#if error}
         <Icon name="warning" size={14} /> {error}
-      {:else if remaining !== null}
-        {fill(relay.state === false ? m.returnsTrue : m.returnsFalse, {
-          time: `${fmtNumber(remaining / 1000, 1)} s`,
-        })} · {m.stopHint}
       {:else}
         {m.unknownHint}
       {/if}
@@ -222,11 +220,11 @@
     flex-wrap: wrap;
     gap: 8px;
   }
-  /* The button of the current state. */
+  /* The button of the current state: border, background and a lit LED, never
+     a heavier weight (bolder text is wider, so the button would grow). */
   .activate.current {
     border-color: var(--text-2);
     background: var(--surface-2);
-    font-weight: 600;
   }
   .dot.on {
     --led: var(--good);
@@ -256,12 +254,15 @@
   }
   .pulse-btn .label {
     position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .length {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-left: 6px;
+    margin-right: 4px;
     font-size: 13px;
   }
   .length .input {

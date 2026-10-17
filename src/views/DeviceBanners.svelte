@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { api } from "../lib/api";
   import Icon from "../lib/components/Icon.svelte";
   import { deviceActions } from "../lib/device-actions.svelte";
   import Banner from "../lib/components/Banner.svelte";
@@ -54,15 +53,6 @@
         {#if deviceActions.busy === "rescan"}<Icon name="loader" size={14} /> {t().overview.rescanning}{:else}{t()
             .common.retry}{/if}
       </button>
-    {/snippet}
-  </Banner>
-{/if}
-
-{#if live.mqtt.status === "restart_required"}
-  <Banner kind="warning" title={b.restartTitle}>
-    {live.mqtt.reason === "stop_broker" ? b.restartStopBroker : b.restartApplySettings}
-    {#snippet actions()}
-      <button class="btn primary" onclick={() => api.restart()}>{t().common.restartNow}</button>
     {/snippet}
   </Banner>
 {/if}

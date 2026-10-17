@@ -1,6 +1,6 @@
 [package]
 name = "tower-bridge-core"
-description = "HARDWARIO TOWER Bridge Module (FT260) and Climate Module drivers, storage and MQTT"
+description = "HARDWARIO TOWER Bridge Module (FT260), Climate Module and sensor tag drivers, storage and MQTT"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,7 +11,7 @@ rust-version.workspace = true
 [features]
 default = []
 store = ["dep:rusqlite", "dep:chrono"]
-mqtt = ["dep:rumqttd", "dep:bytes", "dep:pollster", "dep:serde_json"]
+mqtt = ["dep:rumqttc", "dep:serde_json"]
 api = ["store", "dep:axum", "dep:tokio", "dep:serde_json"]
 xlsx = ["store", "dep:rust_xlsxwriter"]
 
@@ -22,10 +22,8 @@ serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-bytes = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
-pollster = { workspace = true, optional = true }
-rumqttd = { workspace = true, optional = true }
+rumqttc = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 rust_xlsxwriter = { version = "0.100", optional = true, features = ["constant_memory"] }
 axum = { version = "0.8", optional = true, default-features = false, features = ["http1", "json", "query", "tokio"] }

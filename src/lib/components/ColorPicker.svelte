@@ -5,7 +5,17 @@
   import type { ChartColor } from "../types";
 
   /** Swatch button that opens the eight-colour line palette. */
-  let { value, onchange }: { value: ChartColor; onchange: (c: ChartColor) => void } = $props();
+  let {
+    value,
+    onchange,
+    label,
+  }: {
+    value: ChartColor;
+    onchange: (c: ChartColor) => void;
+    /** Names the line when a panel has several. */
+    label?: string;
+  } = $props();
+  const name = $derived(label ?? t().chart.lineColor);
 
   let open = $state(false);
   let root: HTMLElement;
@@ -32,8 +42,8 @@
   <button
     type="button"
     class="trigger"
-    title={t().chart.lineColor}
-    aria-label={t().chart.lineColor}
+    title={name}
+    aria-label={name}
     aria-haspopup="true"
     aria-expanded={open}
     onclick={() => (open = !open)}

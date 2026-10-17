@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use axum::body::Bytes;
+use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
@@ -17,7 +18,7 @@ use super::mcp::{self, McpServer, RpcError};
 use super::security::{self, Access};
 use super::{ApiBackend, ApiError, format_time, metric_from_str, parse_time};
 use crate::alerts::{AlertRule, Bound};
-use crate::model::Metric;
+use crate::model::{Metric, Reading};
 use crate::relay::{RelayInfo, pulse_from_ms};
 
 #[derive(Clone)]
@@ -76,6 +77,19 @@ impl IntoResponse for HttpError {
 }
 
 type HttpResult<T> = Result<T, HttpError>;
+
+/// Malformed bodies and parameters get the JSON error format too.
+impl From<JsonRejection> for HttpError {
+    fn from(e: JsonRejection) -> Self {
+        Self::new(e.status(), "bad_request", e.body_text())
+    }
+}
+
+impl From<QueryRejection> for HttpError {
+    fn from(e: QueryRejection) -> Self {
+        Self::new(e.status(), "bad_request", e.body_text())
+    }
+}
 
 async fn blocking<T, F>(f: F) -> HttpResult<T>
 where
@@ -176,7 +190,7 @@ async fn status(State(ctx): State<Ctx>) -> Json<Value> {
         "version": info.version,
         "device": ctx.backend.device(),
         "relay": ctx.backend.relay(),
-        "latest_ts": ctx.backend.latest().map(|r| r.ts),
+        "latest_ts": ctx.backend.latest().iter().map(|r| r.ts).max(),
         "sample_interval_s": ctx.backend.sample_interval_s(),
         "active_alerts": ctx.backend.active_alerts(),
         "mcp": policy.mcp,
@@ -184,17 +198,27 @@ async fn status(State(ctx): State<Ctx>) -> Json<Value> {
     }))
 }
 
+/// The latest reading of each I2C channel.
 async fn latest(State(ctx): State<Ctx>) -> HttpResult<Json<Value>> {
-    let r = ctx
-        .backend
-        .latest()
-        .ok_or_else(|| HttpError::new(StatusCode::NOT_FOUND, "no_data", "no measurement yet"))?;
-    let mut v = serde_json::to_value(&r).map_err(|e| {
-        HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", e.to_string())
-    })?;
-    v["time"] = json!(format_time(r.ts));
-    v["stale"] = json!(!ctx.backend.device().is_ready());
-    Ok(Json(v))
+    let latest = ctx.backend.latest();
+    let ts =
+        latest.iter().map(|r| r.ts).max().ok_or_else(|| {
+            HttpError::new(StatusCode::NOT_FOUND, "no_data", "no measurement yet")
+        })?;
+    let mut readings = Vec::with_capacity(latest.len());
+    for r in &latest {
+        let mut v = serde_json::to_value(r).map_err(|e| {
+            HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", e.to_string())
+        })?;
+        v["time"] = json!(format_time(r.ts));
+        readings.push(v);
+    }
+    Ok(Json(json!({
+        "ts": ts,
+        "time": format_time(ts),
+        "stale": !ctx.backend.device().is_ready(),
+        "readings": readings,
+    })))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -218,9 +242,9 @@ fn range(q: &RangeQuery) -> HttpResult<(i64, i64)> {
         (Some(f), _) => {
             parse_time(f).ok_or_else(|| HttpError::bad_request(format!("invalid 'from': {f}")))?
         }
-        (None, Some(h)) if h.is_finite() && h > 0.0 => to - (h * 3_600_000.0) as i64,
+        (None, Some(h)) if h.is_finite() && h > 0.0 => to.saturating_sub((h * 3_600_000.0) as i64),
         (None, Some(_)) => return Err(HttpError::bad_request("'hours' must be positive")),
-        (None, None) => to - 86_400_000,
+        (None, None) => to.saturating_sub(86_400_000),
     };
     if from >= to {
         return Err(HttpError::bad_request("'from' must be before 'to'"));
@@ -228,7 +252,11 @@ fn range(q: &RangeQuery) -> HttpResult<(i64, i64)> {
     Ok((from, to))
 }
 
-async fn readings(State(ctx): State<Ctx>, Query(q): Query<RangeQuery>) -> HttpResult<Json<Value>> {
+async fn readings(
+    State(ctx): State<Ctx>,
+    q: Result<Query<RangeQuery>, QueryRejection>,
+) -> HttpResult<Json<Value>> {
+    let Query(q) = q?;
     let (from, to) = range(&q)?;
     let max_points = q.max_points.unwrap_or(500).clamp(2, 5000);
     let backend = ctx.backend.clone();
@@ -236,7 +264,11 @@ async fn readings(State(ctx): State<Ctx>, Query(q): Query<RangeQuery>) -> HttpRe
     Ok(Json(serde_json::to_value(h).unwrap_or_default()))
 }
 
-async fn readings_csv(State(ctx): State<Ctx>, Query(q): Query<RangeQuery>) -> HttpResult<Response> {
+async fn readings_csv(
+    State(ctx): State<Ctx>,
+    q: Result<Query<RangeQuery>, QueryRejection>,
+) -> HttpResult<Response> {
+    let Query(q) = q?;
     let (from, to) = range(&q)?;
     let backend = ctx.backend.clone();
     let csv = blocking(move || backend.csv(from, to)).await?;
@@ -265,7 +297,11 @@ struct LogQuery {
     limit: Option<usize>,
 }
 
-async fn alert_log(State(ctx): State<Ctx>, Query(q): Query<LogQuery>) -> HttpResult<Json<Value>> {
+async fn alert_log(
+    State(ctx): State<Ctx>,
+    q: Result<Query<LogQuery>, QueryRejection>,
+) -> HttpResult<Json<Value>> {
+    let Query(q) = q?;
     let limit = q.limit.unwrap_or(50).clamp(1, 1000);
     let backend = ctx.backend.clone();
     let log = blocking(move || backend.alert_log(limit)).await?;
@@ -294,8 +330,9 @@ async fn alert_rule(
 async fn update_alert_rule(
     State(ctx): State<Ctx>,
     Path(metric): Path<String>,
-    Json(patch): Json<Value>,
+    patch: Result<Json<Value>, JsonRejection>,
 ) -> HttpResult<Json<AlertRule>> {
+    let Json(patch) = patch?;
     require_control(&ctx)?;
     let m = parse_metric(&metric)?;
     let Value::Object(fields) = patch else {
@@ -327,15 +364,19 @@ async fn update_alert_rule(
     Ok(Json(rules.get(m).clone()))
 }
 
+// Both wait for the bridge (seconds); off the async runtime, so other
+// requests keep being served meanwhile.
 async fn identify(State(ctx): State<Ctx>) -> HttpResult<Json<Value>> {
     require_control(&ctx)?;
-    ctx.backend.identify()?;
+    let backend = ctx.backend.clone();
+    blocking(move || backend.identify()).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
 async fn rescan(State(ctx): State<Ctx>) -> HttpResult<Json<Value>> {
     require_control(&ctx)?;
-    ctx.backend.rescan()?;
+    let backend = ctx.backend.clone();
+    blocking(move || backend.rescan()).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -362,8 +403,12 @@ fn state_field(body: &Value) -> HttpResult<Option<bool>> {
 }
 
 /// `{"state": true | false}`
-async fn set_relay(State(ctx): State<Ctx>, Json(body): Json<Value>) -> HttpResult<Json<RelayInfo>> {
+async fn set_relay(
+    State(ctx): State<Ctx>,
+    body: Result<Json<Value>, JsonRejection>,
+) -> HttpResult<Json<RelayInfo>> {
     require_control(&ctx)?;
+    let Json(body) = body?;
     let state = state_field(&body)?
         .ok_or_else(|| HttpError::bad_request("'state' (true or false) is required"))?;
     if ctx.backend.relay().is_none() {
@@ -417,52 +462,68 @@ async fn metrics(State(ctx): State<Ctx>) -> Response {
     );
     let _ = writeln!(out, "# TYPE tower_bridge_device_ready gauge");
     let _ = writeln!(out, "tower_bridge_device_ready {}", u8::from(ready));
-    if let (true, Some(r)) = (ready, ctx.backend.latest()) {
-        let dev = escape_label(&r.device);
-        let gauges = [
-            ("temperature_celsius", "Temperature", r.values.temperature),
-            (
-                "relative_humidity_percent",
-                "Relative humidity",
-                r.values.humidity,
-            ),
-            ("illuminance_lux", "Illuminance", r.values.illuminance),
-            ("pressure_pascals", "Barometric pressure", r.values.pressure),
-            (
-                "altitude_meters",
-                "Altitude estimated from pressure",
-                r.altitude,
-            ),
-        ];
-        for (name, help, value) in gauges {
-            if let Some(v) = value {
-                let _ = writeln!(out, "# HELP tower_bridge_{name} {help}.");
-                let _ = writeln!(out, "# TYPE tower_bridge_{name} gauge");
-                let _ = writeln!(out, "tower_bridge_{name}{{device=\"{dev}\"}} {v}");
-            }
+    let latest = if ready {
+        ctx.backend.latest()
+    } else {
+        Vec::new()
+    };
+    type Gauge = (&'static str, &'static str, fn(&Reading) -> Option<f64>);
+    let gauges: [Gauge; 6] = [
+        ("temperature_celsius", "Temperature", |r| {
+            r.values.temperature
+        }),
+        ("relative_humidity_percent", "Relative humidity", |r| {
+            r.values.humidity
+        }),
+        ("illuminance_lux", "Illuminance", |r| r.values.illuminance),
+        ("pressure_pascals", "Barometric pressure", |r| {
+            r.values.pressure
+        }),
+        ("altitude_meters", "Altitude estimated from pressure", |r| {
+            r.altitude
+        }),
+        (
+            "last_reading_timestamp_seconds",
+            "Time of the latest reading",
+            |r| Some(r.ts as f64 / 1000.0),
+        ),
+    ];
+    // One sample per I2C channel, all of a metric under one HELP and TYPE.
+    for (name, help, value) in gauges {
+        let samples: Vec<(&Reading, f64)> = latest
+            .iter()
+            .filter_map(|r| value(r).map(|v| (r, v)))
+            .collect();
+        if samples.is_empty() {
+            continue;
         }
-        let _ = writeln!(
-            out,
-            "# HELP tower_bridge_last_reading_timestamp_seconds Time of the latest reading."
-        );
-        let _ = writeln!(
-            out,
-            "# TYPE tower_bridge_last_reading_timestamp_seconds gauge"
-        );
-        let _ = writeln!(
-            out,
-            "tower_bridge_last_reading_timestamp_seconds{{device=\"{dev}\"}} {}",
-            r.ts as f64 / 1000.0
-        );
+        let _ = writeln!(out, "# HELP tower_bridge_{name} {help}.");
+        let _ = writeln!(out, "# TYPE tower_bridge_{name} gauge");
+        for (r, v) in samples {
+            let _ = writeln!(
+                out,
+                "tower_bridge_{name}{{device=\"{}\",channel=\"{}\"}} {v}",
+                escape_label(&r.device),
+                r.channel
+            );
+        }
     }
     // Unknown (never switched) is left out rather than guessed.
-    if let Some(state) = ctx.backend.relay().and_then(|r| r.state) {
+    if let Some((channel, state)) = ctx
+        .backend
+        .relay()
+        .and_then(|r| r.state.map(|s| (r.channel, s)))
+    {
         let _ = writeln!(
             out,
             "# HELP tower_bridge_relay_state Relay Module state: 1 true, 0 false."
         );
         let _ = writeln!(out, "# TYPE tower_bridge_relay_state gauge");
-        let _ = writeln!(out, "tower_bridge_relay_state {}", u8::from(state));
+        let _ = writeln!(
+            out,
+            "tower_bridge_relay_state{{channel=\"{channel}\"}} {}",
+            u8::from(state)
+        );
     }
     let _ = writeln!(
         out,
@@ -470,17 +531,23 @@ async fn metrics(State(ctx): State<Ctx>) -> Response {
     );
     let _ = writeln!(out, "# TYPE tower_bridge_alert_active gauge");
     let active_alerts = ctx.backend.active_alerts();
-    for m in Metric::ALL {
-        for (bound, label) in [(Bound::Low, "low"), (Bound::High, "high")] {
-            let active = active_alerts
-                .iter()
-                .any(|a| a.metric == m && a.bound == bound);
-            let _ = writeln!(
-                out,
-                "tower_bridge_alert_active{{metric=\"{}\",bound=\"{label}\"}} {}",
-                m.as_str(),
-                u8::from(active)
-            );
+    let mut channels: Vec<u8> = device.sources().iter().map(|s| s.channel).collect();
+    channels.extend(active_alerts.iter().map(|a| a.channel));
+    channels.sort_unstable();
+    channels.dedup();
+    for channel in channels {
+        for m in Metric::ALL {
+            for (bound, label) in [(Bound::Low, "low"), (Bound::High, "high")] {
+                let active = active_alerts
+                    .iter()
+                    .any(|a| a.metric == m && a.channel == channel && a.bound == bound);
+                let _ = writeln!(
+                    out,
+                    "tower_bridge_alert_active{{metric=\"{}\",channel=\"{channel}\",bound=\"{label}\"}} {}",
+                    m.as_str(),
+                    u8::from(active)
+                );
+            }
         }
     }
     (

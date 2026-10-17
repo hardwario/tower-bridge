@@ -13,9 +13,12 @@ export interface Values {
   pressure: number | null;
 }
 
+/** The values measured on one I²C channel in one cycle. */
 export interface Reading extends Values {
   ts: number;
   device: string;
+  /** I²C switch channel of the sensors. */
+  channel: number;
   altitude: number | null;
 }
 
@@ -24,6 +27,8 @@ export interface DeviceInfo {
   serial: string;
   path: string;
   chip: string | null;
+  /** TOWER Bridge Modules plugged in, this one included; only this one is read. */
+  bridges_connected: number;
 }
 
 export type DeviceErrorKind = "not_found" | "permission_denied" | "i2c_dev_not_loaded" | "busy" | "failed";
@@ -32,11 +37,17 @@ export type DeviceState =
   | { status: "searching" }
   | { status: "error"; kind: DeviceErrorKind; message: string }
   | { status: "no_module"; device: DeviceInfo }
-  | { status: "ready"; device: DeviceInfo; revision: "R1" | "R2"; channel: number; sources: SensorSource[] };
+  | { status: "ready"; device: DeviceInfo; sources: SensorSource[] };
 
-/** The sensor behind one value and its I²C address. */
+/** A TOWER module or tag that carries sensors. */
+export type ModuleKind =
+  "climate_module_r1" | "climate_module_r2" | "humidity_tag" | "temperature_tag" | "lux_meter_tag" | "barometer_tag";
+
+/** The sensor behind one value: I²C channel, module, part and address. */
 export interface SensorSource {
   metric: Metric;
+  channel: number;
+  module: ModuleKind;
   sensor: string;
   address: number;
 }
@@ -59,15 +70,22 @@ export type DateFormat = "auto" | "iso" | "dmy" | "dmy_slash" | "mdy";
 export type TimeFormat = "auto" | "h24" | "h12";
 export const DATE_FORMATS: DateFormat[] = ["auto", "iso", "dmy", "dmy_slash", "mdy"];
 export const TIME_FORMATS: TimeFormat[] = ["auto", "h24", "h12"];
+/** "auto" follows the language (a comma in cs, sk, de, pl; a point in en). */
+export type DecimalSeparator = "auto" | "point" | "comma";
+export const DECIMAL_SEPARATORS: DecimalSeparator[] = ["auto", "point", "comma"];
 
+/** The MQTT broker the app publishes to, as a client. */
 export interface MqttSettings {
   enabled: boolean;
+  /** Empty until the user enters one. */
+  host: string;
   port: number;
-  allow_lan: boolean;
-  topic_prefix: string;
+  tls: boolean;
   username: string;
   password: string;
-  /** Accept relay commands on <prefix>/relay/set and <prefix>/relay/pulse. */
+  client_id: string;
+  topic_prefix: string;
+  /** Accept relay commands on <prefix>/relay/<channel>/set and .../pulse. */
   allow_control: boolean;
 }
 
@@ -76,10 +94,13 @@ export type ChartColor = "blue" | "green" | "pink" | "gold" | "violet" | "teal" 
 
 /** How one metric's charts look. */
 export interface ChartStyle {
-  color: ChartColor;
+  /** Line colour of each I²C channel (index = channel). */
+  colors: ChartColor[];
   show_min: boolean;
   show_avg: boolean;
   show_max: boolean;
+  /** Channels whose lines the user hid; never all of them. */
+  hidden_channels: number[];
 }
 
 export interface RelaySettings {
@@ -102,6 +123,7 @@ export interface Settings {
   language: LanguagePref;
   date_format: DateFormat;
   time_format: TimeFormat;
+  decimal_separator: DecimalSeparator;
   temperature_unit: TemperatureUnit;
   sample_interval_s: number;
   tray_metric: Metric | null;
@@ -119,9 +141,10 @@ export interface Settings {
 
 export type MqttState =
   | { status: "disabled" }
-  | { status: "running"; address: string }
-  | { status: "error"; message: string }
-  | { status: "restart_required"; reason: string };
+  | { status: "connecting"; address: string; error: string | null }
+  | { status: "connected"; address: string }
+  /** `no_host`: no broker entered. */
+  | { status: "error"; message: string };
 
 export type ApiState =
   | { status: "disabled" }
@@ -132,6 +155,7 @@ export type Bound = "low" | "high";
 
 export interface ActiveAlert {
   metric: Metric;
+  channel: number;
   bound: Bound;
   since: number;
   threshold: number;
@@ -141,6 +165,7 @@ export interface ActiveAlert {
 export interface AlertEvent {
   ts: number;
   metric: Metric;
+  channel: number;
   bound: Bound;
   kind: "triggered" | "recovered";
   value: number;
@@ -151,6 +176,7 @@ export interface AlertEvent {
 export interface AlertLogEntry {
   ts: number;
   metric: Metric;
+  channel: number;
   bound: Bound;
   kind: "triggered" | "recovered";
   value: number;
@@ -163,15 +189,17 @@ export interface Series {
   max: (number | null)[];
 }
 
+/** Each metric has one series per entry of `channels`, aligned with `t` (seconds). */
 export interface History {
   from: number;
   to: number;
   bucket_ms: number;
   t: number[];
-  temperature: Series;
-  humidity: Series;
-  illuminance: Series;
-  pressure: Series;
+  channels: number[];
+  temperature: Series[];
+  humidity: Series[];
+  illuminance: Series[];
+  pressure: Series[];
 }
 
 export interface AppInfo {
@@ -188,7 +216,7 @@ export interface AppInfo {
 export interface RelayInfo {
   channel: number;
   address: number;
-  /** true (left), false (right), or null while unknown: a latching relay cannot be read back. */
+  /** true, false, or null while unknown: a latching relay cannot be read back. */
   state: boolean | null;
   /** End of a running timed pulse (Unix ms); the relay then switches back. */
   pulse_until: number | null;
@@ -197,7 +225,8 @@ export interface RelayInfo {
 export interface Snapshot {
   device: DeviceState;
   relay: RelayInfo | null;
-  latest: Reading | null;
+  /** The latest reading of each I²C channel, in channel order. */
+  latest: Reading[];
   settings: Settings;
   open_at_login: boolean;
   mqtt: MqttState;
@@ -206,7 +235,7 @@ export interface Snapshot {
   app: AppInfo;
 }
 
-export type RescanOutcome = { status: "found"; revision: "R1" | "R2"; channel: number } | { status: "no_module" };
+export type RescanOutcome = { status: "found"; sources: SensorSource[] } | { status: "no_module" };
 
 export interface ExportResult {
   path: string;

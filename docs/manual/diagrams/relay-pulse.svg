@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 200" width="680" height="200" role="img" aria-label="Relay pulse over time">
+<style>
+.mg-card{fill:var(--surface,#fff);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-box{fill:var(--surface-2,#f8f8fa);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-dash{stroke-dasharray:5 4}
+.mg-line{fill:none;stroke:var(--text-muted,#85858e);stroke-width:1.5}
+.mg-guide{fill:none;stroke:var(--border-strong,#d6d6dc);stroke-width:1;stroke-dasharray:3 4}
+.mg-icon{fill:none;stroke:var(--text-muted,#85858e);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mg-t{font-family:var(--font,system-ui,-apple-system,"Segoe UI",sans-serif);font-size:13px;fill:var(--text,#252532)}
+.mg-s{font-size:11.5px;fill:var(--text-2,#55555f)}
+.mg-b{font-weight:600}
+.mg-accent{stroke:var(--accent,#e4002b)}
+.mg-good{fill:var(--good,#0ca30c)}
+.mg-bad{fill:var(--critical,#d03b3b)}
+.mg-crit{stroke:var(--critical,#d03b3b)}
+.mg-crit-weak{fill:var(--critical-weak,rgba(208,59,59,.1))}
+.mg-series{fill:none;stroke:var(--series,#2a78d6);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.mg-num circle{fill:var(--accent,#e4002b)}
+.mg-num text{font-family:var(--font,system-ui,sans-serif);font-size:11.5px;font-weight:700;fill:#fff}
+</style>
+<defs><marker id="mg-pulse-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--text-muted,#85858e)"/></marker></defs>
+<text x="74" y="69" text-anchor="end" class="mg-t mg-b" data-i18n="relay.stateTrue">TRUE</text>
+<text x="74" y="139" text-anchor="end" class="mg-t mg-b" data-i18n="relay.stateFalse">FALSE</text>
+<circle cx="18" cy="64" r="5" class="mg-good"/><circle cx="18" cy="134" r="5" class="mg-bad"/>
+<path d="M84 64H660M84 134H660" class="mg-guide"/>
+<path d="M84 134H230V64H470V134H660" fill="none" style="stroke:var(--text,#252532)" stroke-width="2.5" stroke-linejoin="round"/>
+<rect x="166" y="4" width="128" height="28" rx="7" class="mg-box"/>
+<g transform="translate(176 10) scale(.667)" class="mg-icon" style="stroke:var(--text,#252532)"><path d="M2 17h5V7h10v10h5"/></g>
+<text x="198" y="23" class="mg-t mg-b" style="font-size:12px" data-i18n="relay.pulseTrue">Pulse TRUE</text>
+<path d="M230 33V58" class="mg-line" marker-end="url(#mg-pulse-arrow)"/>
+<path d="M230 160H470M230 152v16M470 152v16" class="mg-line"/>
+<text x="350" y="186" text-anchor="middle" class="mg-t mg-s mg-b" data-i18n="relay.pulseDuration">Pulse duration</text>
+<text x="350" y="153" text-anchor="middle" class="mg-t mg-s">2 s</text>
+</svg>

@@ -5,32 +5,22 @@
   import { ChartGroup, dataExtent, panBounds, windowStats, zoomDetail, zoomHint } from "../lib/chart-group.svelte";
   import { deviceActions } from "../lib/device-actions.svelte";
   import Icon from "../lib/components/Icon.svelte";
-  import MetricCard from "../lib/components/MetricCard.svelte";
+  import MetricCard, { type PanelLine } from "../lib/components/MetricCard.svelte";
   import RelayCard from "../lib/components/RelayCard.svelte";
   import SegmentedControl from "../lib/components/SegmentedControl.svelte";
-  import { fmtDateTime, fmtDuration, fmtNumber } from "../lib/format";
+  import { NO_VALUE, fmtDateTime, fmtDuration, fmtNumber } from "../lib/format";
   import { fill, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
   import { layout } from "../lib/overview-layout.svelte";
-  import { chartStyle } from "../lib/palette";
-  import { metricSource } from "../lib/source";
+  import { channelColor, chartStyle, lineColor } from "../lib/palette";
+  import { theme } from "../lib/theme.svelte";
+  import { channelLabel, channelName, metricChannels, metricSource, moduleLines, sourcesOf } from "../lib/source";
   import type { History, Metric } from "../lib/types";
   import { altitude } from "../lib/units";
   import DragHandle from "../lib/components/DragHandle.svelte";
+  import { SPANS, type Span } from "../lib/time";
   import DeviceBanners from "./DeviceBanners.svelte";
 
-  type Span = "1h" | "6h" | "24h" | "7d" | "30d" | "90d" | "365d";
-  const DAY = 86_400_000;
-  /** Longer spans refresh less often: a new reading barely moves them. */
-  const SPANS: { key: Span; ms: number; refreshMs: number }[] = [
-    { key: "1h", ms: 3_600_000, refreshMs: 5_000 },
-    { key: "6h", ms: 6 * 3_600_000, refreshMs: 30_000 },
-    { key: "24h", ms: DAY, refreshMs: 60_000 },
-    { key: "7d", ms: 7 * DAY, refreshMs: 300_000 },
-    { key: "30d", ms: 30 * DAY, refreshMs: 900_000 },
-    { key: "90d", ms: 90 * DAY, refreshMs: 1_800_000 },
-    { key: "365d", ms: 365 * DAY, refreshMs: 3_600_000 },
-  ];
   const SPAN_KEY = "tower-bridge.overview.span";
 
   function savedSpan(): Span {
@@ -44,7 +34,10 @@
   }
 
   let span = $state<Span>(savedSpan());
-  let history = $state<History | null>(null);
+  // Replaced whole, never changed in place: no deep reactivity needed.
+  let history = $state.raw<History | null>(null);
+  /** Only the newest load may land (an older, slower one must not overwrite it). */
+  let loads = 0;
   let lastFetch = 0;
   const group = new ChartGroup("overview");
   const detail = zoomDetail(group, 240);
@@ -58,8 +51,10 @@
     const conf = SPANS.find((s) => s.key === span) ?? SPANS[2];
     const t = Date.now();
     lastFetch = t;
+    const mine = ++loads;
     try {
       const [h, range] = await Promise.all([api.history(t - conf.ms, t + 1, 240), api.dataRange()]);
+      if (mine !== loads) return;
       history = h;
       group.home = [h.from / 1000, h.to / 1000];
       group.bounds = panBounds(range, h);
@@ -90,11 +85,44 @@
 
   const unit = $derived(live.settings?.temperature_unit ?? "celsius");
   const ready = $derived(live.device.status === "ready");
-  const latest = $derived(ready ? live.latest : null);
+  const latest = $derived(ready ? live.latest : []);
+  const newest = $derived(ready ? live.newestTs : null);
 
-  const alt = $derived(
-    latest?.pressure && live.settings ? altitude(latest.pressure, live.settings.sea_level_pressure_pa) : null,
+  /** One line per I²C channel measuring `m`. */
+  function panelLines(m: Metric): PanelLine[] {
+    // The whole span counts too, so a panel keeps its lines while zooming.
+    return metricChannels(live.device, m, [history, shown], latest).map((channel) => ({
+      channel,
+      name: channelName(live.device, m, channel),
+      value: latest.find((r) => r.channel === channel)?.[m] ?? null,
+      stats: windowStats(shown, m, channel, group.zoom),
+      source: metricSource(live.device, m, channel),
+    }));
+  }
+
+  /** Altitude estimated from each barometer, in channel order. */
+  const altitudes = $derived(
+    live.settings
+      ? latest.flatMap((r) =>
+          r.pressure === null
+            ? []
+            : [
+                {
+                  channel: r.channel,
+                  m: altitude(r.pressure, live.settings!.sea_level_pressure_pa),
+                  name: channelLabel(live.device, "pressure", r.channel),
+                  color: lineColor(
+                    channelColor(chartStyle(live.settings!.charts, "pressure"), "pressure", r.channel),
+                    theme.effective === "dark",
+                  ),
+                },
+              ],
+        )
+      : [],
   );
+  const modules = $derived(moduleLines(sourcesOf(live.device), live.relay));
+  /** Measurement intervals offered in the card, in seconds (other values set through the API also show). */
+  const INTERVALS = [5, 10, 20, 60, 180];
 
   const panels = $derived(layout.order.filter((id) => id !== "relay" || live.relay));
   let innerHeight = $state(800);
@@ -140,6 +168,12 @@
         <DragHandle onstart={(e) => layout.startDrag(e, "device")} />
       </div>
     </div>
+    {#if device && device.bridges_connected > 1}
+      <p class="several-bridges" role="alert">
+        <Icon name="warning" size={14} />
+        <span>{fill(t().overview.severalBridges, { identify: t().overview.identify })}</span>
+      </p>
+    {/if}
     <p class="action-result" class:error={deviceActions.result && !deviceActions.result.ok} role="status" aria-live="polite">
       {#if deviceActions.result}
         <Icon name={deviceActions.result.ok ? "check" : "warning"} size={14} />
@@ -147,27 +181,17 @@
       {/if}
     </p>
     <dl>
-      <div>
-        <dt>{t().overview.serial}</dt>
-        <dd class="mono">{device?.serial ?? "—"}</dd>
-      </div>
-      <div>
-        <dt>{t().overview.module}</dt>
-        <dd>
-          {live.device.status === "ready" ? fill(t().overview.climateModule, { revision: live.device.revision }) : "—"}
+      <div class="modules">
+        <dt>{t().overview.modules}</dt>
+        <!-- One module per line, after its channel: "I²C channel 0: TOWER Climate Module R1". -->
+        <dd class="module-list">
+          {#each modules as m (`${m.channel}:${m.product}`)}
+            <span class="muted">{fill(t().overview.i2cChannel, { n: m.channel })}:</span>
+            <span>{m.product}{#if m.revision}{" "}<span class="revision">{m.revision}</span>{/if}</span>
+          {:else}
+            {NO_VALUE}
+          {/each}
         </dd>
-      </div>
-      <div>
-        <dt>{t().overview.channel}</dt>
-        <dd>{live.device.status === "ready" ? live.device.channel : "—"}</dd>
-      </div>
-      <div>
-        <dt>{t().overview.connection}</dt>
-        <dd>{device ? (device.backend === "hid" ? "USB HID" : "Linux i2c-dev") : "—"}</dd>
-      </div>
-      <div>
-        <dt>{t().overview.interval}</dt>
-        <dd>{live.settings ? fmtDuration(live.settings.sample_interval_s * 1000) : "—"}</dd>
       </div>
     </dl>
   </section>
@@ -176,12 +200,29 @@
 <div class="view">
   <header class="page-head">
     <h1>{t().overview.title}</h1>
-    {#if latest}
-      <span class="updated"
-        ><span class="muted">{t().overview.lastUpdate}</span>
-        <span class="mono">{fmtDateTime(latest.ts, { year: true, seconds: true })}</span></span
-      >
-    {/if}
+    <div class="head-tools">
+      {#if newest !== null}
+        <span class="updated"
+          ><span class="muted">{t().overview.lastUpdate}</span>
+          <span class="mono">{fmtDateTime(newest, { year: true, seconds: true })}</span></span
+        >
+      {/if}
+      {#if live.settings}
+        {@const current = live.settings.sample_interval_s}
+        <label class="interval" title={t().overview.intervalHint}>
+          <span class="muted">{t().overview.interval}</span>
+          <select
+            class="select"
+            value={current}
+            onchange={(e) => live.save((x) => (x.sample_interval_s = Number(e.currentTarget.value)))}
+          >
+            {#each INTERVALS.includes(current) ? INTERVALS : [...INTERVALS, current].sort((a, b) => a - b) as s (s)}
+              <option value={s}>{fmtDuration(s * 1000)}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
+    </div>
   </header>
 
   <DeviceBanners />
@@ -190,7 +231,7 @@
     <SegmentedControl
       label={t().chart.span}
       value={span}
-      options={SPANS.map((s) => ({ value: s.key, label: t().history.ranges[s.key] }))}
+      options={SPANS.map((s) => ({ value: s.key, label: t().chart.ranges[s.key] }))}
       onchange={setSpan}
     />
     {#if group.zoom}
@@ -217,26 +258,30 @@
             {@const m = id as Metric}
             <MetricCard
               metric={m}
-              value={latest ? latest[m] : null}
+              lines={panelLines(m)}
               {unit}
               history={shown}
               {group}
               rule={live.settings?.alerts[m]}
-              stats={windowStats(shown, m, group.zoom)}
-              alert={live.alertFor(m)}
+              alerts={live.alertsFor(m)}
               maximized={layout.maximized === m}
               chartHeight={layout.maximized === m ? tallChart : 120}
               onmaximize={() => layout.toggleMaximize(m)}
               ondragstart={(e) => layout.startDrag(e, m)}
-            style={chartStyle(live.settings?.charts, m)}
-            source={metricSource(live.device, m)}
-            onstyle={(st) => live.save((x) => (x.charts = { ...x.charts, [m]: st }))}
+              style={chartStyle(live.settings?.charts, m)}
+              onstyle={(st) => live.save((x) => (x.charts = { ...x.charts, [m]: st }))}
             >
               {#snippet footer()}
-                {#if m === "pressure" && alt !== null}
-                  <span class="tabular" title={t().overview.altitudeHint}
-                    ><Icon name="mountain" size={12} /> ≈ {fmtNumber(alt, 0)} m</span
-                  >
+                {#if m === "pressure" && altitudes.length}
+                  <span class="altitudes tabular" title={t().overview.altitudeHint}>
+                    <Icon name="mountain" size={12} />
+                    {#each altitudes as a (a.channel)}
+                      <span class="altitude" title={altitudes.length > 1 ? a.name : undefined}>
+                        {#if altitudes.length > 1}<span class="dot" style:background={a.color}></span>{/if}
+                        ≈ {fmtNumber(a.m, 0)} m
+                      </span>
+                    {/each}
+                  </span>
                 {/if}
               {/snippet}
             </MetricCard>
@@ -248,6 +293,13 @@
 </div>
 
 <style>
+  .head-tools {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px 18px;
+  }
   .updated {
     display: inline-flex;
     align-items: center;
@@ -348,6 +400,34 @@
     font-size: 12.5px;
     color: var(--good);
   }
+  /* Which bridge is read is a guess while several are plugged in. */
+  .several-bridges {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 12px 0 0;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--warning-weak);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .several-bridges :global(svg) {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--warning);
+  }
+  .interval {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  /* As tall as the time chip next to it. */
+  .interval .select {
+    height: 26px;
+    font-size: 12.5px;
+  }
   .action-result.error {
     color: var(--warning);
   }
@@ -359,6 +439,41 @@
   }
   dt {
     font-size: 12px;
+    color: var(--text-muted);
+  }
+  .altitudes {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px 10px;
+  }
+  .altitude {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .altitude .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+  }
+  /* The module list may be long. */
+  .modules {
+    grid-column: span 2;
+  }
+  .module-list {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 8px;
+  }
+  .module-list .muted {
+    font-weight: 400;
+  }
+  /* The revision matters far less than the product: small and quiet. */
+  .revision {
+    margin-left: 1px;
+    font-size: 0.72em;
+    font-weight: 600;
+    letter-spacing: 0.03em;
     color: var(--text-muted);
   }
   dd {

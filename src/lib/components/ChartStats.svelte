@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { WindowStats } from "../chart-group.svelte";
-  import { fmtValue } from "../format";
+  import { NO_VALUE, fmtValue } from "../format";
   import { t } from "../i18n/index.svelte";
   import type { ChartStyle, Metric, TemperatureUnit } from "../types";
   import { unitLabel } from "../units";
@@ -30,7 +30,7 @@
   const flag = { min: "show_min", avg: "show_avg", max: "show_max" } as const;
 </script>
 
-<div class="stats" role="group">
+<div class="stats" role="group" aria-label={t().metrics[metric]}>
   {#each KEYS as k (k)}
     {@const on = style[flag[k]]}
     <button
@@ -44,7 +44,7 @@
     >
       <span class="label"><span class="sample"></span>{t().common[k]}</span>
       <span class="value tabular"
-        >{stats ? fmtValue(metric, stats[k], unit) : "—"}<span class="unit">{unitLabel(metric, unit)}</span></span
+        >{stats ? fmtValue(metric, stats[k], unit) : NO_VALUE}<span class="unit">{unitLabel(metric, unit)}</span></span
       >
     </button>
   {/each}

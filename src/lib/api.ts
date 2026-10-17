@@ -36,7 +36,6 @@ export const api = {
   /** Timed pulse to `state` (default: the opposite one) for `durationMs` (default: the setting). */
   pulseRelay: (state?: boolean, durationMs?: number) =>
     invoke<RelayInfo>("pulse_relay", { state: state ?? null, duration_ms: durationMs ?? null }),
-  restart: () => invoke<void>("restart_app"),
   openDataFolder: () => invoke<void>("open_data_folder"),
   revealFile: (path: string) => invoke<void>("reveal_file", { path }),
   /** Open docs / store / academy in the system browser. */

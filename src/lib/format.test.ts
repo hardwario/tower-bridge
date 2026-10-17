@@ -13,6 +13,26 @@ describe("format", () => {
     expect(fmtNumber(1013.25, 1)).toBe("1013.3");
   });
 
+  it("uses the separator chosen in the settings", () => {
+    try {
+      i18n.set("en");
+      i18n.decimal = "comma";
+      expect(fmtNumber(1013.25, 1)).toBe("1013,3");
+      expect(fmtInput(23.5)).toBe("23,5");
+      // An English group comma would read as a decimal one: a narrow space instead.
+      expect(fmtNumber(12400.5, 1)).toBe("12\u202f400,5");
+      i18n.set("de");
+      i18n.decimal = "point";
+      expect(fmtNumber(23.45, 1)).toBe("23.5");
+      expect(fmtNumber(12400.5, 1)).toBe("12\u202f400.5");
+      i18n.set("cs");
+      expect(fmtNumber(12400.5, 1)).toBe("12\u00a0400.5");
+    } finally {
+      i18n.decimal = "auto";
+      i18n.set("en");
+    }
+  });
+
   it("parses either separator", () => {
     expect(parseInput("23,5")).toBe(23.5);
     expect(parseInput(" 1013.25 ")).toBe(1013.25);

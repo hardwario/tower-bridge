@@ -21,8 +21,9 @@ fn fmt(v: Option<f64>, decimals: usize) -> String {
     v.map(|x| format!("{x:.decimals$}")).unwrap_or_default()
 }
 
-/// Write readings in `[from, to)` as CSV. `progress(done, total)` is called
-/// every 10 000 rows and may return `false` to cancel.
+/// Write readings in `[from, to)` as CSV, one row per cycle and I2C channel.
+/// `progress(done, total)` is called every 10 000 rows and may return
+/// `false` to cancel.
 pub fn write_csv<W: Write>(
     conn: &Connection,
     from: i64,
@@ -39,12 +40,12 @@ pub fn write_csv<W: Write>(
     };
     writeln!(
         out,
-        "timestamp,unix_ms,device,{temp_col},humidity_pct,illuminance_lx,pressure_hpa,altitude_m"
+        "timestamp,unix_ms,device,channel,{temp_col},humidity_pct,illuminance_lx,pressure_hpa,altitude_m"
     )?;
     let mut stmt = conn.prepare(
-        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure
+        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel
          FROM readings r JOIN devices d ON d.id = r.device_id
-         WHERE r.ts >= ?1 AND r.ts < ?2 ORDER BY r.ts",
+         WHERE r.ts >= ?1 AND r.ts < ?2 ORDER BY r.ts, r.channel",
     )?;
     let mut rows = stmt.query(params![from, to])?;
     let mut n = 0u64;
@@ -55,6 +56,7 @@ pub fn write_csv<W: Write>(
         let h: Option<f64> = r.get(3)?;
         let l: Option<f64> = r.get(4)?;
         let p: Option<f64> = r.get(5)?;
+        let channel: i64 = r.get(6)?;
         let stamp = Local
             .timestamp_millis_opt(ts)
             .single()
@@ -67,7 +69,7 @@ pub fn write_csv<W: Write>(
         };
         writeln!(
             out,
-            "{stamp},{ts},{serial},{},{},{},{},{}",
+            "{stamp},{ts},{serial},{channel},{},{},{},{},{}",
             fmt(t, 2),
             fmt(h, 1),
             fmt(l, 1),
@@ -146,17 +148,53 @@ mod tests {
         assert_eq!(
             lines.next(),
             Some(
-                "timestamp,unix_ms,device,temperature_c,humidity_pct,illuminance_lx,pressure_hpa,altitude_m"
+                "timestamp,unix_ms,device,channel,temperature_c,humidity_pct,illuminance_lx,pressure_hpa,altitude_m"
             )
         );
         let row: Vec<&str> = lines.next().unwrap_or_default().split(',').collect();
         assert_eq!(row[1], "1700000000000");
         assert_eq!(row[2], "SN1");
-        assert_eq!(row[3], "21.46");
-        assert_eq!(row[4], "40.0");
-        assert_eq!(row[5], "");
-        assert_eq!(row[6], "1000.00");
-        assert_eq!(row[7], "110.9");
+        assert_eq!(row[3], "0");
+        assert_eq!(row[4], "21.46");
+        assert_eq!(row[5], "40.0");
+        assert_eq!(row[6], "");
+        assert_eq!(row[7], "1000.00");
+        assert_eq!(row[8], "110.9");
+        Ok(())
+    }
+
+    #[test]
+    fn rows_are_ordered_by_time_then_channel() -> Result<()> {
+        let mut s = Store::open_in_memory()?;
+        for (ts, channel) in [(2000, 1), (1000, 1), (2000, 0), (1000, 0)] {
+            let mut r = reading(ts, 20.0);
+            r.channel = channel;
+            s.insert(&r)?;
+        }
+        let mut buf = Vec::new();
+        let opts = CsvOptions {
+            fahrenheit: false,
+            sea_level_pa: 101_325.0,
+        };
+        assert_eq!(
+            write_csv(s.conn(), 0, i64::MAX, opts, &mut buf, |_, _| true)?,
+            4
+        );
+        let text = String::from_utf8(buf).map_err(std::io::Error::other)?;
+        let keys: Vec<(String, String)> = text
+            .lines()
+            .skip(1)
+            .map(|l| {
+                let f: Vec<&str> = l.split(',').collect();
+                (f[1].to_string(), f[3].to_string())
+            })
+            .collect();
+        let expected: Vec<(String, String)> =
+            [("1000", "0"), ("1000", "1"), ("2000", "0"), ("2000", "1")]
+                .iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect();
+        assert_eq!(keys, expected);
         Ok(())
     }
 

@@ -13,7 +13,7 @@ use serde_json::{Map, Value, json};
 
 use super::{ApiBackend, ApiError, ApiInfo, format_time, metric_from_str, parse_time};
 use crate::alerts::{AlertRule, Bound};
-use crate::model::{DeviceErrorKind, DeviceState, Metric};
+use crate::model::{DeviceErrorKind, DeviceState, Metric, SensorSource};
 use crate::relay::{RelayInfo, pulse_from_ms};
 
 pub const MODERN_VERSIONS: &[&str] = &["2026-07-28"];
@@ -30,10 +30,12 @@ pub const INTERNAL_ERROR: i64 = -32603;
 pub const HEADER_MISMATCH: i64 = -32020;
 pub const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
 
-const INSTRUCTIONS: &str = "Indoor climate readings from a HARDWARIO TOWER Climate Module connected to this \
-computer through a TOWER Bridge Module: temperature (°C), relative humidity (%), illuminance (lx) and \
-barometric pressure (hPa). Use get_current_readings for the present state, get_history for trends and \
-statistics over a time range, and get_alerts for configured limits and recent alerts.";
+const INSTRUCTIONS: &str = "Climate readings from HARDWARIO TOWER sensors (a Climate Module or sensor tags) \
+connected to this computer through a TOWER Bridge Module: temperature (°C), relative humidity (%), \
+illuminance (lx) and barometric pressure (hPa). Sensors can sit on I2C channel 0 and 1, for example one \
+indoors and one outdoors, so readings come per channel with the module that measured them. Use \
+get_current_readings for the present state, get_history for trends and statistics over a time range, \
+and get_alerts for configured limits and recent alerts.";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RpcError {
@@ -125,15 +127,16 @@ pub fn tool_definitions(allow_control: bool) -> Vec<Value> {
             "name": "get_current_readings",
             "title": "Current readings",
             "description": "Latest temperature (°C), relative humidity (%), illuminance (lx), barometric \
-        pressure (hPa) and estimated altitude (m), with the measurement time and any active alerts.",
+        pressure (hPa) and estimated altitude (m) of each I2C channel, with the measuring module, the \
+        measurement time and any active alerts.",
             "inputSchema": empty_schema(),
             "annotations": read_only,
         }),
         json!({
             "name": "get_history",
             "title": "Reading history",
-            "description": "Averaged readings over a time range plus min/avg/max statistics. Use 'hours' for \
-        a range ending now, or 'from'/'to' for an absolute range.",
+            "description": "Averaged readings over a time range plus min/avg/max statistics, per I2C \
+        channel. Use 'hours' for a range ending now, or 'from'/'to' for an absolute range.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -161,10 +164,9 @@ pub fn tool_definitions(allow_control: bool) -> Vec<Value> {
         json!({
             "name": "get_device_status",
             "title": "Device status",
-            "description": "Connection state of the TOWER Bridge Module and Climate Module, serial number, \
-        module revision, measurement interval and the Relay Module state (true, false, or null when \
-        unknown) when one \
-        is connected.",
+            "description": "Connection state of the TOWER Bridge Module, serial number, the modules and \
+        sensors found on each I2C channel, measurement interval and the Relay Module state (true, false, \
+        or null when unknown) when one is connected.",
             "inputSchema": empty_schema(),
             "annotations": read_only,
         }),
@@ -212,8 +214,8 @@ Stops a running pulse. Fails when no Relay Module is connected.",
             "name": "pulse_relay",
             "title": "Pulse the relay",
             "description": "Switch the TOWER Relay Module to a state for a while, then back to the other one \
-(like pressing a button). Without a state it switches to the opposite of the current one (false when unknown). \
-Returns once the relay has switched over.",
+(like pressing a button). Without a state it switches to the opposite of the current one (false when unknown), \
+or extends a running pulse. Returns once the relay has switched over.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -321,8 +323,8 @@ fn device_status(d: &DeviceState) -> (&'static str, Option<String>) {
         DeviceState::Ready { .. } => ("ready", None),
         DeviceState::Searching => ("searching", None),
         DeviceState::NoModule { .. } => (
-            "no_climate_module",
-            Some("The TOWER Bridge Module is connected but no Climate Module answers.".into()),
+            "no_sensors",
+            Some("The TOWER Bridge Module is connected but no sensor answers.".into()),
         ),
         DeviceState::Error { kind, message } => (
             match kind {
@@ -348,6 +350,20 @@ fn relay_json(r: &RelayInfo) -> Value {
         v["returns_to"] = json!(r.state.map(|s| !s));
     }
     v
+}
+
+/// The modules measuring on `channel`, e.g. `Humidity Tag, Lux Meter Tag`.
+fn source_name(sources: &[SensorSource], channel: u8) -> String {
+    let names: Vec<&str> = crate::model::modules(sources)
+        .into_iter()
+        .filter(|(c, _)| *c == channel)
+        .map(|(_, m)| m.name())
+        .collect();
+    if names.is_empty() {
+        format!("I2C channel {channel}")
+    } else {
+        names.join(", ")
+    }
 }
 
 fn now_ms() -> i64 {
@@ -517,42 +533,15 @@ impl McpServer {
         })
     }
 
-    fn current_readings(&self) -> Value {
-        let device = self.backend.device();
-        let (status, message) = device_status(&device);
-        let mut out = Map::new();
-        out.insert("device_status".into(), json!(status));
-        if let Some(m) = message {
-            out.insert("message".into(), json!(m));
-        }
-        if let DeviceState::Ready { revision, .. } = &device {
-            out.insert("climate_module".into(), json!(revision.as_str()));
-        }
-        match self.backend.latest() {
-            Some(r) => {
-                out.insert("timestamp".into(), json!(format_time(r.ts)));
-                out.insert("age_seconds".into(), json!((now_ms() - r.ts).max(0) / 1000));
-                out.insert("stale".into(), json!(!device.is_ready()));
-                for m in Metric::ALL {
-                    if let Some(v) = r.values.get(m) {
-                        out.insert(friendly_key(m).into(), json!(friendly(m, v)));
-                    }
-                }
-                if let Some(a) = r.altitude {
-                    out.insert("altitude_m".into(), json!(round(a, 1)));
-                }
-            }
-            None => {
-                out.insert("message".into(), json!("No measurement available yet."));
-            }
-        }
-        let active: Vec<Value> = self
-            .backend
+    fn active_alerts_json(&self, sources: &[SensorSource]) -> Vec<Value> {
+        self.backend
             .active_alerts()
             .iter()
             .map(|a| {
                 json!({
                     "metric": a.metric.as_str(),
+                    "channel": a.channel,
+                    "source": source_name(sources, a.channel),
                     "limit": if a.bound == Bound::High { "above" } else { "below" },
                     "threshold": friendly(a.metric, a.threshold),
                     "value": friendly(a.metric, a.value),
@@ -560,8 +549,51 @@ impl McpServer {
                     "since": format_time(a.since),
                 })
             })
-            .collect();
-        out.insert("active_alerts".into(), json!(active));
+            .collect()
+    }
+
+    fn current_readings(&self) -> Value {
+        let device = self.backend.device();
+        let sources = device.sources().to_vec();
+        let (status, message) = device_status(&device);
+        let mut out = Map::new();
+        out.insert("device_status".into(), json!(status));
+        if let Some(m) = message {
+            out.insert("message".into(), json!(m));
+        }
+        let latest = self.backend.latest();
+        match latest.iter().map(|r| r.ts).max() {
+            Some(ts) => {
+                out.insert("timestamp".into(), json!(format_time(ts)));
+                out.insert("age_seconds".into(), json!((now_ms() - ts).max(0) / 1000));
+                out.insert("stale".into(), json!(!device.is_ready()));
+                let readings: Vec<Value> = latest
+                    .iter()
+                    .map(|r| {
+                        let mut v = Map::new();
+                        v.insert("channel".into(), json!(r.channel));
+                        v.insert("source".into(), json!(source_name(&sources, r.channel)));
+                        for m in Metric::ALL {
+                            if let Some(x) = r.values.get(m) {
+                                v.insert(friendly_key(m).into(), json!(friendly(m, x)));
+                            }
+                        }
+                        if let Some(a) = r.altitude {
+                            v.insert("altitude_m".into(), json!(round(a, 1)));
+                        }
+                        Value::Object(v)
+                    })
+                    .collect();
+                out.insert("readings".into(), json!(readings));
+            }
+            None => {
+                out.insert("message".into(), json!("No measurement available yet."));
+            }
+        }
+        out.insert(
+            "active_alerts".into(),
+            json!(self.active_alerts_json(&sources)),
+        );
         Value::Object(out)
     }
 
@@ -609,63 +641,72 @@ impl McpServer {
             .backend
             .history(from, to, max_points)
             .map_err(api_err)?;
-        let series = |m: Metric| match m {
-            Metric::Temperature => &h.temperature,
-            Metric::Humidity => &h.humidity,
-            Metric::Illuminance => &h.illuminance,
-            Metric::Pressure => &h.pressure,
-        };
+        let device = self.backend.device();
+        let sources = device.sources();
 
-        let mut stats = Map::new();
-        for &m in &metrics {
-            let s = series(m);
-            let avgs: Vec<f64> = s.avg.iter().flatten().copied().collect();
-            if avgs.is_empty() {
-                continue;
-            }
-            let min = s
-                .min
-                .iter()
-                .flatten()
-                .copied()
-                .fold(f64::INFINITY, f64::min);
-            let max = s
-                .max
-                .iter()
-                .flatten()
-                .copied()
-                .fold(f64::NEG_INFINITY, f64::max);
-            let avg = avgs.iter().sum::<f64>() / avgs.len() as f64;
-            stats.insert(
-                friendly_key(m).into(),
-                json!({ "min": friendly(m, min), "avg": friendly(m, avg), "max": friendly(m, max) }),
-            );
-        }
-
-        let mut points = Vec::new();
-        for (i, t) in h.t.iter().enumerate() {
-            let mut p = Map::new();
+        let mut channels = Vec::new();
+        for &channel in &h.channels {
+            let mut stats = Map::new();
             for &m in &metrics {
-                if let Some(Some(v)) = series(m).avg.get(i) {
-                    p.insert(friendly_key(m).into(), json!(friendly(m, *v)));
+                let Some(s) = h.series(m, channel) else {
+                    continue;
+                };
+                let avgs: Vec<f64> = s.avg.iter().flatten().copied().collect();
+                if avgs.is_empty() {
+                    continue;
                 }
+                let min = s
+                    .min
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .fold(f64::INFINITY, f64::min);
+                let max = s
+                    .max
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let avg = avgs.iter().sum::<f64>() / avgs.len() as f64;
+                stats.insert(
+                    friendly_key(m).into(),
+                    json!({ "min": friendly(m, min), "avg": friendly(m, avg), "max": friendly(m, max) }),
+                );
             }
-            if p.is_empty() {
+            if stats.is_empty() {
                 continue;
             }
-            // `t` is the bucket centre; report the bucket start.
-            let start = (*t * 1000.0) as i64 - h.bucket_ms / 2;
-            p.insert("time".into(), json!(format_time(start)));
-            points.push(Value::Object(p));
+
+            let mut points = Vec::new();
+            for (i, t) in h.t.iter().enumerate() {
+                let mut p = Map::new();
+                for &m in &metrics {
+                    if let Some(Some(v)) = h.series(m, channel).and_then(|s| s.avg.get(i)) {
+                        p.insert(friendly_key(m).into(), json!(friendly(m, *v)));
+                    }
+                }
+                if p.is_empty() {
+                    continue;
+                }
+                // `t` is the bucket centre; report the bucket start.
+                let start = (*t * 1000.0) as i64 - h.bucket_ms / 2;
+                p.insert("time".into(), json!(format_time(start)));
+                points.push(Value::Object(p));
+            }
+            channels.push(json!({
+                "channel": channel,
+                "source": source_name(sources, channel),
+                "stats": stats,
+                "points": points,
+            }));
         }
 
         Ok(json!({
             "from": format_time(from),
             "to": format_time(to),
             "bucket_minutes": round(h.bucket_ms as f64 / 60_000.0, 2),
-            "stats": stats,
-            "points": points,
-            "note": if points.is_empty() { "No readings in this range." } else { "Each point is the average over bucket_minutes starting at 'time'." },
+            "channels": channels,
+            "note": if channels.is_empty() { "No readings in this range." } else { "Each point is the average over bucket_minutes starting at 'time'." },
         }))
     }
 
@@ -687,20 +728,8 @@ impl McpServer {
         for m in Metric::ALL {
             limits.insert(m.as_str().into(), Self::friendly_rule(m, rules.get(m)));
         }
-        let active: Vec<Value> = self
-            .backend
-            .active_alerts()
-            .iter()
-            .map(|a| {
-                json!({
-                    "metric": a.metric.as_str(),
-                    "limit": if a.bound == Bound::High { "above" } else { "below" },
-                    "threshold": friendly(a.metric, a.threshold),
-                    "value": friendly(a.metric, a.value),
-                    "since": format_time(a.since),
-                })
-            })
-            .collect();
+        let device = self.backend.device();
+        let active = self.active_alerts_json(device.sources());
         let recent: Vec<Value> = self
             .backend
             .alert_log(20)
@@ -711,6 +740,7 @@ impl McpServer {
                 json!({
                     "time": format_time(e.ts),
                     "metric": e.metric,
+                    "channel": e.channel,
                     "limit": if e.bound == "high" { "above" } else { "below" },
                     "event": if e.kind == "recovered" { "back_to_normal" } else { "triggered" },
                     "value": friendly(m, e.value),
@@ -740,20 +770,19 @@ impl McpServer {
                 crate::model::Backend::I2cDev => "linux-i2c-dev",
             });
         }
-        if let DeviceState::Ready {
-            revision,
-            channel,
-            sources,
-            ..
-        } = &device
-        {
-            out["climate_module"] = json!(revision.as_str());
-            out["i2c_channel"] = json!(channel);
+        if let DeviceState::Ready { sources, .. } = &device {
+            let modules: Vec<Value> = crate::model::modules(sources)
+                .into_iter()
+                .map(|(channel, module)| json!({ "i2c_channel": channel, "module": module.name() }))
+                .collect();
+            out["modules"] = json!(modules);
             let sensors: Vec<Value> = sources
                 .iter()
                 .map(|s| {
                     json!({
                         "metric": s.metric.as_str(),
+                        "i2c_channel": s.channel,
+                        "module": s.module.name(),
                         "sensor": s.sensor,
                         "i2c_address": format!("0x{:02X}", s.address),
                     })
@@ -1110,10 +1139,13 @@ mod tests {
         let res = result(&r);
         assert_eq!(res["isError"], false);
         let data = &res["structuredContent"];
-        assert_eq!(data["temperature_c"], 23.46);
-        assert_eq!(data["pressure_hpa"], 1003.22);
-        assert_eq!(data["climate_module"], "R2");
+        let reading = &data["readings"][0];
+        assert_eq!(reading["temperature_c"], 23.46);
+        assert_eq!(reading["pressure_hpa"], 1003.22);
+        assert_eq!(reading["channel"], 0);
+        assert_eq!(reading["source"], "Climate Module R2");
         assert_eq!(data["active_alerts"][0]["limit"], "above");
+        assert_eq!(data["active_alerts"][0]["channel"], 0);
         assert!(
             res["content"][0]["text"]
                 .as_str()
@@ -1126,7 +1158,9 @@ mod tests {
         let (s, _) = server(false);
         let r = s.handle(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
             "params":{"name":"get_history","arguments":{"hours":2,"metrics":["temperature","pressure"]}}}));
-        let data = &result(&r)["structuredContent"];
+        let data = &result(&r)["structuredContent"]["channels"][0];
+        assert_eq!(data["channel"], 0);
+        assert_eq!(data["source"], "Climate Module R2");
         assert_eq!(data["stats"]["temperature_c"]["min"], 21.5);
         assert_eq!(data["stats"]["temperature_c"]["max"], 23.5);
         let p_avg = data["stats"]["pressure_hpa"]["avg"].as_f64().unwrap_or(0.0);

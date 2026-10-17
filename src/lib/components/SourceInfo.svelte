@@ -3,21 +3,26 @@
   import { hexAddress, sourceText, type Source } from "../source";
   import Icon from "./Icon.svelte";
 
-  /** "i" icon that shows where the values come from on hover or focus. */
-  let { source }: { source: Source } = $props();
+  /** "i" icon that shows where the values come from on hover or focus (one entry per I²C channel). */
+  let { sources }: { sources: Source[] } = $props();
 
-  const bus = $derived(source.backend === "hid" ? "FT260" : "i2c-dev");
+  const bus = (s: Source) => (s.backend === "hid" ? "FT260" : "i2c-dev");
 </script>
 
-<span class="info" tabindex="0" role="button" aria-label="{t().common.source}: {sourceText(source)}">
+<span class="info" tabindex="0" role="button" aria-label="{t().common.source}: {sources.map(sourceText).join('; ')}">
   <Icon name="info" size={14} />
   <span class="popover" role="tooltip">
     <span class="title">{t().common.source}</span>
-    <span class="module">{source.module}</span>
-    <span class="path">
-      I²C ({bus}) → {fill(t().common.channel, { n: source.channel })} → <span class="mono">{hexAddress(source.address)}</span>
-      {source.part}
-    </span>
+    {#each sources as source (source.channel)}
+      <span class="entry">
+        <span class="module">{source.module}</span>
+        <span class="path">
+          I²C ({bus(source)}) → {fill(t().common.channel, { n: source.channel })} →
+          <span class="mono">{hexAddress(source.address)}</span>
+          {source.part}
+        </span>
+      </span>
+    {/each}
   </span>
 </span>
 
@@ -74,6 +79,13 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--text-muted);
+  }
+  .entry {
+    display: flex;
+    flex-direction: column;
+  }
+  .entry + .entry {
+    margin-top: 6px;
   }
   .module {
     font-weight: 600;

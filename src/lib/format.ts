@@ -17,10 +17,24 @@ function cached<T extends Intl.NumberFormat | Intl.DateTimeFormat>(
   return f;
 }
 
+/**
+ * With the decimal separator chosen in the settings instead of the locale's.
+ * A digit group separator that would then look like it gives way to a narrow
+ * space (12 400.5, never 12,400,5).
+ */
+function separated(f: Intl.NumberFormat, v: number): string {
+  if (i18n.decimal === "auto") return f.format(v);
+  const decimal = i18n.decimal === "comma" ? "," : ".";
+  return f
+    .formatToParts(v)
+    .map((p) => (p.type === "decimal" ? decimal : p.type === "group" && p.value === decimal ? "\u202f" : p.value))
+    .join("");
+}
+
 /** Locale number; digit grouping only from 10 000 up (1013,2 hPa, 12 400 lx). */
 export function fmtNumber(v: number, d: number): string {
   const grouping = Math.abs(v) >= 10_000;
-  return cached(
+  const f = cached(
     `n${d}${grouping}`,
     () =>
       new Intl.NumberFormat(i18n.locale, {
@@ -28,19 +42,21 @@ export function fmtNumber(v: number, d: number): string {
         maximumFractionDigits: d,
         useGrouping: grouping,
       }),
-  ).format(v);
+  );
+  return separated(f, v);
 }
 
-/** Number for an input field, with the locale's decimal separator. */
+/** Number for an input field, with the chosen decimal separator. */
 export function fmtInput(v: number): string {
-  return cached(
+  const f = cached(
     "input",
     () =>
       new Intl.NumberFormat(i18n.locale, {
         useGrouping: false,
         maximumFractionDigits: 3,
       }),
-  ).format(v);
+  );
+  return separated(f, v);
 }
 
 /** Parse user input accepting "," or "." as decimal separator. */
@@ -48,15 +64,18 @@ export function parseInput(s: string): number {
   return Number(s.trim().replace(/\s/g, "").replace(",", "."));
 }
 
-/** Display number without unit, or an em dash. */
+/** Shown where a value is missing. */
+export const NO_VALUE = "-";
+
+/** Display number without unit, or NO_VALUE. */
 export function fmtValue(metric: Metric, v: number | null | undefined, unit: TemperatureUnit): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  if (v === null || v === undefined || Number.isNaN(v)) return NO_VALUE;
   return fmtNumber(toDisplay(metric, v, unit), decimals(metric));
 }
 
 export function fmtWithUnit(metric: Metric, v: number | null | undefined, unit: TemperatureUnit): string {
   const s = fmtValue(metric, v, unit);
-  return s === "—" ? s : `${s} ${unitLabel(metric, unit)}`;
+  return s === NO_VALUE ? s : `${s} ${unitLabel(metric, unit)}`;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");

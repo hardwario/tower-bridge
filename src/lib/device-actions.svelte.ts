@@ -1,4 +1,5 @@
 import { api, errorCode, errorMessage } from "./api";
+import { describeModules } from "./source";
 import { fill, t } from "./i18n/index.svelte";
 
 type Action = "identify" | "rescan";
@@ -25,8 +26,8 @@ class DeviceActions {
     this.busy = "identify";
     this.result = null;
     try {
+      // The blinking LED is the answer; only a failure is worth a message.
       await api.identify();
-      this.show(true, t().overview.identified);
     } catch (e) {
       this.fail(e);
     } finally {
@@ -41,7 +42,7 @@ class DeviceActions {
     try {
       const r = await api.rescan();
       const m = t().overview;
-      if (r.status === "found") this.show(true, fill(m.rescanFound, { revision: r.revision, channel: r.channel }));
+      if (r.status === "found") this.show(true, fill(m.rescanFound, { modules: describeModules(r.sources) }));
       else this.show(false, m.rescanNone);
     } catch (e) {
       this.fail(e);

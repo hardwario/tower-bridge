@@ -4,7 +4,7 @@ import { en, type Messages } from "./en";
 import { pl } from "./pl";
 import type { Plural } from "./plural";
 import { sk } from "./sk";
-import type { DateFormat, TimeFormat } from "../types";
+import type { DateFormat, DecimalSeparator, TimeFormat } from "../types";
 
 export type Lang = "en" | "cs" | "sk" | "de" | "pl";
 export type LanguagePref = "system" | Lang;
@@ -25,6 +25,7 @@ class I18n {
   lang = $state<Lang>("en");
   dateFormat = $state<DateFormat>("auto");
   timeFormat = $state<TimeFormat>("auto");
+  decimal = $state<DecimalSeparator>("auto");
 
   get m(): Messages {
     return DICTS[this.lang];

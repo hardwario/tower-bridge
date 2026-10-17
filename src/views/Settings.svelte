@@ -7,20 +7,25 @@
   import Section from "../lib/components/Section.svelte";
   import Toggle from "../lib/components/Toggle.svelte";
   import { fmtClock, fmtDate, fmtInput, parseInput } from "../lib/format";
-  import { LANGUAGES, type LanguagePref, fill, languageName, plural, t } from "../lib/i18n/index.svelte";
+  import { LANGUAGES, type LanguagePref, fill, i18n, languageName, plural, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
+  import { mqttTopics, sanitizePrefix } from "../lib/mqtt";
+  import { sourcesOf } from "../lib/source";
   import type { ThemePref } from "../lib/theme.svelte";
   import {
     DATE_FORMATS,
+    DECIMAL_SEPARATORS,
+    METRICS,
     TIME_FORMATS,
     type ChannelMode,
     type DateFormat,
+    type DecimalSeparator,
     type Metric,
+    type SensorSource,
     type TemperatureUnit,
     type TimeFormat,
   } from "../lib/types";
 
-  const INTERVALS = [2, 5, 10, 30, 60, 300];
   const RETENTION = [7, 30, 90, 180, 365, 730, 1825];
   let loginError = $state<string | null>(null);
   let showToken = $state(false);
@@ -46,8 +51,9 @@
     return fill(f === "h24" ? st.time24 : f === "h12" ? st.time12 : st.formatAuto, { example });
   }
 
-  function intervalLabel(s: number): string {
-    return s < 60 ? plural(t().units.seconds, s) : plural(t().units.minutes, s / 60);
+  /** The language's own separator, for the "Automatic" choice. */
+  function localeDecimal(): string {
+    return new Intl.NumberFormat(i18n.locale, { minimumFractionDigits: 1 }).format(23.5);
   }
 
   function retentionLabel(d: number): string {
@@ -71,8 +77,28 @@
   const subscribe = $derived.by(() => {
     const m = live.settings?.mqtt;
     if (!m) return "";
+    const prefix = sanitizePrefix(m.topic_prefix);
     const auth = m.username ? ` -u ${m.username} -P '…'` : "";
-    return `mosquitto_sub -h ${m.allow_lan ? "<this-computer>" : "127.0.0.1"} -p ${m.port}${auth} -t '${m.topic_prefix}/#' -v`;
+    const tls = m.tls ? " --tls-use-os-certs" : "";
+    return `mosquitto_sub -h ${m.host || "<broker>"} -p ${m.port}${tls}${auth} -t '${prefix}/#' -v`;
+  });
+
+  /** What the MQTT connection is doing, under its switch. */
+  const mqttStatus = $derived.by(() => {
+    const m = t().settings.mqtt;
+    const state = live.mqtt;
+    switch (state.status) {
+      case "connecting":
+        return state.error
+          ? fill(m.connectFailed, { address: state.address, error: state.error })
+          : fill(m.connecting, { address: state.address });
+      case "connected":
+        return fill(m.connected, { address: state.address });
+      case "error":
+        return state.message === "no_host" ? m.noHost : `${t().common.error}: ${state.message}`;
+      default:
+        return t().common.off;
+    }
   });
 
   function newToken(): string {
@@ -103,6 +129,17 @@
       claudeDesktop: JSON.stringify(desktop, null, 2),
     };
   });
+
+  /** The topics published now; the scheme for channel 0 while no sensor is found. */
+  function topicList(prefix: string): string {
+    const found = sourcesOf(live.device);
+    const sources: SensorSource[] = found.length
+      ? found
+      : METRICS.map((metric) => ({ metric, channel: 0, module: "climate_module_r1", sensor: "", address: 0 }));
+    const rows = mqttTopics(prefix, sources, live.relay);
+    const width = Math.max(...rows.map(([topic]) => topic.length)) + 3;
+    return rows.map(([topic, unit]) => topic.padEnd(width) + unit).join("\n");
+  }
 </script>
 
 <div class="view">
@@ -168,6 +205,22 @@
           {/each}
         </select>
       </Field>
+      <Field label={st.decimalSeparator} hint={st.decimalHint}>
+        <select
+          class="select"
+          value={s.decimal_separator}
+          onchange={(e) => {
+            const v = e.currentTarget.value as DecimalSeparator;
+            live.save((x) => (x.decimal_separator = v));
+          }}
+        >
+          {#each DECIMAL_SEPARATORS as d (d)}
+            <option value={d}
+              >{d === "auto" ? fill(st.formatAuto, { example: localeDecimal() }) : d === "point" ? "23.5" : "23,5"}</option
+            >
+          {/each}
+        </select>
+      </Field>
       <Field label={st.temperatureUnit}>
         <SegmentedControl
           label={st.temperatureUnit}
@@ -201,17 +254,6 @@
     </Section>
 
     <Section title={st.measurement}>
-      <Field label={st.interval} hint={st.intervalHint}>
-        <select
-          class="select"
-          value={s.sample_interval_s}
-          onchange={(e) => live.save((x) => (x.sample_interval_s = Number(e.currentTarget.value)))}
-        >
-          {#each INTERVALS as i (i)}
-            <option value={i}>{intervalLabel(i)}</option>
-          {/each}
-        </select>
-      </Field>
       <Field label={st.seaLevel} hint={st.seaLevelHint}>
         <input
           class="input num"
@@ -236,22 +278,18 @@
     </Section>
 
     <Section title={st.mqtt.title} description={st.mqtt.description}>
-      <Field
-        label={st.mqtt.enable}
-        hint={live.mqtt.status === "running"
-          ? fill(st.mqtt.listening, { address: live.mqtt.address })
-          : live.mqtt.status === "error"
-            ? `${t().common.error}: ${live.mqtt.message}`
-            : live.mqtt.status === "restart_required"
-              ? live.mqtt.reason === "stop_broker"
-                ? t().banners.restartStopBroker
-                : t().banners.restartApplySettings
-              : t().common.off}
-      >
-        {#if live.mqtt.status === "restart_required"}
-          <button class="btn primary" onclick={() => api.restart()}>{t().common.restart}</button>
-        {/if}
+      <Field label={st.mqtt.enable} hint={mqttStatus}>
         <Toggle checked={s.mqtt.enabled} label={st.mqtt.enable} onchange={(v) => live.save((x) => (x.mqtt.enabled = v))} />
+      </Field>
+      <Field label={st.mqtt.host} hint={st.mqtt.hostHint}>
+        <input
+          class="input"
+          value={s.mqtt.host}
+          placeholder="homeassistant.local"
+          spellcheck="false"
+          autocomplete="off"
+          onchange={(e) => live.save((x) => (x.mqtt.host = e.currentTarget.value))}
+        />
       </Field>
       <Field label={st.mqtt.port}>
         <input
@@ -261,25 +299,20 @@
           onchange={(e) => setNumber(e.currentTarget.value, (n) => live.save((x) => (x.mqtt.port = Math.round(n))), 1, 65535)}
         />
       </Field>
-      <Field label={st.mqtt.allowLan} hint={st.mqtt.allowLanHint}>
-        <Toggle checked={s.mqtt.allow_lan} label={st.mqtt.allowLan} onchange={(v) => live.save((x) => (x.mqtt.allow_lan = v))} />
-      </Field>
-      <Field label={st.mqtt.topicPrefix} hint={st.mqtt.topicPrefixHint}>
-        <input
-          class="input"
-          value={s.mqtt.topic_prefix}
-          spellcheck="false"
-          onchange={(e) => live.save((x) => (x.mqtt.topic_prefix = e.currentTarget.value))}
-        />
-      </Field>
-      <Field label={st.mqtt.allowControl} hint={fill(st.mqtt.allowControlHint, { prefix: s.mqtt.topic_prefix })}>
+      <Field label={st.mqtt.tls} hint={st.mqtt.tlsHint}>
         <Toggle
-          checked={s.mqtt.allow_control}
-          label={st.mqtt.allowControl}
-          onchange={(v) => live.save((x) => (x.mqtt.allow_control = v))}
+          checked={s.mqtt.tls}
+          label={st.mqtt.tls}
+          onchange={(v) =>
+            live.save((x) => {
+              // Follow the usual port when it was the other usual one.
+              if (v && x.mqtt.port === 1883) x.mqtt.port = 8883;
+              if (!v && x.mqtt.port === 8883) x.mqtt.port = 1883;
+              x.mqtt.tls = v;
+            })}
         />
       </Field>
-      <Field label={st.mqtt.username} hint={s.mqtt.allow_lan ? st.mqtt.usernameLan : st.mqtt.usernameOptional}>
+      <Field label={st.mqtt.username} hint={st.mqtt.usernameHint}>
         <input
           class="input"
           value={s.mqtt.username}
@@ -298,14 +331,36 @@
           onchange={(e) => live.save((x) => (x.mqtt.password = e.currentTarget.value))}
         />
       </Field>
+      <Field label={st.mqtt.clientId} hint={st.mqtt.clientIdHint}>
+        <input
+          class="input"
+          value={s.mqtt.client_id}
+          spellcheck="false"
+          autocomplete="off"
+          onchange={(e) => live.save((x) => (x.mqtt.client_id = e.currentTarget.value))}
+        />
+      </Field>
+      <Field label={st.mqtt.topicPrefix} hint={st.mqtt.topicPrefixHint}>
+        <input
+          class="input"
+          value={s.mqtt.topic_prefix}
+          spellcheck="false"
+          onchange={(e) => live.save((x) => (x.mqtt.topic_prefix = e.currentTarget.value))}
+        />
+      </Field>
+      <Field
+        label={st.mqtt.allowControl}
+        hint={fill(st.mqtt.allowControlHint, { prefix: s.mqtt.topic_prefix, channel: live.relay?.channel ?? 0 })}
+      >
+        <Toggle
+          checked={s.mqtt.allow_control}
+          label={st.mqtt.allowControl}
+          onchange={(v) => live.save((x) => (x.mqtt.allow_control = v))}
+        />
+      </Field>
       <div class="topics">
         <div class="muted small">{st.mqtt.topics}</div>
-        <pre class="mono">{s.mqtt.topic_prefix}/temperature   °C
-{s.mqtt.topic_prefix}/humidity      %
-{s.mqtt.topic_prefix}/illuminance   lx
-{s.mqtt.topic_prefix}/pressure      Pa
-{s.mqtt.topic_prefix}/altitude      m{#if live.relay}
-{s.mqtt.topic_prefix}/relay         unknown | left | right{/if}</pre>
+        <pre class="mono">{topicList(s.mqtt.topic_prefix)}</pre>
         <CopyBlock text={subscribe} />
       </div>
     </Section>

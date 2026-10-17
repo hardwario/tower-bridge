@@ -1,5 +1,5 @@
-//! Simulated TOWER Bridge with a Climate Module, used by unit tests and by
-//! the app's simulation mode (development without hardware).
+//! Simulated TOWER Bridge with a Climate Module and sensor tags, used by unit
+//! tests and by the app's simulation mode (development without hardware).
 //!
 //! The simulation models the I2C switch at 0x70 and each sensor's register
 //! behaviour closely enough to exercise the real drivers.
@@ -52,6 +52,7 @@ impl MockBus {
                 serial: "SIMULATED".into(),
                 path: "simulated".into(),
                 chip: Some("simulated".into()),
+                bridges_connected: 1,
             },
             log: Vec::new(),
             inject: Vec::new(),
@@ -504,22 +505,30 @@ impl SimDevice for SimMpl3115a2 {
     }
 }
 
-/// A simulated Climate Module R2 whose environment drifts slowly, for running
-/// the app without hardware.
+/// A simulated bridge whose environment drifts slowly, for running the app
+/// without hardware: a Climate Module R2 and a Relay Module on channel 0, and
+/// the Humidity, Lux Meter and Barometer Tags on channel 1 (somewhere a bit
+/// cooler and brighter).
 pub struct SimulatedBridge {
     bus: MockBus,
     env: SharedEnv,
+    tags: SharedEnv,
     seed: u64,
 }
 
 impl SimulatedBridge {
     pub fn new() -> Self {
         let env: SharedEnv = Arc::new(Mutex::new(Values::default()));
+        let tags: SharedEnv = Arc::new(Mutex::new(Values::default()));
         let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, env.clone());
         bus.attach(0, crate::relay::ADDR_DEFAULT, Box::new(SimTca9534a::new()));
+        bus.attach(1, 0x40, Box::new(SimSht20::new(tags.clone())));
+        bus.attach(1, 0x44, Box::new(SimOpt3001::new(tags.clone())));
+        bus.attach(1, 0x60, Box::new(SimMpl3115a2::new(tags.clone())));
         let mut s = Self {
             bus,
             env,
+            tags,
             seed: 0x2545_F491_4F6C_DD1D,
         };
         s.update_env();
@@ -542,8 +551,18 @@ impl SimulatedBridge {
             .unwrap_or(0.0);
         let n = [self.noise(), self.noise(), self.noise(), self.noise()];
         let values = simulated_values(wall, n);
+        let n = [self.noise(), self.noise(), self.noise(), self.noise()];
+        let tags = simulated_values(wall - 1800.0, n);
         if let Ok(mut env) = self.env.lock() {
             *env = values;
+        }
+        if let Ok(mut env) = self.tags.lock() {
+            *env = Values {
+                temperature: tags.temperature.map(|t| t - 3.5),
+                humidity: tags.humidity.map(|h| (h + 9.0).min(100.0)),
+                illuminance: tags.illuminance.map(|l| l * 1.8),
+                pressure: tags.pressure.map(|p| p + 12.0),
+            };
         }
     }
 }

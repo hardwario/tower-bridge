@@ -10,7 +10,7 @@ use tower_bridge_core::model::{Metric, STANDARD_SEA_LEVEL_PA};
 use tracing::warn;
 
 /// 2: chart colours differ per metric by default.
-pub const SETTINGS_VERSION: u32 = 2;
+pub const SETTINGS_VERSION: u32 = 5;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -60,6 +60,16 @@ pub enum DateFormat {
     Mdy,
 }
 
+/// Decimal separator of displayed numbers; `Auto` follows the language.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecimalSeparator {
+    #[default]
+    Auto,
+    Point,
+    Comma,
+}
+
 /// 12- or 24-hour clock; `Auto` follows the language.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,18 +80,23 @@ pub enum TimeFormat {
     H12,
 }
 
+/// Publishing to the user's MQTT broker (Mosquitto, Home Assistant, ...).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "snake_case")]
 pub struct MqttSettings {
     pub enabled: bool,
+    /// The broker's host name or IP address.
+    pub host: String,
     pub port: u16,
-    /// Listen on all interfaces instead of localhost only.
-    pub allow_lan: bool,
-    /// Topics are `<prefix>/temperature`, `<prefix>/humidity`, …
-    pub topic_prefix: String,
+    /// TLS, checked against the system's root certificates.
+    pub tls: bool,
     pub username: String,
     pub password: String,
-    /// Accept Relay Module commands on `<prefix>/relay/set` and `/pulse`.
+    /// Chosen once (`tower-bridge-` and 8 hex digits) when empty.
+    pub client_id: String,
+    /// Topics are `<prefix>/temperature/<channel>`, …
+    pub topic_prefix: String,
+    /// Accept Relay Module commands on `<prefix>/relay/<channel>/set` and `/pulse`.
     pub allow_control: bool,
 }
 
@@ -89,13 +104,29 @@ impl Default for MqttSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            host: String::new(),
             port: 1883,
-            allow_lan: false,
-            topic_prefix: tower_bridge_core::mqtt::DEFAULT_PREFIX.into(),
+            tls: false,
             username: String::new(),
             password: String::new(),
+            client_id: String::new(),
+            topic_prefix: tower_bridge_core::mqtt::DEFAULT_PREFIX.into(),
             allow_control: false,
         }
+    }
+}
+
+impl MqttSettings {
+    /// How to connect, once a host is set.
+    pub fn client_config(&self) -> Option<tower_bridge_core::mqtt::ClientConfig> {
+        (!self.host.is_empty()).then(|| tower_bridge_core::mqtt::ClientConfig {
+            host: self.host.clone(),
+            port: self.port,
+            tls: self.tls,
+            credentials: (!self.username.is_empty())
+                .then(|| (self.username.clone(), self.password.clone())),
+            client_id: self.client_id.clone(),
+        })
     }
 }
 
@@ -114,24 +145,61 @@ pub enum ChartColor {
     Graphite,
 }
 
+impl ChartColor {
+    /// In the picker's order.
+    pub const ALL: [ChartColor; 8] = [
+        ChartColor::Blue,
+        ChartColor::Green,
+        ChartColor::Pink,
+        ChartColor::Gold,
+        ChartColor::Violet,
+        ChartColor::Teal,
+        ChartColor::Orange,
+        ChartColor::Graphite,
+    ];
+
+    /// The first of `preferred` (then of the palette) not in `taken`, so a
+    /// default never repeats a colour another channel already shows.
+    fn unused(taken: &[ChartColor], preferred: &[ChartColor]) -> ChartColor {
+        preferred
+            .iter()
+            .chain(Self::ALL.iter())
+            .copied()
+            .find(|c| !taken.contains(c))
+            .unwrap_or_default()
+    }
+}
+
+/// I2C channels with their own line colour.
+pub const CHART_CHANNELS: usize = 2;
+
 /// How one metric's charts look on the dashboard and in the history.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "snake_case")]
 pub struct ChartStyle {
-    pub color: ChartColor,
+    /// Line colour of each I2C channel (index = channel).
+    pub colors: Vec<ChartColor>,
     /// Horizontal lines at the minimum, average and maximum of the window.
     pub show_min: bool,
     pub show_avg: bool,
     pub show_max: bool,
+    /// I2C channels whose lines the user hid; never all of them.
+    pub hidden_channels: Vec<u8>,
+    /// Settings version 2 and older had one colour, now channel 0's.
+    #[serde(skip_serializing)]
+    color: Option<ChartColor>,
 }
 
 impl Default for ChartStyle {
+    /// Without colours: [`ChartStyles`] fills in each metric's own.
     fn default() -> Self {
         Self {
-            color: ChartColor::Blue,
+            colors: Vec::new(),
             show_min: false,
             show_avg: true,
             show_max: false,
+            hidden_channels: Vec::new(),
+            color: None,
         }
     }
 }
@@ -146,33 +214,66 @@ pub struct ChartStyles {
 }
 
 impl Default for ChartStyles {
-    /// A different colour per metric from the start.
+    /// A different colour per metric from the start, and a contrasting one
+    /// (checked for colour blindness in both themes) for the second channel.
     fn default() -> Self {
-        let colored = |color| ChartStyle {
-            color,
+        let colored = |a, b| ChartStyle {
+            colors: vec![a, b],
             ..ChartStyle::default()
         };
         Self {
-            temperature: colored(ChartColor::Orange),
-            humidity: colored(ChartColor::Blue),
-            illuminance: colored(ChartColor::Gold),
-            pressure: colored(ChartColor::Violet),
+            temperature: colored(ChartColor::Orange, ChartColor::Teal),
+            humidity: colored(ChartColor::Blue, ChartColor::Pink),
+            illuminance: colored(ChartColor::Gold, ChartColor::Violet),
+            pressure: colored(ChartColor::Violet, ChartColor::Green),
         }
     }
 }
 
 impl ChartStyles {
-    /// Version 1 defaulted every chart to blue; colours picked by the user stay.
-    fn upgrade_from_v1(&mut self) {
-        let defaults = Self::default();
-        for (style, default) in [
-            (&mut self.temperature, defaults.temperature.color),
-            (&mut self.humidity, defaults.humidity.color),
-            (&mut self.illuminance, defaults.illuminance.color),
-            (&mut self.pressure, defaults.pressure.color),
-        ] {
-            if style.color == ChartColor::Blue {
-                style.color = default;
+    fn each(&mut self) -> [(&mut ChartStyle, ChartStyle); 4] {
+        let d = Self::default();
+        [
+            (&mut self.temperature, d.temperature),
+            (&mut self.humidity, d.humidity),
+            (&mut self.illuminance, d.illuminance),
+            (&mut self.pressure, d.pressure),
+        ]
+    }
+
+    /// Bring a file of an earlier version up to date. Version 1 defaulted
+    /// every chart to blue (colours picked by the user stay); version 2 had
+    /// one colour per metric, which becomes channel 0's.
+    fn upgrade(&mut self, version: u32) {
+        for (style, default) in self.each() {
+            if let Some(mut color) = style.color.take() {
+                if version < 2 && color == ChartColor::Blue {
+                    color = default.colors[0];
+                }
+                let second = ChartColor::unused(&[color], &[default.colors[1], default.colors[0]]);
+                style.colors = vec![color, second];
+            }
+        }
+    }
+
+    /// A colour for every channel (added defaults differ from the others),
+    /// and at least one line left to see.
+    fn fill_colors(&mut self) {
+        for (style, default) in self.each() {
+            // Taken over by `upgrade`; never kept around.
+            style.color = None;
+            while style.colors.len() < CHART_CHANNELS {
+                let i = style.colors.len();
+                let color = ChartColor::unused(&style.colors, &[default.colors[i]]);
+                style.colors.push(color);
+            }
+            style.colors.truncate(CHART_CHANNELS);
+            let hidden = &mut style.hidden_channels;
+            hidden.retain(|c| usize::from(*c) < CHART_CHANNELS);
+            hidden.sort_unstable();
+            hidden.dedup();
+            if hidden.len() == CHART_CHANNELS {
+                hidden.clear();
             }
         }
     }
@@ -238,13 +339,6 @@ pub fn generate_token() -> String {
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-impl MqttSettings {
-    /// Settings that require a broker restart when changed.
-    pub fn listener_key(&self) -> (u16, bool, &str, &str) {
-        (self.port, self.allow_lan, &self.username, &self.password)
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "snake_case")]
 pub struct Settings {
@@ -253,6 +347,7 @@ pub struct Settings {
     pub language: LanguagePref,
     pub date_format: DateFormat,
     pub time_format: TimeFormat,
+    pub decimal_separator: DecimalSeparator,
     pub temperature_unit: TemperatureUnit,
     pub sample_interval_s: u64,
     /// Value shown next to the tray icon; `None` shows the icon only.
@@ -277,8 +372,9 @@ impl Default for Settings {
             language: LanguagePref::System,
             date_format: DateFormat::Auto,
             time_format: TimeFormat::Auto,
+            decimal_separator: DecimalSeparator::Auto,
             temperature_unit: TemperatureUnit::Celsius,
-            sample_interval_s: 10,
+            sample_interval_s: 20,
             tray_metric: Some(Metric::Temperature),
             retention_days: 90,
             sea_level_pressure_pa: STANDARD_SEA_LEVEL_PA,
@@ -296,6 +392,16 @@ impl Default for Settings {
 
 impl Settings {
     /// Clamp values into supported ranges.
+    /// The decimal separator to show numbers with.
+    pub fn decimal(&self, lang: crate::i18n::Lang) -> crate::format::Decimal {
+        use crate::format::Decimal;
+        match self.decimal_separator {
+            DecimalSeparator::Auto => lang.into(),
+            DecimalSeparator::Point => Decimal::Point,
+            DecimalSeparator::Comma => Decimal::Comma,
+        }
+    }
+
     pub fn validated(mut self) -> Self {
         self.version = SETTINGS_VERSION;
         self.sample_interval_s = self.sample_interval_s.clamp(2, 3600);
@@ -303,13 +409,21 @@ impl Settings {
         if !(80_000.0..=110_000.0).contains(&self.sea_level_pressure_pa) {
             self.sea_level_pressure_pa = STANDARD_SEA_LEVEL_PA;
         }
-        if self.mqtt.port == 0 {
-            self.mqtt.port = 1883;
+        let mqtt = &mut self.mqtt;
+        mqtt.topic_prefix = tower_bridge_core::mqtt::sanitize_prefix(&mqtt.topic_prefix);
+        mqtt.host = mqtt.host.trim().to_string();
+        if mqtt.port == 0 {
+            mqtt.port = if mqtt.tls { 8883 } else { 1883 };
         }
-        self.mqtt.topic_prefix = tower_bridge_core::mqtt::sanitize_prefix(&self.mqtt.topic_prefix);
+        mqtt.client_id = mqtt.client_id.trim().to_string();
+        if mqtt.client_id.is_empty() {
+            // Brokers may limit client IDs to 23 characters.
+            mqtt.client_id = format!("tower-bridge-{}", &generate_token()[..8]);
+        }
         if self.api.port == 0 {
             self.api.port = 8180;
         }
+        self.charts.fill_colors();
         {
             use tower_bridge_core::relay::{MAX_PULSE, MIN_PULSE};
             self.relay.pulse_duration_ms = self
@@ -339,43 +453,153 @@ impl Settings {
         self
     }
 
-    /// Load settings; a corrupt file is moved aside and defaults are used.
+    /// Load settings. Values that do not fit (for example written by a newer
+    /// build) fall back to their defaults one by one, keeping the rest; a file
+    /// that is not JSON at all is moved aside. Returns whether this is the
+    /// first run (no file yet).
     pub fn load(path: &Path) -> (Self, bool) {
         let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
-            Err(_) => return (Self::default(), true),
-        };
-        let parsed = serde_json::from_str::<serde_json::Value>(&text).and_then(|mut v| {
-            snake_case_keys(&mut v);
-            serde_json::from_value::<Settings>(v)
-        });
-        match parsed {
-            Ok(mut s) => {
-                if s.version < 2 {
-                    s.charts.upgrade_from_v1();
-                }
-                (s.validated(), false)
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return (Self::default().validated(), true);
             }
             Err(e) => {
-                warn!("settings file is invalid ({e}); using defaults");
-                let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-                let backup = path.with_extension(format!("json.bak-{stamp}"));
-                let _ = std::fs::rename(path, backup);
-                (Self::default(), false)
+                warn!("cannot read the settings ({e}); using defaults");
+                backup(path, false);
+                return (Self::default().validated(), false);
             }
+        };
+        let mut v = match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("settings file is not valid JSON ({e}); using defaults");
+                backup(path, false);
+                return (Self::default().validated(), false);
+            }
+        };
+        snake_case_keys(&mut v);
+        // Files from before versioning are version 1.
+        if let Some(map) = v.as_object_mut() {
+            map.entry("version").or_insert(serde_json::json!(1));
         }
+        if v["version"].as_u64().is_some_and(|n| n < 4) {
+            upgrade_mqtt_v3(&mut v);
+        }
+        let mut s = match serde_json::from_value::<Settings>(v.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("some settings are invalid ({e}); keeping the valid ones");
+                backup(path, true);
+                lenient(&v)
+            }
+        };
+        if s.version < 3 {
+            s.charts.upgrade(s.version);
+        }
+        // The default went from 10 s to 20 s; a chosen interval stays.
+        if s.version < 5 && s.sample_interval_s == 10 {
+            s.sample_interval_s = 20;
+        }
+        (s.validated(), false)
     }
 
-    /// Save atomically (write a temporary file, then rename).
+    /// Save atomically (write a temporary file, then rename). Each save has
+    /// its own temporary file, so concurrent saves cannot mix.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let tmp = path.with_extension("json.tmp");
+        let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.tmp-{}-{n}", std::process::id()));
         let text = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(&tmp, text)?;
         std::fs::rename(&tmp, path)
     }
+}
+
+/// Version 3 and older could run a built-in MQTT broker (`port`,
+/// `allow_lan`, `username`, `password` were its listener) or connect to an
+/// external one (`mode: "external"` with an `external` object). Only the
+/// external client is left: its settings move up, and a file that used the
+/// built-in broker turns MQTT off until a broker is set.
+fn upgrade_mqtt_v3(v: &mut serde_json::Value) {
+    let Some(m) = v.get_mut("mqtt").and_then(serde_json::Value::as_object_mut) else {
+        return;
+    };
+    let external = m.get("mode").and_then(serde_json::Value::as_str) == Some("external");
+    let client = m.remove("external");
+    for key in ["mode", "port", "allow_lan", "username", "password"] {
+        m.remove(key);
+    }
+    // The client fields stay either way (a host typed in, the client ID).
+    if let Some(serde_json::Value::Object(fields)) = client {
+        m.extend(fields);
+    }
+    if !external {
+        if m.get("enabled") == Some(&serde_json::Value::Bool(true)) {
+            warn!("the built-in MQTT broker was removed; MQTT is off until a broker is set");
+        }
+        m.insert("enabled".into(), serde_json::Value::Bool(false));
+    }
+}
+
+/// Keep a copy of a settings file that cannot be used as it is: moved aside,
+/// or copied when the valid part is kept and saved over it.
+fn backup(path: &Path, copy: bool) {
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let target = path.with_extension(format!("json.bak-{stamp}"));
+    let _ = if copy {
+        std::fs::copy(path, &target).map(|_| ())
+    } else {
+        std::fs::rename(path, &target)
+    };
+}
+
+/// The defaults with every value from `v` that fits, looking two levels deep
+/// (a bad chart colour costs only that chart's style).
+fn lenient(v: &serde_json::Value) -> Settings {
+    let mut root = serde_json::to_value(Settings::default()).unwrap_or_default();
+    merge_valid(&mut root, &mut Vec::new(), v, 2);
+    serde_json::from_value(root).unwrap_or_default()
+}
+
+fn merge_valid(
+    root: &mut serde_json::Value,
+    path: &mut Vec<String>,
+    incoming: &serde_json::Value,
+    depth: usize,
+) {
+    let Some(map) = incoming.as_object() else {
+        return;
+    };
+    for (key, value) in map {
+        path.push(key.clone());
+        let mut candidate = root.clone();
+        set_at(&mut candidate, path, value.clone());
+        if serde_json::from_value::<Settings>(candidate.clone()).is_ok() {
+            *root = candidate;
+        } else if depth > 0 && value.is_object() {
+            merge_valid(root, path, value, depth - 1);
+        } else {
+            warn!("setting {} is invalid; using the default", path.join("."));
+        }
+        path.pop();
+    }
+}
+
+fn set_at(v: &mut serde_json::Value, path: &[String], new: serde_json::Value) {
+    let Some((last, parents)) = path.split_last() else {
+        return;
+    };
+    let mut node = v;
+    for key in parents {
+        if !node.get(key).is_some_and(serde_json::Value::is_object) {
+            node[key] = serde_json::json!({});
+        }
+        node = &mut node[key];
+    }
+    node[last] = new;
 }
 
 /// Settings files from earlier builds used camelCase keys.
@@ -435,7 +659,7 @@ mod tests {
         assert_eq!(s.date_format, DateFormat::DmySlash);
         assert_eq!(s.backend, BackendPref::I2cDev);
         assert_eq!(s.mqtt.topic_prefix, "home/tower");
-        assert!(s.mqtt.allow_lan);
+        assert!(!s.mqtt.enabled, "it used the removed built-in broker");
         assert_eq!(s.alerts.temperature.cooldown_s, 600);
         Ok(())
     }
@@ -453,16 +677,282 @@ mod tests {
         )?;
         let (s, _) = Settings::load(&path);
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(s.charts.temperature.color, ChartColor::Orange);
-        assert_eq!(s.charts.humidity.color, ChartColor::Blue);
+        assert_eq!(s.charts.temperature.colors[0], ChartColor::Orange);
+        assert_eq!(s.charts.humidity.colors[0], ChartColor::Blue);
         assert_eq!(
-            s.charts.illuminance.color,
+            s.charts.illuminance.colors[0],
             ChartColor::Green,
             "picked by the user"
         );
-        assert_eq!(s.charts.pressure.color, ChartColor::Violet);
+        assert_eq!(s.charts.pressure.colors[0], ChartColor::Violet);
         assert_eq!(s.version, SETTINGS_VERSION);
         Ok(())
+    }
+
+    #[test]
+    fn version_2_colour_becomes_channel_0s() -> std::io::Result<()> {
+        let dir = std::env::temp_dir().join(format!("tb-settings-v2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version": 2, "charts": {"temperature": {"color": "pink", "show_max": true}}}"#,
+        )?;
+        let (s, _) = Settings::load(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+        let t = &s.charts.temperature;
+        assert_eq!(t.colors, vec![ChartColor::Pink, ChartColor::Teal]);
+        assert!(t.show_max);
+        assert_eq!(
+            s.charts.humidity.colors,
+            vec![ChartColor::Blue, ChartColor::Pink]
+        );
+        let saved = serde_json::to_value(&s).map_err(std::io::Error::other)?;
+        assert!(saved["charts"]["temperature"].get("color").is_none());
+        assert_eq!(saved["charts"]["temperature"]["colors"][1], "teal");
+        Ok(())
+    }
+
+    #[test]
+    fn a_second_channel_never_repeats_the_first_ones_colour() -> std::io::Result<()> {
+        let dir = std::env::temp_dir().join(format!("tb-settings-v2b-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("settings.json");
+        // Humidity's channel 1 default is pink, which the user picked for it.
+        std::fs::write(
+            &path,
+            r#"{"version": 2, "charts": {"humidity": {"color": "pink"},
+                "pressure": {"colors": ["green"]}}}"#,
+        )?;
+        let (s, _) = Settings::load(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            s.charts.humidity.colors,
+            vec![ChartColor::Pink, ChartColor::Blue]
+        );
+        assert_eq!(
+            s.charts.pressure.colors,
+            vec![ChartColor::Green, ChartColor::Blue],
+            "the default green is taken; the first free colour"
+        );
+        Ok(())
+    }
+
+    /// Load `json` from a fresh settings file.
+    fn load_json(name: &str, json: &str) -> std::io::Result<(Settings, std::path::PathBuf)> {
+        let dir = std::env::temp_dir().join(format!("tb-settings-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("settings.json");
+        std::fs::write(&path, json)?;
+        Ok((Settings::load(&path).0, dir))
+    }
+
+    #[test]
+    fn a_file_without_a_version_is_upgraded_like_version_1() -> std::io::Result<()> {
+        let (s, dir) = load_json(
+            "noversion",
+            r#"{"charts": {"temperature": {"color": "pink"}}}"#,
+        )?;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            s.charts.temperature.colors,
+            vec![ChartColor::Pink, ChartColor::Teal]
+        );
+        assert_eq!(s.version, SETTINGS_VERSION);
+        assert!(
+            s.charts.temperature.color.is_none(),
+            "the old field is not kept"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_partial_chart_style_keeps_the_metric_colours() -> std::io::Result<()> {
+        let (s, dir) = load_json(
+            "partial",
+            r#"{"version": 3, "charts": {"temperature": {"show_max": true}}}"#,
+        )?;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            s.charts.temperature.colors,
+            vec![ChartColor::Orange, ChartColor::Teal]
+        );
+        assert!(s.charts.temperature.show_max);
+        Ok(())
+    }
+
+    #[test]
+    fn an_unknown_value_keeps_the_other_settings() -> std::io::Result<()> {
+        // As written by a newer build: an unknown colour and language.
+        let (s, dir) = load_json(
+            "unknown",
+            r#"{"version": 3, "language": "fi", "retention_days": 30,
+                "api": {"token": "0123456789abcdef0123456789abcdef", "port": 9000},
+                "charts": {"humidity": {"colors": ["ultraviolet", "pink"]},
+                           "pressure": {"colors": ["teal", "gold"]}}}"#,
+        )?;
+        let backups = std::fs::read_dir(&dir)?
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().contains(".bak-"))
+            .count();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(s.retention_days, 30);
+        assert_eq!(s.api.token, "0123456789abcdef0123456789abcdef");
+        assert_eq!(s.api.port, 9000);
+        assert_eq!(
+            s.language,
+            LanguagePref::System,
+            "the unknown one falls back"
+        );
+        assert_eq!(
+            s.charts.pressure.colors,
+            vec![ChartColor::Teal, ChartColor::Gold]
+        );
+        assert_eq!(
+            s.charts.humidity.colors,
+            vec![ChartColor::Blue, ChartColor::Pink]
+        );
+        assert_eq!(backups, 1, "the original is kept");
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_that_is_not_json_is_moved_aside() -> std::io::Result<()> {
+        let (s, dir) = load_json("garbage", "{not json")?;
+        let names: Vec<String> = std::fs::read_dir(&dir)?
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(names.iter().all(|n| n.contains(".bak-")), "{names:?}");
+        assert_eq!(s.api.token.len(), 48, "defaults are validated");
+        Ok(())
+    }
+
+    #[test]
+    fn the_first_run_has_a_token() {
+        let path = std::env::temp_dir().join(format!(
+            "tb-settings-none-{}/settings.json",
+            std::process::id()
+        ));
+        let (s, first) = Settings::load(&path);
+        assert!(first);
+        assert_eq!(s.api.token.len(), 48);
+    }
+
+    #[test]
+    fn camel_case_keys_become_snake_case() {
+        let mut v = serde_json::json!({"i2cChannel": "auto", "mqtt": {"allowLan": true, "topic_prefix": "x"},
+            "list": [{"pulseDurationMs": 1}]});
+        snake_case_keys(&mut v);
+        assert_eq!(v["i2c_channel"], "auto");
+        assert_eq!(v["mqtt"]["allow_lan"], true);
+        assert_eq!(v["mqtt"]["topic_prefix"], "x");
+        assert_eq!(v["list"][0]["pulse_duration_ms"], 1);
+    }
+
+    #[test]
+    fn the_broker_client_gets_an_id_once() {
+        let s = Settings::default().validated();
+        let id = s.mqtt.client_id.clone();
+        assert!(id.starts_with("tower-bridge-") && id.len() <= 23, "{id}");
+        assert_eq!(s.clone().validated().mqtt.client_id, id);
+        assert!(s.mqtt.client_config().is_none(), "no host yet");
+        let mut t = s;
+        t.mqtt.host = " broker.local ".into();
+        t.mqtt.tls = true;
+        t.mqtt.port = 0;
+        t.mqtt.username = "ha".into();
+        let t = t.validated();
+        let cfg = t.mqtt.client_config();
+        assert_eq!(
+            cfg.map(|c| (c.host, c.port, c.tls, c.credentials.map(|(u, _)| u))),
+            Some(("broker.local".into(), 8883, true, Some("ha".into())))
+        );
+    }
+
+    #[test]
+    fn version_3_external_broker_settings_move_up() -> std::io::Result<()> {
+        let (s, dir) = load_json(
+            "v3ext",
+            r#"{"version": 3, "mqtt": {"enabled": true, "mode": "external", "port": 1999,
+                "allow_lan": true, "username": "listener", "topic_prefix": "home",
+                "external": {"host": "ha.local", "port": 8883, "tls": true,
+                             "username": "ha", "password": "pw", "client_id": "tb-1"}}}"#,
+        )?;
+        let _ = std::fs::remove_dir_all(&dir);
+        let m = &s.mqtt;
+        assert!(m.enabled);
+        assert_eq!(
+            (
+                m.host.as_str(),
+                m.port,
+                m.tls,
+                m.username.as_str(),
+                m.client_id.as_str()
+            ),
+            ("ha.local", 8883, true, "ha", "tb-1")
+        );
+        assert_eq!(m.topic_prefix, "home");
+        Ok(())
+    }
+
+    #[test]
+    fn the_removed_built_in_broker_turns_mqtt_off() -> std::io::Result<()> {
+        let (s, dir) = load_json(
+            "v3builtin",
+            r#"{"version": 3, "mqtt": {"enabled": true, "mode": "builtin", "port": 1999,
+                "username": "listener", "password": "x", "allow_control": true,
+                "external": {"host": "nas.local", "port": 1883, "client_id": "tower-bridge-0badf00d"}}}"#,
+        )?;
+        let _ = std::fs::remove_dir_all(&dir);
+        let m = &s.mqtt;
+        assert!(!m.enabled);
+        assert_eq!(
+            (m.host.as_str(), m.port, m.username.as_str()),
+            ("nas.local", 1883, ""),
+            "the broker's login, not the built-in listener's"
+        );
+        assert_eq!(m.client_id, "tower-bridge-0badf00d");
+        assert!(m.allow_control, "unrelated settings stay");
+        Ok(())
+    }
+
+    #[test]
+    fn defaults_are_consistent() {
+        let d = ChartStyles::default();
+        for style in [&d.temperature, &d.humidity, &d.illuminance, &d.pressure] {
+            assert_eq!(style.colors.len(), CHART_CHANNELS);
+            assert_ne!(style.colors[0], style.colors[1]);
+        }
+        let once = Settings::default().validated();
+        let twice = once.clone().validated();
+        assert_eq!(once, twice, "validation is idempotent");
+    }
+
+    #[test]
+    fn the_old_default_interval_becomes_the_new_one() -> std::io::Result<()> {
+        let (s, dir) = load_json("v4interval", r#"{"version": 4, "sample_interval_s": 10}"#)?;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(s.sample_interval_s, 20);
+        let (s, dir) = load_json("v4interval30", r#"{"version": 4, "sample_interval_s": 30}"#)?;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(s.sample_interval_s, 30, "chosen by the user");
+        let (s, dir) = load_json("v5interval", r#"{"version": 5, "sample_interval_s": 10}"#)?;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(s.sample_interval_s, 10, "chosen after the change");
+        Ok(())
+    }
+
+    #[test]
+    fn a_chart_keeps_at_least_one_line() {
+        let mut s = Settings::default();
+        s.charts.temperature.hidden_channels = vec![1, 1, 7];
+        s.charts.humidity.hidden_channels = vec![1, 0];
+        let s = s.validated();
+        assert_eq!(s.charts.temperature.hidden_channels, vec![1]);
+        assert!(s.charts.humidity.hidden_channels.is_empty());
     }
 
     #[test]
@@ -472,8 +962,8 @@ mod tests {
             Settings::default().validated(),
             Settings::load(std::path::Path::new("/nonexistent/settings.json")).0,
         ] {
-            assert!(!s.mqtt.enabled, "MQTT broker");
-            assert!(!s.mqtt.allow_lan);
+            assert!(!s.mqtt.enabled, "MQTT");
+            assert!(!s.mqtt.allow_control);
             assert!(!s.api.enabled, "REST API server");
             assert!(!s.api.mcp, "MCP server");
             assert!(!s.api.allow_lan);

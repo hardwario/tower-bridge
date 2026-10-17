@@ -46,14 +46,24 @@ pub struct Series {
 }
 
 impl Series {
-    fn push(&mut self, avg: Option<f64>, min: Option<f64>, max: Option<f64>) {
-        self.avg.push(avg);
-        self.min.push(min);
-        self.max.push(max);
+    fn with_len(n: usize) -> Self {
+        Self {
+            avg: vec![None; n],
+            min: vec![None; n],
+            max: vec![None; n],
+        }
+    }
+
+    fn set(&mut self, i: usize, avg: Option<f64>, min: Option<f64>, max: Option<f64>) {
+        self.avg[i] = avg;
+        self.min[i] = min;
+        self.max[i] = max;
     }
 }
 
-/// Columnar history, ready for uPlot (`t` in seconds).
+/// Columnar history, ready for uPlot (`t` in seconds). Each metric has one
+/// series per entry of `channels`, all aligned with `t`; a channel without a
+/// value in a bucket has `null` there.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct History {
@@ -61,10 +71,34 @@ pub struct History {
     pub to: i64,
     pub bucket_ms: i64,
     pub t: Vec<f64>,
-    pub temperature: Series,
-    pub humidity: Series,
-    pub illuminance: Series,
-    pub pressure: Series,
+    /// I2C channels with readings in the range, ascending.
+    pub channels: Vec<u8>,
+    pub temperature: Vec<Series>,
+    pub humidity: Vec<Series>,
+    pub illuminance: Vec<Series>,
+    pub pressure: Vec<Series>,
+}
+
+impl History {
+    /// The series of `metric` measured on `channel`.
+    pub fn series(&self, metric: crate::model::Metric, channel: u8) -> Option<&Series> {
+        use crate::model::Metric;
+        let i = self.channels.iter().position(|c| *c == channel)?;
+        match metric {
+            Metric::Temperature => self.temperature.get(i),
+            Metric::Humidity => self.humidity.get(i),
+            Metric::Illuminance => self.illuminance.get(i),
+            Metric::Pressure => self.pressure.get(i),
+        }
+    }
+}
+
+/// One aggregated row of the query: a bucket of one channel.
+struct Row {
+    bucket: i64,
+    channel: u8,
+    /// avg, min, max per metric.
+    values: [[Option<f64>; 3]; 4],
 }
 
 /// Smallest ladder step that keeps the point count under `max_points`.
@@ -79,49 +113,98 @@ pub fn bucket_for(span_ms: i64, max_points: usize, sample_interval_ms: i64) -> i
 }
 
 pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
-    let bucket = bucket_for(q.to - q.from, q.max_points, q.sample_interval_ms);
+    let bucket = bucket_for(
+        q.to.saturating_sub(q.from),
+        q.max_points,
+        q.sample_interval_ms,
+    );
     let mut stmt = conn.prepare_cached(
-        "SELECT (ts / ?1) * ?1 AS b,
+        "SELECT (ts / ?1) * ?1 AS b, channel,
                 AVG(temperature), MIN(temperature), MAX(temperature),
                 AVG(humidity), MIN(humidity), MAX(humidity),
                 AVG(illuminance), MIN(illuminance), MAX(illuminance),
                 AVG(pressure), MIN(pressure), MAX(pressure)
          FROM readings WHERE ts >= ?2 AND ts < ?3
-         GROUP BY b ORDER BY b",
+         GROUP BY b, channel ORDER BY b, channel",
     )?;
+    let rows: Vec<Row> = stmt
+        .query_map(params![bucket, q.from, q.to], |r| {
+            let mut values = [[None; 3]; 4];
+            for (m, v) in values.iter_mut().enumerate() {
+                for (k, x) in v.iter_mut().enumerate() {
+                    *x = r.get(2 + m * 3 + k)?;
+                }
+            }
+            Ok(Row {
+                bucket: r.get(0)?,
+                channel: r.get(1)?,
+                values,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+
+    let mut channels: Vec<u8> = rows.iter().map(|r| r.channel).collect();
+    channels.sort_unstable();
+    channels.dedup();
+
+    // Bucket starts, with a null row wherever data is missing for longer than
+    // a few samples, so the chart breaks the line.
+    let gap = bucket.max(q.sample_interval_ms) * 5 / 2;
+    let mut starts: Vec<i64> = Vec::new();
+    let mut nulls: Vec<i64> = Vec::new();
+    for r in &rows {
+        match starts.last() {
+            Some(&prev) if prev == r.bucket => continue,
+            Some(&prev) if r.bucket - prev > gap => nulls.push(prev + bucket),
+            _ => {}
+        }
+        starts.push(r.bucket);
+    }
+    let mut t: Vec<(i64, bool)> = starts
+        .iter()
+        .map(|b| (*b, true))
+        .chain(nulls.iter().map(|b| (*b, false)))
+        .collect();
+    t.sort_unstable();
+
+    let n = t.len();
+    let empty = || vec![Series::with_len(n); channels.len()];
     let mut h = History {
         from: q.from,
         to: q.to,
         bucket_ms: bucket,
-        ..History::default()
+        // Plot each bucket at its centre.
+        t: t.iter()
+            .map(|(b, _)| (b + bucket / 2) as f64 / 1000.0)
+            .collect(),
+        channels: channels.clone(),
+        temperature: empty(),
+        humidity: empty(),
+        illuminance: empty(),
+        pressure: empty(),
     };
-    let gap = bucket.max(q.sample_interval_ms) * 5 / 2;
-    let mut last: Option<i64> = None;
-    let mut rows = stmt.query(params![bucket, q.from, q.to])?;
-    while let Some(r) = rows.next()? {
-        let b: i64 = r.get(0)?;
-        if let Some(prev) = last
-            && b - prev > gap
+    let mut i = 0;
+    for r in &rows {
+        while i < n && !(t[i].0 == r.bucket && t[i].1) {
+            i += 1;
+        }
+        let Some(c) = channels.iter().position(|c| *c == r.channel) else {
+            continue;
+        };
+        for (m, series) in [
+            &mut h.temperature,
+            &mut h.humidity,
+            &mut h.illuminance,
+            &mut h.pressure,
+        ]
+        .into_iter()
+        .enumerate()
         {
-            // Null row so the chart breaks the line.
-            let mid = prev + bucket;
-            h.t.push(mid as f64 / 1000.0);
-            for s in [
-                &mut h.temperature,
-                &mut h.humidity,
-                &mut h.illuminance,
-                &mut h.pressure,
-            ] {
-                s.push(None, None, None);
+            let [avg, min, max] = r.values[m];
+            if i < n {
+                series[c].set(i, avg, min, max);
             }
         }
-        last = Some(b);
-        // Plot each bucket at its centre.
-        h.t.push((b + bucket / 2) as f64 / 1000.0);
-        h.temperature.push(r.get(1)?, r.get(2)?, r.get(3)?);
-        h.humidity.push(r.get(4)?, r.get(5)?, r.get(6)?);
-        h.illuminance.push(r.get(7)?, r.get(8)?, r.get(9)?);
-        h.pressure.push(r.get(10)?, r.get(11)?, r.get(12)?);
     }
     Ok(h)
 }
@@ -160,22 +243,62 @@ mod tests {
         assert_eq!(h.bucket_ms, 30_000);
         // buckets 0 (0,10,20 s) and 30 s (30,40,50 s), a gap row, then 660 s
         assert_eq!(h.t.len(), 4);
-        assert_eq!(h.temperature.avg[0], Some(1.0));
-        assert_eq!(h.temperature.min[1], Some(3.0));
-        assert_eq!(h.temperature.max[1], Some(5.0));
-        assert_eq!(h.temperature.avg[2], None);
-        assert_eq!(h.temperature.avg[3], Some(100.0));
-        assert_eq!(h.illuminance.avg[0], None);
+        assert_eq!(h.channels, vec![0]);
+        let t = &h.temperature[0];
+        assert_eq!(t.avg[0], Some(1.0));
+        assert_eq!(t.min[1], Some(3.0));
+        assert_eq!(t.max[1], Some(5.0));
+        assert_eq!(t.avg[2], None);
+        assert_eq!(t.avg[3], Some(100.0));
+        assert_eq!(h.illuminance[0].avg[0], None);
         Ok(())
     }
 
     #[test]
-    #[ignore = "performance check: cargo test --release -p tower-bridge-core --all-features -- --ignored"]
-    fn thirty_days_query_is_fast() -> crate::store::Result<()> {
+    fn one_series_per_channel_on_shared_buckets() -> crate::store::Result<()> {
+        let mut s = Store::open_in_memory()?;
+        for i in 0..6 {
+            s.insert(&reading(i * 10_000, 20.0))?;
+            // Channel 1 starts later.
+            if i >= 3 {
+                let mut r = reading(i * 10_000, 10.0);
+                r.channel = 1;
+                s.insert(&r)?;
+            }
+        }
+        let h = query(
+            s.conn(),
+            &HistoryQuery {
+                from: 0,
+                to: 60_000,
+                max_points: 2,
+                sample_interval_ms: 10_000,
+            },
+        )?;
+        assert_eq!(h.channels, vec![0, 1]);
+        assert_eq!(h.t.len(), 2);
+        assert_eq!(h.temperature[0].avg, vec![Some(20.0), Some(20.0)]);
+        assert_eq!(h.temperature[1].avg, vec![None, Some(10.0)]);
+        assert_eq!(
+            h.series(crate::model::Metric::Temperature, 1)
+                .map(|s| s.avg[1]),
+            Some(Some(10.0))
+        );
+        Ok(())
+    }
+
+    /// 30 days every 10 s on `channels`; returns the history query's duration.
+    fn thirty_days(channels: &[u8]) -> crate::store::Result<std::time::Duration> {
         let mut s = Store::open_in_memory()?;
         let n = 30 * 8640;
         let rows: Vec<_> = (0..n)
-            .map(|i| reading(i * 10_000, 20.0 + (i % 100) as f64 / 10.0))
+            .flat_map(|i| {
+                channels.iter().map(move |&channel| {
+                    let mut r = reading(i * 10_000, 20.0 + (i % 100) as f64 / 10.0);
+                    r.channel = channel;
+                    r
+                })
+            })
             .collect();
         s.insert_many(&rows)?;
         let started = std::time::Instant::now();
@@ -190,7 +313,19 @@ mod tests {
         )?;
         let took = started.elapsed();
         assert!(h.t.len() <= 900 && h.t.len() > 300, "{} points", h.t.len());
-        assert!(took.as_millis() < 150, "query took {took:?}");
+        assert_eq!(h.channels, channels);
+        Ok(took)
+    }
+
+    #[test]
+    #[ignore = "performance check: cargo test --release -p tower-bridge-core --all-features -- --ignored"]
+    fn thirty_days_query_is_fast() -> crate::store::Result<()> {
+        let one = thirty_days(&[0])?;
+        assert!(one.as_millis() < 150, "one channel took {one:?}");
+        // Twice the rows: the time should grow no more than in proportion.
+        let two = thirty_days(&[0, 1])?;
+        assert!(two.as_millis() < 300, "two channels took {two:?}");
+        eprintln!("30 days: one channel {one:?}, two channels {two:?}");
         Ok(())
     }
 }

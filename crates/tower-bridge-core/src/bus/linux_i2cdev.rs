@@ -85,6 +85,7 @@ impl LinuxI2cDev {
                 serial: adapter.serial.clone().unwrap_or_else(|| "ft260".into()),
                 path: adapter.dev_path.display().to_string(),
                 chip: Some(adapter.name.clone()),
+                bridges_connected: 1,
             },
         })
     }

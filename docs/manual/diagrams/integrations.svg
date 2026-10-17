@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 230" width="680" height="230" role="img" aria-label="MQTT broker, REST API and MCP server">
+<style>
+.mg-card{fill:var(--surface,#fff);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-box{fill:var(--surface-2,#f8f8fa);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-dash{stroke-dasharray:5 4}
+.mg-line{fill:none;stroke:var(--text-muted,#85858e);stroke-width:1.5}
+.mg-guide{fill:none;stroke:var(--border-strong,#d6d6dc);stroke-width:1;stroke-dasharray:3 4}
+.mg-icon{fill:none;stroke:var(--text-muted,#85858e);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mg-t{font-family:var(--font,system-ui,-apple-system,"Segoe UI",sans-serif);font-size:13px;fill:var(--text,#252532)}
+.mg-s{font-size:11.5px;fill:var(--text-2,#55555f)}
+.mg-b{font-weight:600}
+.mg-accent{stroke:var(--accent,#e4002b)}
+.mg-good{fill:var(--good,#0ca30c)}
+.mg-bad{fill:var(--critical,#d03b3b)}
+.mg-crit{stroke:var(--critical,#d03b3b)}
+.mg-crit-weak{fill:var(--critical-weak,rgba(208,59,59,.1))}
+.mg-series{fill:none;stroke:var(--series,#2a78d6);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.mg-num circle{fill:var(--accent,#e4002b)}
+.mg-num text{font-family:var(--font,system-ui,sans-serif);font-size:11.5px;font-weight:700;fill:#fff}
+</style>
+<defs><marker id="mg-int-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--text-muted,#85858e)"/></marker></defs>
+<rect x="20" y="75" width="150" height="80" rx="10" class="mg-box mg-accent" style="stroke-width:2"/>
+<text x="95" y="111" text-anchor="middle" class="mg-t mg-b">TOWER Bridge</text>
+<text x="95" y="130" text-anchor="middle" class="mg-t mg-s">127.0.0.1</text>
+<rect x="250" y="15" width="170" height="54" rx="10" class="mg-box"/>
+<text x="335" y="38" text-anchor="middle" class="mg-t mg-b">MQTT</text><text x="335" y="56" text-anchor="middle" class="mg-t mg-s">Mosquitto  tower/#</text>
+<rect x="250" y="88" width="170" height="54" rx="10" class="mg-box"/>
+<text x="335" y="111" text-anchor="middle" class="mg-t mg-b">REST API</text><text x="335" y="129" text-anchor="middle" class="mg-t mg-s">:8180/api/v1  /metrics</text>
+<rect x="250" y="161" width="170" height="54" rx="10" class="mg-box"/>
+<text x="335" y="184" text-anchor="middle" class="mg-t mg-b">MCP</text><text x="335" y="202" text-anchor="middle" class="mg-t mg-s">:8180/mcp</text>
+<path d="M172 100L246 44" class="mg-line" marker-end="url(#mg-int-arrow)"/>
+<path d="M172 115H246" class="mg-line" marker-end="url(#mg-int-arrow)"/>
+<path d="M172 130L246 186" class="mg-line" marker-end="url(#mg-int-arrow)"/>
+<path d="M424 42H470" class="mg-line" marker-end="url(#mg-int-arrow)"/>
+<path d="M424 115H470" class="mg-line" marker-end="url(#mg-int-arrow)"/>
+<path d="M424 188H470" class="mg-line" marker-end="url(#mg-int-arrow)"/>
+<text x="478" y="38" class="mg-t">Home Assistant</text><text x="478" y="55" class="mg-t mg-s">Node-RED</text>
+<text x="478" y="111" class="mg-t">Grafana</text><text x="478" y="128" class="mg-t mg-s">Prometheus · curl</text>
+<text x="478" y="184" class="mg-t">Claude</text><text x="478" y="201" class="mg-t mg-s">Cursor · VS Code</text>
+</svg>

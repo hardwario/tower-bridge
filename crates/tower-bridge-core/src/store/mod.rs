@@ -2,7 +2,8 @@
 //!
 //! One writer connection (owned by the app's hub thread) inserts readings;
 //! readers open short-lived read-only connections. WAL mode lets both run
-//! concurrently. Values are stored in SI units (°C, %RH, lux, Pa).
+//! concurrently. Values are stored in SI units (°C, %RH, lux, Pa), one row
+//! per measurement cycle and I2C channel.
 
 mod export;
 mod history;
@@ -97,12 +98,13 @@ impl Store {
         let v = &reading.values;
         self.conn
             .prepare_cached(
-                "INSERT OR REPLACE INTO readings (ts, device_id, temperature, humidity, illuminance, pressure)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT OR REPLACE INTO readings (ts, device_id, channel, temperature, humidity, illuminance, pressure)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             )?
             .execute(params![
                 reading.ts,
                 device_id,
+                reading.channel,
                 v.temperature,
                 v.humidity,
                 v.illuminance,
@@ -127,12 +129,13 @@ impl Store {
     pub fn log_alert(&mut self, ev: &AlertEvent) -> Result<()> {
         self.conn
             .prepare_cached(
-                "INSERT INTO alert_log (ts, metric, bound, kind, value, threshold)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO alert_log (ts, metric, channel, bound, kind, value, threshold)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             )?
             .execute(params![
                 ev.ts,
                 ev.metric.as_str(),
+                ev.channel,
                 bound_str(ev.bound),
                 kind_str(ev.kind),
                 ev.value,
@@ -176,6 +179,7 @@ pub fn open_reader(path: &Path) -> Result<Connection> {
 pub struct AlertLogEntry {
     pub ts: i64,
     pub metric: String,
+    pub channel: u8,
     pub bound: String,
     pub kind: String,
     pub value: f64,
@@ -184,22 +188,23 @@ pub struct AlertLogEntry {
 
 pub fn alert_log(conn: &Connection, limit: usize) -> Result<Vec<AlertLogEntry>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT ts, metric, bound, kind, value, threshold FROM alert_log ORDER BY ts DESC LIMIT ?1",
+        "SELECT ts, metric, channel, bound, kind, value, threshold FROM alert_log ORDER BY ts DESC LIMIT ?1",
     )?;
     let rows = stmt.query_map(params![limit as i64], |r| {
         Ok(AlertLogEntry {
             ts: r.get(0)?,
             metric: r.get(1)?,
-            bound: r.get(2)?,
-            kind: r.get(3)?,
-            value: r.get(4)?,
-            threshold: r.get(5)?,
+            channel: r.get(2)?,
+            bound: r.get(3)?,
+            kind: r.get(4)?,
+            value: r.get(5)?,
+            threshold: r.get(6)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// Number of readings in `[from, to)`.
+/// Number of reading rows (one per channel and cycle) in `[from, to)`.
 pub fn count(conn: &Connection, from: i64, to: i64) -> Result<u64> {
     let n: i64 = conn.query_row(
         "SELECT COUNT(*) FROM readings WHERE ts >= ?1 AND ts < ?2",
@@ -237,6 +242,7 @@ mod tests {
         Reading {
             ts,
             device: "SN1".into(),
+            channel: 0,
             values: Values {
                 temperature: Some(t),
                 humidity: Some(40.0),
@@ -287,6 +293,7 @@ mod tests {
         s.log_alert(&AlertEvent {
             ts: 5,
             metric: crate::model::Metric::Temperature,
+            channel: 1,
             bound: Bound::High,
             kind: AlertKind::Triggered,
             value: 30.0,
@@ -297,6 +304,7 @@ mod tests {
         assert_eq!(log.len(), 1);
         assert_eq!(log[0].metric, "temperature");
         assert_eq!(log[0].bound, "high");
+        assert_eq!(log[0].channel, 1);
         Ok(())
     }
 }

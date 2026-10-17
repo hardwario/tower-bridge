@@ -153,7 +153,8 @@ mod tests {
         let r = get(&server, "/api/v1/readings/latest", &[])?;
         assert_eq!(r.status, 200);
         let v = json_body(&r);
-        assert_eq!(v["temperature"], 23.456);
+        assert_eq!(v["readings"][0]["temperature"], 23.456);
+        assert_eq!(v["readings"][0]["channel"], 0);
         assert_eq!(v["stale"], false);
 
         let r = get(&server, "/api/v1/readings?hours=2&max_points=10", &[])?;
@@ -180,12 +181,12 @@ mod tests {
         let r = get(&server, "/metrics", &[])?;
         let text = String::from_utf8_lossy(&r.body);
         assert!(
-            text.contains("tower_bridge_temperature_celsius{device=\"SN1\"} 23.456"),
+            text.contains("tower_bridge_temperature_celsius{device=\"SN1\",channel=\"0\"} 23.456"),
             "{text}"
         );
-        assert!(
-            text.contains("tower_bridge_alert_active{metric=\"temperature\",bound=\"high\"} 1")
-        );
+        assert!(text.contains(
+            "tower_bridge_alert_active{metric=\"temperature\",channel=\"0\",bound=\"high\"} 1"
+        ));
 
         assert_eq!(get(&server, "/api/v1/openapi.json", &[])?.status, 200);
         assert_eq!(get(&server, "/nope", &[])?.status, 404);
@@ -251,6 +252,70 @@ mod tests {
         )?;
         assert_eq!(r.status, 200);
         assert_eq!(backend.identified.lock().map(|n| *n).unwrap_or(0), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn a_slow_rescan_does_not_block_other_requests() -> std::io::Result<()> {
+        let (server, backend) = start(open_policy())?;
+        if let Ok(mut p) = backend.policy.lock() {
+            p.allow_control = true;
+        }
+        if let Ok(mut d) = backend.rescan_time.lock() {
+            *d = Duration::from_millis(1500);
+        }
+        let addr = server.local_addr();
+        let slow = std::thread::spawn(move || {
+            request(
+                addr,
+                "POST",
+                "/api/v1/device/rescan",
+                &[],
+                b"",
+                Duration::from_secs(5),
+            )
+        });
+        std::thread::sleep(Duration::from_millis(150));
+        let started = std::time::Instant::now();
+        assert_eq!(get(&server, "/api/v1/status", &[])?.status, 200);
+        assert!(
+            started.elapsed() < Duration::from_millis(600),
+            "status waited {:?} for the rescan",
+            started.elapsed()
+        );
+        let r = slow
+            .join()
+            .map_err(|_| std::io::Error::other("rescan thread"))??;
+        assert_eq!(r.status, 200);
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_requests_get_json_errors() -> std::io::Result<()> {
+        let (server, backend) = start(open_policy())?;
+        if let Ok(mut p) = backend.policy.lock() {
+            p.allow_control = true;
+        }
+        let addr = server.local_addr();
+        // No content type on a JSON body.
+        let r = request(
+            addr,
+            "PUT",
+            "/api/v1/relay",
+            &[],
+            br#"{"state":true}"#,
+            Duration::from_secs(5),
+        )?;
+        assert_eq!(r.status, 415);
+        assert!(json_body(&r)["error"]["code"].is_string());
+        let r = get(&server, "/api/v1/readings?max_points=abc", &[])?;
+        assert_eq!(r.status, 400);
+        assert!(json_body(&r)["error"]["message"].is_string());
+        // Extreme times: an error or data, never a crash.
+        let r = get(&server, "/api/v1/readings?to=-9223372036854775808", &[])?;
+        assert_eq!(r.status, 400);
+        let r = get(&server, "/api/v1/readings?from=-9223372036854775808", &[])?;
+        assert_eq!(r.status, 200);
         Ok(())
     }
 
@@ -406,7 +471,10 @@ mod tests {
         assert_eq!(r.status, 200);
         let v = json_body(&r);
         assert_eq!(v["result"]["resultType"], "complete");
-        assert_eq!(v["result"]["structuredContent"]["humidity_pct"], 41.3);
+        assert_eq!(
+            v["result"]["structuredContent"]["readings"][0]["humidity_pct"],
+            41.3
+        );
 
         let r = mcp_post(&server, &call, &headers[..2])?;
         assert_eq!(r.status, 400, "missing Mcp-Name");

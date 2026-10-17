@@ -1,7 +1,17 @@
 # Scripts
 
-- `check-version.mjs` — used by the release workflow to check that the git tag,
+- `check-version.mjs`: used by the release workflow to check that the git tag,
   `package.json` and `src-tauri/Cargo.toml` carry the same version.
+- `ui-smoke.mjs` (`npm run test:ui`): opens every view and device state of
+  the browser preview in several languages and both themes, clicks through
+  the main controls and fails on page errors, console errors or visible
+  `undefined`, `NaN` or unfilled `{placeholder}` text, horizontal overflow
+  and squeezed status dots. `npm run test:ui:webkit` runs it in WebKit, the
+  engine macOS and Linux render the app with (install it once with
+  `npx playwright-core install webkit`). Both run in CI.
+- `manual-screenshots.mjs` (`npm run manual:screenshots`): renders the
+  screenshots of the user manual (`docs/manual/images/<lang>/*.webp`, light and
+  dark) from the browser preview with Playwright and the installed Chrome.
 
 ## Icons
 

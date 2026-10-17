@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 245" width="680" height="245" role="img" aria-label="Alert limit with hysteresis">
+<style>
+.mg-card{fill:var(--surface,#fff);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-box{fill:var(--surface-2,#f8f8fa);stroke:var(--border-strong,#d6d6dc);stroke-width:1.2}
+.mg-dash{stroke-dasharray:5 4}
+.mg-line{fill:none;stroke:var(--text-muted,#85858e);stroke-width:1.5}
+.mg-guide{fill:none;stroke:var(--border-strong,#d6d6dc);stroke-width:1;stroke-dasharray:3 4}
+.mg-icon{fill:none;stroke:var(--text-muted,#85858e);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mg-t{font-family:var(--font,system-ui,-apple-system,"Segoe UI",sans-serif);font-size:13px;fill:var(--text,#252532)}
+.mg-s{font-size:11.5px;fill:var(--text-2,#55555f)}
+.mg-b{font-weight:600}
+.mg-accent{stroke:var(--accent,#e4002b)}
+.mg-good{fill:var(--good,#0ca30c)}
+.mg-bad{fill:var(--critical,#d03b3b)}
+.mg-crit{stroke:var(--critical,#d03b3b)}
+.mg-crit-weak{fill:var(--critical-weak,rgba(208,59,59,.1))}
+.mg-series{fill:none;stroke:var(--series,#2a78d6);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.mg-num circle{fill:var(--accent,#e4002b)}
+.mg-num text{font-family:var(--font,system-ui,sans-serif);font-size:11.5px;font-weight:700;fill:#fff}
+</style>
+<rect x="96" y="80" width="564" height="35" class="mg-crit-weak"/>
+<path d="M96 80H660" fill="none" class="mg-crit" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="88" y="84" text-anchor="end" class="mg-t mg-s mg-b" data-i18n="alerts.above">Above</text>
+<text x="88" y="102" text-anchor="end" class="mg-t mg-s" data-i18n="alerts.hysteresis">Hysteresis</text>
+<path d="M96 30V200H660" class="mg-line" style="stroke-width:1"/>
+<path d="M96 170C150 160 180 100 210 80S250 48 280 52 320 96 350 98 390 60 420 64 470 100 500 115 580 168 660 172" class="mg-series"/>
+<path d="M210 30V80M500 30V115" class="mg-guide"/>
+<circle cx="210" cy="80" r="4.5" class="mg-bad"/>
+<circle cx="500" cy="115" r="4.5" class="mg-good"/>
+<g transform="translate(200 6) scale(.833)" class="mg-icon" style="stroke:var(--critical,#d03b3b)"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></g>
+<g transform="translate(490 6) scale(.833)" class="mg-icon" style="stroke:var(--good,#0ca30c)"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></g>
+<rect x="210" y="212" width="290" height="8" rx="4" class="mg-bad"/>
+<text x="355" y="238" text-anchor="middle" class="mg-t mg-s mg-b" data-i18n="common.aboveLimit">Above limit</text>
+</svg>

@@ -1,7 +1,8 @@
 //! Threshold alerts with hysteresis and notification cooldown.
 //!
 //! All values are SI units (°C, %RH, lux, Pa). The engine is pure: it turns
-//! readings into events; the caller decides how to notify.
+//! readings into events; the caller decides how to notify. A rule applies to
+//! its metric on every I2C channel, and each channel is tracked on its own.
 
 use std::collections::HashMap;
 
@@ -101,6 +102,8 @@ pub enum AlertKind {
 pub struct AlertEvent {
     pub ts: i64,
     pub metric: Metric,
+    /// I2C channel of the sensor.
+    pub channel: u8,
     pub bound: Bound,
     pub kind: AlertKind,
     pub value: f64,
@@ -114,6 +117,7 @@ pub struct AlertEvent {
 #[serde(rename_all = "snake_case")]
 pub struct ActiveAlert {
     pub metric: Metric,
+    pub channel: u8,
     pub bound: Bound,
     pub since: i64,
     pub threshold: f64,
@@ -132,7 +136,7 @@ struct BoundState {
 #[derive(Debug, Default)]
 pub struct AlertEngine {
     rules: AlertRules,
-    state: HashMap<(Metric, Bound), BoundState>,
+    state: HashMap<(Metric, u8, Bound), BoundState>,
 }
 
 impl AlertEngine {
@@ -151,13 +155,22 @@ impl AlertEngine {
     pub fn set_rules(&mut self, rules: AlertRules) {
         for metric in Metric::ALL {
             if self.rules.get(metric) != rules.get(metric) {
-                self.state.retain(|(m, _), _| *m != metric);
+                self.state.retain(|(m, _, _), _| *m != metric);
             }
         }
         self.rules = rules;
     }
 
-    pub fn evaluate(&mut self, ts: i64, values: &Values) -> Vec<AlertEvent> {
+    /// Forget alerts of channels that no longer measure (their sensors are
+    /// gone); they could never end otherwise. Returns whether any was active.
+    pub fn retain_channels(&mut self, channels: &[u8]) -> bool {
+        let before = self.active().len();
+        self.state.retain(|(_, c, _), _| channels.contains(c));
+        self.active().len() != before
+    }
+
+    /// Check the values measured on `channel`.
+    pub fn evaluate(&mut self, ts: i64, channel: u8, values: &Values) -> Vec<AlertEvent> {
         let mut events = Vec::new();
         for metric in Metric::ALL {
             let rule = self.rules.get(metric).clone();
@@ -167,13 +180,14 @@ impl AlertEngine {
                     Bound::High => rule.max,
                 };
                 let (true, Some(limit)) = (rule.enabled, limit) else {
-                    self.state.remove(&(metric, bound));
+                    self.state
+                        .retain(|(m, _, b), _| (*m, *b) != (metric, bound));
                     continue;
                 };
                 let Some(value) = values.get(metric) else {
                     continue;
                 };
-                let st = self.state.entry((metric, bound)).or_default();
+                let st = self.state.entry((metric, channel, bound)).or_default();
                 let hyst = rule.hysteresis.max(0.0);
                 let (beyond, back_inside) = match bound {
                     Bound::High => (value > limit, value <= limit - hyst),
@@ -181,7 +195,9 @@ impl AlertEngine {
                 };
                 st.value = value;
                 if !st.active && beyond {
-                    let cooldown_ms = (rule.cooldown_s as i64).saturating_mul(1000);
+                    let cooldown_ms = i64::try_from(rule.cooldown_s)
+                        .unwrap_or(i64::MAX)
+                        .saturating_mul(1000);
                     let notify = st
                         .last_notified
                         .is_none_or(|t| ts.saturating_sub(t) >= cooldown_ms);
@@ -194,6 +210,7 @@ impl AlertEngine {
                     events.push(AlertEvent {
                         ts,
                         metric,
+                        channel,
                         bound,
                         kind: AlertKind::Triggered,
                         value,
@@ -205,6 +222,7 @@ impl AlertEngine {
                     events.push(AlertEvent {
                         ts,
                         metric,
+                        channel,
                         bound,
                         kind: AlertKind::Recovered,
                         value,
@@ -223,7 +241,7 @@ impl AlertEngine {
             .state
             .iter()
             .filter(|(_, s)| s.active)
-            .filter_map(|((metric, bound), s)| {
+            .filter_map(|((metric, channel, bound), s)| {
                 let rule = self.rules.get(*metric);
                 let threshold = match bound {
                     Bound::Low => rule.min,
@@ -231,6 +249,7 @@ impl AlertEngine {
                 }?;
                 Some(ActiveAlert {
                     metric: *metric,
+                    channel: *channel,
                     bound: *bound,
                     since: s.since,
                     threshold,
@@ -238,7 +257,7 @@ impl AlertEngine {
                 })
             })
             .collect();
-        out.sort_by_key(|a| (a.metric as u8, a.bound as u8));
+        out.sort_by_key(|a| (a.metric as u8, a.channel, a.bound as u8));
         out
     }
 }
@@ -275,13 +294,13 @@ mod tests {
     #[test]
     fn trigger_and_recover_with_hysteresis() {
         let mut e = engine();
-        assert!(e.evaluate(0, &temp(Some(24.0))).is_empty());
-        let ev = e.evaluate(1_000, &temp(Some(25.5)));
+        assert!(e.evaluate(0, 0, &temp(Some(24.0))).is_empty());
+        let ev = e.evaluate(1_000, 0, &temp(Some(25.5)));
         assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Triggered, true)]);
         assert_eq!(e.active().len(), 1);
         // Inside the limit but within hysteresis: still active.
-        assert!(e.evaluate(2_000, &temp(Some(24.5))).is_empty());
-        let ev = e.evaluate(3_000, &temp(Some(23.9)));
+        assert!(e.evaluate(2_000, 0, &temp(Some(24.5))).is_empty());
+        let ev = e.evaluate(3_000, 0, &temp(Some(23.9)));
         assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Recovered, true)]);
         assert!(e.active().is_empty());
     }
@@ -289,43 +308,43 @@ mod tests {
     #[test]
     fn flapping_is_rate_limited_by_cooldown() {
         let mut e = engine();
-        let ev = e.evaluate(0, &temp(Some(26.0)));
+        let ev = e.evaluate(0, 0, &temp(Some(26.0)));
         assert!(ev[0].notify);
-        let ev = e.evaluate(10_000, &temp(Some(23.0)));
+        let ev = e.evaluate(10_000, 0, &temp(Some(23.0)));
         assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Recovered, true)]);
         // Re-trigger within the 600 s cooldown: event but no notification,
         // and its recovery is not notified either.
-        let ev = e.evaluate(20_000, &temp(Some(26.0)));
+        let ev = e.evaluate(20_000, 0, &temp(Some(26.0)));
         assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Triggered, false)]);
-        let ev = e.evaluate(30_000, &temp(Some(23.0)));
+        let ev = e.evaluate(30_000, 0, &temp(Some(23.0)));
         assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Recovered, false)]);
         // After the cooldown it notifies again.
-        let ev = e.evaluate(700_000, &temp(Some(26.0)));
+        let ev = e.evaluate(700_000, 0, &temp(Some(26.0)));
         assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Triggered, true)]);
     }
 
     #[test]
     fn low_bound() {
         let mut e = engine();
-        let ev = e.evaluate(0, &temp(Some(17.0)));
+        let ev = e.evaluate(0, 0, &temp(Some(17.0)));
         assert_eq!(kinds(&ev), vec![(Bound::Low, AlertKind::Triggered, true)]);
-        assert!(e.evaluate(1, &temp(Some(18.5))).is_empty());
-        let ev = e.evaluate(2, &temp(Some(19.0)));
+        assert!(e.evaluate(1, 0, &temp(Some(18.5))).is_empty());
+        let ev = e.evaluate(2, 0, &temp(Some(19.0)));
         assert_eq!(kinds(&ev), vec![(Bound::Low, AlertKind::Recovered, true)]);
     }
 
     #[test]
     fn missing_values_keep_state() {
         let mut e = engine();
-        e.evaluate(0, &temp(Some(30.0)));
-        assert!(e.evaluate(1, &temp(None)).is_empty());
+        e.evaluate(0, 0, &temp(Some(30.0)));
+        assert!(e.evaluate(1, 0, &temp(None)).is_empty());
         assert_eq!(e.active().len(), 1);
     }
 
     #[test]
     fn rule_edit_resets_only_that_metric() {
         let mut e = engine();
-        e.evaluate(0, &temp(Some(30.0)));
+        e.evaluate(0, 0, &temp(Some(30.0)));
         let mut rules = e.rules().clone();
         rules.humidity.enabled = true;
         e.set_rules(rules.clone());
@@ -337,18 +356,58 @@ mod tests {
         rules.temperature.max = Some(35.0);
         e.set_rules(rules);
         assert!(e.active().is_empty());
-        assert!(e.evaluate(1, &temp(Some(30.0))).is_empty());
+        assert!(e.evaluate(1, 0, &temp(Some(30.0))).is_empty());
     }
 
     #[test]
     fn disabling_clears_state() {
         let mut e = engine();
-        e.evaluate(0, &temp(Some(30.0)));
+        e.evaluate(0, 0, &temp(Some(30.0)));
         let mut rules = e.rules().clone();
         rules.temperature.enabled = false;
         e.set_rules(rules);
-        assert!(e.evaluate(1, &temp(Some(30.0))).is_empty());
+        assert!(e.evaluate(1, 0, &temp(Some(30.0))).is_empty());
         assert!(e.active().is_empty());
+    }
+
+    #[test]
+    fn channels_are_tracked_separately() {
+        let mut e = engine();
+        let ev = e.evaluate(0, 1, &temp(Some(30.0)));
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].channel, 1);
+        assert!(e.evaluate(1, 0, &temp(Some(20.0))).is_empty());
+        let active = e.active();
+        assert_eq!(active.len(), 1);
+        assert_eq!((active[0].channel, active[0].bound), (1, Bound::High));
+        let ev = e.evaluate(2, 0, &temp(Some(30.0)));
+        assert_eq!(ev.len(), 1, "channel 0 alerts on its own");
+        assert_eq!(e.active().len(), 2);
+    }
+
+    #[test]
+    fn alerts_of_vanished_channels_are_cleared() {
+        let mut e = engine();
+        e.evaluate(0, 1, &temp(Some(30.0)));
+        e.evaluate(0, 0, &temp(Some(30.0)));
+        assert_eq!(e.active().len(), 2);
+        assert!(e.retain_channels(&[0]));
+        let active = e.active();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].channel, 0);
+        assert!(!e.retain_channels(&[0]), "nothing more to drop");
+    }
+
+    #[test]
+    fn huge_cooldown_never_renotifies() {
+        let mut e = engine();
+        let mut rules = e.rules().clone();
+        rules.temperature.cooldown_s = u64::MAX;
+        e.set_rules(rules);
+        assert!(e.evaluate(1_000, 0, &temp(Some(30.0)))[0].notify);
+        e.evaluate(2_000, 0, &temp(Some(20.0)));
+        let ev = e.evaluate(3_000, 0, &temp(Some(30.0)));
+        assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Triggered, false)]);
     }
 
     #[test]
@@ -357,8 +416,8 @@ mod tests {
         let mut rules = e.rules().clone();
         rules.temperature.notify_recovery = false;
         e.set_rules(rules);
-        e.evaluate(0, &temp(Some(30.0)));
-        let ev = e.evaluate(1, &temp(Some(20.0)));
+        e.evaluate(0, 0, &temp(Some(30.0)));
+        let ev = e.evaluate(1, 0, &temp(Some(20.0)));
         assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Recovered, false)]);
     }
 }

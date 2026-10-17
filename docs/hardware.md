@@ -1,8 +1,9 @@
 # Hardware reference
 
 TOWER Bridge talks to the HARDWARIO **TOWER Bridge Module** over USB HID and
-reads the sensors of the **TOWER Climate Module** over I2C. It also switches
-the **TOWER Relay Module**. The protocol was
+reads the sensors of the **TOWER Climate Module** and the TOWER sensor tags
+(Humidity, Temperature, Lux Meter and Barometer Tag) over I2C, on both channels
+of the bridge's I2C switch. It also switches the **TOWER Relay Module**. The protocol was
 ported from [hardwario/enmon](https://github.com/hardwario/enmon) (MIT) and the
 Climate Module layout from
 [hardwario/twr-sdk](https://github.com/hardwario/twr-sdk)
@@ -13,7 +14,7 @@ Climate Module layout from
 | Item | Value |
 |---|---|
 | USB VID:PID | `0403:6030` |
-| Interface | 0 (I2C) — Windows path contains `&mi_00` |
+| Interface | 0 (I2C); on Windows the path contains `&mi_00` |
 | I2C clock | 100 kHz |
 | LED | GPIOH, active high |
 | I2C switch | address `0x70`, write `0x01` = channel 0, `0x02` = channel 1 |
@@ -65,19 +66,57 @@ requires the full length; macOS and Linux accept it).
 | R1 | TMP112 `0x48` | SHT20 `0x40` | OPT3001 `0x44` | MPL3115A2 `0x60` |
 | R2 | SHT30 `0x45` | SHT30 `0x45` | OPT3001 `0x44` | MPL3115A2 `0x60` |
 
-The revision is detected with a command write (SHT30 soft reset `30 A2` at
-`0x45` → R2, otherwise SHT20 soft reset `FE` at `0x40` → R1). A read probe would
-not work: the SHT3x NACKs reads when no measurement is pending.
+## Sensor detection
+
+Both switch channels are probed part by part (*Settings → I²C channels* can
+limit this to one channel):
+
+| Part | Address | Probe |
+|---|---|---|
+| OPT3001 | `0x44`, then `0x45` (Lux Meter Tag) | device ID register `0x7F` reads `0x3001` |
+| SHT30 | `0x45` | soft reset `30 A2` acknowledged |
+| SHT20 | `0x40` | soft reset `FE` acknowledged |
+| TMP112 | `0x48`, then `0x49` (Temperature Tag) | configuration register `0x01` readable |
+| MPL3115A2 | `0x60` | WHO_AM_I register `0x0C` reads `0xC4` |
+
+The OPT3001 is probed first and by its ID: an OPT3001 at `0x45` would also
+acknowledge the SHT30 soft reset. One part of each kind is used per channel,
+the one at the default address when both answer.
+
+The SHT humidity sensors are probed with command writes: a read probe would not
+work, since the SHT3x NACKs reads when no measurement is pending.
+
+The parts on a channel are named after the module that carries them:
+
+| Parts on the channel | Module |
+|---|---|
+| SHT30 with OPT3001 (at `0x44`) or MPL3115A2 | Climate Module R2 |
+| SHT20 with TMP112 (at `0x48`) | Climate Module R1 |
+| otherwise SHT20 or SHT30 | Humidity Tag |
+| otherwise TMP112, and a TMP112 at `0x49` | Temperature Tag |
+| otherwise OPT3001, and an OPT3001 at `0x45` | Lux Meter Tag |
+| otherwise MPL3115A2 | Barometer Tag |
+
+Temperature comes from the SHT30, else the TMP112, else the SHT20 (the Humidity
+Tag measures both); humidity from the SHT30, else the SHT20. Checked on real
+hardware: the Humidity Tag (SHT20), Lux Meter Tag (OPT3001) and Barometer Tag
+(MPL3115A2) on channel 1 next to a Climate Module R1 on channel 0.
+
+A part that fails three measurements in a row is taken as unplugged. Channels
+are probed again every minute, so a tag plugged in later is found, and
+**Rescan** probes right away.
 
 ### Measurement cycle
 
-All conversions are started together and collected as they finish, so a cycle
-takes about one second (enmon: about 6.5 s).
+All conversions on a channel are started together and collected as they
+finish, so a channel takes about one second (enmon: about 6.5 s). The channels
+are measured one after the other, because the same addresses are used on both;
+their readings share the cycle's timestamp.
 
 | Time | Action |
 |---|---|
-| t0 | SHT30 `24 00` (R2) or TMP112 `01 E1 A0` + SHT20 `F5` (R1); OPT3001 config `CA 10`; MPL3115A2 CTRL_REG1 `3A` |
-| +100 ms | SHT30: read 6 bytes, check CRC-8 (poly `0x31`, init `0xFF`). TMP112: wait for OS bit, read reg 0. SHT20: read 3 bytes, check CRC (init `0x00`) |
+| t0 | SHT30 `24 00` (R2) or TMP112 `01 E1 A0` + SHT20 `F5` (R1), or SHT20 `F3` alone (Humidity Tag); OPT3001 config `CA 10`; MPL3115A2 CTRL_REG1 `3A` |
+| +100 ms | SHT30: read 6 bytes, check CRC-8 (poly `0x31`, init `0xFF`). TMP112: wait for OS bit, read reg 0. SHT20: read 3 bytes, check CRC (init `0x00`); after a temperature, trigger `F5` and read humidity about 30 ms later |
 | +550 ms | MPL3115A2: wait for STATUS bit `0x04`, read 5 bytes from `0x01` |
 | +880 ms | OPT3001: wait until mode = shutdown and conversion-ready, read reg 0 |
 
@@ -144,9 +183,10 @@ If the bridge is unplugged during a pulse, the relay stays switched over.
 
 ```sh
 cargo run -p tower-bridge-cli -- scan            # list bridges and interfaces
-cargo run -p tower-bridge-cli -- probe --trace   # one cycle, hex dump of every report
+cargo run -p tower-bridge-cli -- probe --trace   # find the sensors, one cycle per channel, hex dump of every report
 cargo run -p tower-bridge-cli -- watch           # continuous, with reconnect
 cargo run -p tower-bridge-cli -- i2c-scan        # addresses per channel and in front of the switch
+cargo run -p tower-bridge-cli -- i2c-identify    # name the sensor chips on each channel
 cargo run -p tower-bridge-cli -- led on
 cargo run -p tower-bridge-cli -- relay [true|false]  # find the Relay Module, show or switch it
 ```
