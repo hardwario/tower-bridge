@@ -6,8 +6,11 @@
 
 pub mod crc;
 pub mod identify;
+pub mod lp8;
 pub mod mpl3115a2;
 pub mod opt3001;
+pub mod sc16is740;
+pub mod sgpc3;
 pub mod sht20;
 pub mod sht30;
 pub mod tmp112;

@@ -47,11 +47,15 @@ export function unitLabel(metric: Metric, unit: TemperatureUnit): string {
       return "lx";
     case "pressure":
       return "hPa";
+    case "co2":
+      return "ppm";
+    case "voc":
+      return "ppb";
   }
 }
 
 export function decimals(metric: Metric): number {
-  return metric === "illuminance" ? 0 : 1;
+  return metric === "illuminance" || metric === "co2" || metric === "voc" ? 0 : 1;
 }
 
 /** Barometric altitude in metres. */

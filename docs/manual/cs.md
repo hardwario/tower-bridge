@@ -10,6 +10,8 @@ Potřebujete:
 - **TOWER Climate Module** (revize R1 nebo R2) pro teplotu, relativní vlhkost, osvětlení a atmosférický tlak.
 - Volitelně senzorové tagy TOWER: **Humidity Tag**, **Temperature Tag**, **Lux Meter Tag** a **Barometer Tag**, samostatně nebo vedle Climate Module.
 - Volitelně **TOWER Relay Module**, bistabilní relé, které ovládáte z aplikace.
+- Volitelně **TOWER NFC Tag**, který telefonu, jenž se ho dotkne, předá webovou adresu podle vaší volby.
+- Volitelně **TOWER CO2 Module** (oxid uhličitý), **VOC-LP Tag** (těkavé organické látky) a **TOWER GPS Module** (poloha).
 
 Aplikace běží v řádku nabídek (macOS) nebo v oznamovací oblasti (Windows, Linux). Měří i se zavřeným oknem.
 
@@ -81,9 +83,28 @@ Relé je bistabilní, takže si polohu drží i bez napájení. Jeho stav je **T
 
 ![Impulz do stavu TRUE](diagrams/relay-pulse.svg)
 
+### CO₂ a VOC {#air}
+
+Panely CO₂ a VOC se objeví, když je připojený TOWER CO2 Module nebo VOC-LP Tag.
+
+- **CO₂** v ppm. První hodnota přijde asi minutu po spuštění, zatímco modul nabíjí kondenzátor; potom se měří při každém měření, nejvýše každých 16 sekund. Hodnota je filtrovaná od šumu a korigovaná na tlak vzduchu podle barometru, pokud je připojený. Senzor si každých 8 dní sám opraví základní linii, proto místnost občas vyvětrejte; po novém startu se hodnoty ustálí během několika dní.
+- **VOC** (těkavé organické látky celkem) v ppb, měří se každých 30 sekund. První hodnoty přijdou asi po pěti minutách zahřívání. S vlhkoměrem na stejném kanálu se hodnota koriguje na vlhkost.
+
+Oba senzory si naučené hodnoty pamatují i po restartu aplikace.
+
+### GPS {#gps}
+
+![Karta GPS](images/cs/gps.webp)
+
+Karta GPS se objeví, když je připojený TOWER GPS Module. Ukazuje, zda má přijímač určenou polohu a kolik družic používá; s určenou polohou také souřadnice, jejich přesnost, nadmořskou výšku a čas z družic. Mapa vedle funguje i bez internetu: státy, řeky, jezera a města, poloha je červená tečka. Tažením se po ní posunete, přiblížíte ji tlačítky + a −, klávesou Ctrl/⌘ s kolečkem myši nebo sevřením prstů; po posunutí mapy přibude třetí tlačítko, které vrátí polohu doprostřed. Ulice ukáže **Zobrazit na mapě**, které otevře polohu v OpenStreetMap. První určení polohy může trvat několik minut a potřebuje výhled na oblohu; se získanou polohou se na modulu rozsvítí zelená LED.
+
+### TOWER NFC Tag {#nfc}
+
+TOWER NFC Tag uchovává webovou adresu. Telefon, který se ho dotkne, ji otevře, například stránku o místnosti nebo zařízení. Karta se objeví, když je tag připojený, a ukazuje adresu na tagu. Napište novou a stiskněte **Zapsat**; bez `https://` se doplní sama. Vejdou se adresy do 240 znaků.
+
 ### TOWER Bridge Module {#bridge}
 
-Ukazuje moduly nalezené na jednotlivých kanálech I²C (včetně Relay Module). **Identifikovat** blikne LED na Bridge Module. **Hledat znovu** znovu vyhledá moduly. Když je připojeno více Bridge Module, karta na to upozorní: aplikace čte jen jeden z nich, ten, jehož LED blikne po **Identifikovat**. Ostatní odpojte, jinak se mohou smíchat hodnoty z různých sestav.
+Ukazuje moduly nalezené na jednotlivých kanálech I²C (včetně Relay Module). **Identifikovat** blikne LED na Bridge Module. **Hledat znovu** znovu vyhledá moduly. Když je připojeno více Bridge Module, karta na to upozorní: aplikace čte jen jeden z nich, ten, jehož LED blikne po **Identifikovat**. Ostatní odpojte, jinak se mohou smíchat hodnoty z různých sestav. Karta je na nástěnce vždy poslední.
 
 ## Data {#data}
 
@@ -120,7 +141,7 @@ Tlačítko **Odeslat** u Zkušebního oznámení ověří, že oznámení doraz�
 
 MQTT je ve výchozím stavu vypnuté. Po zapnutí aplikace publikuje každou hodnotu do vašeho vlastního brokeru MQTT, například Mosquitto nebo brokeru v Home Assistant; sama broker neprovozuje. Zadejte **Adresa brokeru** a podle potřeby port, TLS a přihlášení. Změny platí hned a aplikace se k brokeru sama znovu připojí, když vypadne. Stav pod přepínačem říká, zda je připojena.
 
-Každá hodnota se publikuje jako retained zpráva pod prefixem témat (výchozí `tower`) s kanálem I²C na konci: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` a `tower/altitude/0`. Senzory na kanálu 1 publikují na `tower/temperature/1` a tak dále. Stav relé se publikuje na `tower/relay/0` (kanál Relay Module) jako `true`, `false`, nebo `null`, dokud není znám. `tower/status` říká `online`, dokud aplikace publikuje, a `offline`, když přestane.
+Každá hodnota se publikuje jako retained zpráva pod prefixem témat (výchozí `tower`) s kanálem I²C na konci: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` a `tower/altitude/0`. Senzory na kanálu 1 publikují na `tower/temperature/1` a tak dále. TOWER CO2 Module publikuje na `tower/co2/0` (ppm), VOC-LP Tag na `tower/voc/0` (ppb) a TOWER GPS Module na `tower/gps/0/latitude`, `/longitude`, `/altitude` a `/satellites`. Stav relé se publikuje na `tower/relay/0` (kanál Relay Module) jako `true`, `false`, nebo `null`, dokud není znám. `tower/status` říká `online`, dokud aplikace publikuje, a `offline`, když přestane.
 
 Se zapnutým **Povolit ovládání relé** přijímá relé `true` nebo `false` na `tower/relay/0/set` a impulz na `tower/relay/0/pulse`.
 

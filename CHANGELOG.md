@@ -74,6 +74,15 @@
   tray say so (only one is read; Identify shows which). The bridge's serial
   number is no longer shown (the FT260 has none).
 - The Data table sorts by any column: click a column head, again to reverse.
+- TOWER NFC Tag support: the Dashboard shows its card with the URL on the tag and
+  writes a new one as an NDEF URI record (phones open it when they touch the
+  tag); `tower-bridge-cli nfc [URL]` does the same from the command line, and
+  `nfc --scan` finds a tag at any address. HARDWARIO tags answer at 0x08, the
+  chip's factory default 0x55 is tried too.
+- The sidebar lists every connected module on its own line, as the Bridge
+  Module card does (short names, the relay with its state).
+- A Dashboard panel added by an update (such as the TOWER NFC Tag card) lands
+  at its usual place in a saved panel order, not at the end.
 - Decimal separator setting (Settings, General): Automatic follows the
   language, or a point or a comma, for numbers in the app, the tray and
   notifications. Exports are not affected.
@@ -97,3 +106,24 @@
 - MQTT topics end with the I²C channel: `tower/temperature/0`,
   `tower/humidity/1`, …; the relay is `tower/relay/<channel>` with `/set` and
   `/pulse` below it.
+- TOWER CO2 Module (Senseair LP8) and VOC-LP Tag (Sensirion SGPC3) support:
+  CO₂ in ppm and TVOC in ppb are measured like the other values, with
+  Dashboard panels, alerts, the Data table, CSV and XLSX export, MQTT
+  (`tower/co2/<channel>`, `tower/voc/<channel>`), REST, Prometheus and MCP.
+  CO₂ is filtered and pressure compensated with the barometer and measured at
+  most every 16 s; the sensor's state and the VOC baseline survive restarts.
+  The panels appear only with the modules (or stored data).
+- TOWER GPS Module (u-blox SAM-M8Q) support: a Dashboard card with fix,
+  satellites, position (Show on map opens OpenStreetMap), accuracy, altitude
+  and satellite time; MQTT `tower/gps/<channel>/latitude`, `/longitude`,
+  `/altitude` and `/satellites`; REST `/api/v1/gps`; MCP device status.
+- `tower-bridge-cli co2`, `voc`, `gps`, `i2c-read` and `i2c-write`;
+  `i2c-scan` also finds chips that ignore a bare read.
+- The GPS card shows the position on an offline map (countries, rivers, lakes
+  and towns from Natural Earth, town names in the app's language): drag to
+  look around, zoom with the buttons, Ctrl/⌘+scroll or a pinch.
+- The relay card's controls are a grid: Manual control and Pulse control rows
+  with equally wide, aligned buttons, the pulse duration after the pulse
+  buttons.
+- The TOWER Bridge Module card is always the last on the Dashboard and can no
+  longer be dragged; new panels such as CO₂ and VOC land before it.

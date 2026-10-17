@@ -40,10 +40,10 @@ pub fn write_csv<W: Write>(
     };
     writeln!(
         out,
-        "timestamp,unix_ms,device,channel,{temp_col},humidity_pct,illuminance_lx,pressure_hpa,altitude_m"
+        "timestamp,unix_ms,device,channel,{temp_col},humidity_pct,illuminance_lx,pressure_hpa,altitude_m,co2_ppm,voc_ppb"
     )?;
     let mut stmt = conn.prepare(
-        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel
+        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel, r.co2, r.voc
          FROM readings r JOIN devices d ON d.id = r.device_id
          WHERE r.ts >= ?1 AND r.ts < ?2 ORDER BY r.ts, r.channel",
     )?;
@@ -57,6 +57,8 @@ pub fn write_csv<W: Write>(
         let l: Option<f64> = r.get(4)?;
         let p: Option<f64> = r.get(5)?;
         let channel: i64 = r.get(6)?;
+        let co2: Option<f64> = r.get(7)?;
+        let voc: Option<f64> = r.get(8)?;
         let stamp = Local
             .timestamp_millis_opt(ts)
             .single()
@@ -69,12 +71,14 @@ pub fn write_csv<W: Write>(
         };
         writeln!(
             out,
-            "{stamp},{ts},{serial},{channel},{},{},{},{},{}",
+            "{stamp},{ts},{serial},{channel},{},{},{},{},{},{},{}",
             fmt(t, 2),
             fmt(h, 1),
             fmt(l, 1),
             fmt(p.map(|p| p / 100.0), 2),
             fmt(p.map(|p| altitude(p, opts.sea_level_pa)), 1),
+            fmt(co2, 0),
+            fmt(voc, 0),
         )?;
         n += 1;
         if n.is_multiple_of(10_000) && !progress(n, total) {
@@ -148,7 +152,7 @@ mod tests {
         assert_eq!(
             lines.next(),
             Some(
-                "timestamp,unix_ms,device,channel,temperature_c,humidity_pct,illuminance_lx,pressure_hpa,altitude_m"
+                "timestamp,unix_ms,device,channel,temperature_c,humidity_pct,illuminance_lx,pressure_hpa,altitude_m,co2_ppm,voc_ppb"
             )
         );
         let row: Vec<&str> = lines.next().unwrap_or_default().split(',').collect();

@@ -42,7 +42,7 @@
     compact?: boolean;
   } = $props();
 
-  const MIN_SPAN: Record<Metric, number> = { temperature: 2, humidity: 5, illuminance: 20, pressure: 2 };
+  const MIN_SPAN: Record<Metric, number> = { temperature: 2, humidity: 5, illuminance: 20, pressure: 2, co2: 50, voc: 50 };
   const HOUR = 3_600_000;
 
   let el: HTMLDivElement;

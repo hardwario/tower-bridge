@@ -53,13 +53,15 @@ pub fn unit_label(metric: Metric, unit: TemperatureUnit) -> &'static str {
         Metric::Humidity => "%",
         Metric::Illuminance => "lx",
         Metric::Pressure => "hPa",
+        Metric::Co2 => "ppm",
+        Metric::Voc => "ppb",
     }
 }
 
 fn decimals(metric: Metric) -> usize {
     match metric {
         Metric::Temperature | Metric::Humidity | Metric::Pressure => 1,
-        Metric::Illuminance => 0,
+        Metric::Illuminance | Metric::Co2 | Metric::Voc => 0,
     }
 }
 
@@ -100,6 +102,8 @@ pub fn short(metric: Metric, v: f64, unit: TemperatureUnit, dec: impl Into<Decim
         Metric::Humidity => format!("{d:.0} %"),
         Metric::Illuminance => format!("{d:.0} lx"),
         Metric::Pressure => format!("{d:.0} hPa"),
+        Metric::Co2 => format!("{d:.0} ppm"),
+        Metric::Voc => format!("{d:.0} ppb"),
     };
     localize(no_negative_zero(s), dec)
 }

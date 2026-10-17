@@ -26,6 +26,8 @@ pub struct XlsxLabels {
     pub illuminance: String,
     pub pressure: String,
     pub altitude: String,
+    pub co2: String,
+    pub voc: String,
 }
 
 fn xlsx_err(e: XlsxError) -> StoreError {
@@ -54,7 +56,7 @@ fn sheet_name(base: &str, index: usize) -> String {
 struct Formats {
     header: Format,
     time: Format,
-    numbers: [Format; 5],
+    numbers: [Format; 7],
 }
 
 fn start_sheet<'a>(
@@ -78,13 +80,15 @@ fn start_sheet<'a>(
         &labels.illuminance,
         &labels.pressure,
         &labels.altitude,
+        &labels.co2,
+        &labels.voc,
     ];
     for (col, text) in headers.iter().enumerate() {
         sheet
             .write_string_with_format(0, col as u16, text.as_str(), &f.header)
             .map_err(xlsx_err)?;
     }
-    for (col, width) in [20.0, 14.0, 12.0, 18.0, 16.0, 18.0, 16.0, 18.0]
+    for (col, width) in [20.0, 14.0, 12.0, 18.0, 16.0, 18.0, 16.0, 18.0, 12.0, 12.0]
         .iter()
         .enumerate()
     {
@@ -119,12 +123,14 @@ pub fn export_xlsx_to_file(
             Format::new().set_num_format("0.0"),
             Format::new().set_num_format("0.00"),
             Format::new().set_num_format("0.0"),
+            Format::new().set_num_format("0"),
+            Format::new().set_num_format("0"),
         ],
     };
 
     let mut workbook = Workbook::new();
     let mut stmt = conn.prepare(
-        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel
+        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel, r.co2, r.voc
          FROM readings r JOIN devices d ON d.id = r.device_id
          WHERE r.ts >= ?1 AND r.ts < ?2 ORDER BY r.ts, r.channel",
     )?;
@@ -159,6 +165,8 @@ pub fn export_xlsx_to_file(
             r.get::<_, Option<f64>>(4)?,
             p.map(|p| p / 100.0),
             p.map(|p| altitude(p, opts.sea_level_pa)),
+            r.get::<_, Option<f64>>(7)?,
+            r.get::<_, Option<f64>>(8)?,
         ];
 
         if let Some(local) = Local.timestamp_millis_opt(ts).single() {
@@ -196,7 +204,7 @@ pub fn export_xlsx_to_file(
     last_row_per_sheet.push(row);
     for (i, last) in last_row_per_sheet.iter().enumerate() {
         if let Ok(s) = workbook.worksheet_from_index(i) {
-            let _ = s.autofilter(0, 0, (*last).max(1), 7);
+            let _ = s.autofilter(0, 0, (*last).max(1), 9);
         }
     }
 
@@ -234,6 +242,8 @@ mod tests {
             illuminance: "Osvětlení (lx)".into(),
             pressure: "Tlak (hPa)".into(),
             altitude: "Nadmořská výška (m)".into(),
+            co2: "CO₂ (ppm)".into(),
+            voc: "VOC (ppb)".into(),
         }
     }
 

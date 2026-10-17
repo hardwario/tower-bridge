@@ -21,6 +21,8 @@ const history: History = {
   humidity: [empty(4), empty(4)],
   illuminance: [empty(4), empty(4)],
   pressure: [empty(4), empty(4)],
+  co2: [empty(4), empty(4)],
+  voc: [empty(4), empty(4)],
 };
 
 describe("chart data", () => {

@@ -2,9 +2,11 @@
 
 Desktop app for the HARDWARIO **TOWER Bridge Module** with a **TOWER Climate
 Module** or TOWER sensor tags (Humidity, Temperature, Lux Meter, Barometer) on
-either of its two I²C channels and, optionally, a **TOWER Relay Module**. It
-lives in the menu bar (macOS) or system tray (Windows, Linux) and shows
-temperature, humidity, illuminance and barometric pressure at a glance.
+either of its two I²C channels and, optionally, a **TOWER CO2 Module**, a
+VOC-LP Tag, a **TOWER GPS Module**, a **TOWER Relay Module** and a **TOWER NFC
+Tag**. It lives in the menu bar (macOS) or system tray (Windows, Linux) and
+shows temperature, humidity, illuminance, barometric pressure, CO₂ and VOC at a
+glance.
 
 - Current value right in the menu bar / tray icon, all readings in the tray menu
 - Dashboard with live values and interactive charts: min / avg / max with
@@ -16,6 +18,13 @@ temperature, humidity, illuminance and barometric pressure at a glance.
   each panel shows a line per channel
 - Relay Module control (true / false / timed pulse) on the dashboard, over
   REST, MCP and MQTT when one is connected
+- CO₂ (TOWER CO2 Module, pressure compensated) and TVOC (VOC-LP Tag, humidity
+  compensated) as full measurements: panels, alerts, export, MQTT, REST and MCP
+- TOWER GPS Module: fix, position on an offline map (and a link to
+  OpenStreetMap), altitude and satellites on the dashboard, over MQTT, REST
+  and MCP
+- TOWER NFC Tag: write a URL (an NDEF URI record) that phones open when they touch
+  the tag
 - Notifications when a value leaves its range (with hysteresis and repeat
   interval), and when the bridge is disconnected
 - CSV and XLSX export of the stored history
@@ -129,7 +138,7 @@ npm run test:ui:webkit   # the same in WebKit (npx playwright-core install webki
 | Path | Contents |
 |---|---|
 | `crates/tower-bridge-core` | FT260 transport (hidapi, Linux i2c-dev), sensor drivers, sensor detection on both I²C channels, acquisition thread, alert engine, SQLite store, MQTT client, REST/MCP server |
-| `crates/tower-bridge-cli` | `tower-bridge-cli` diagnostics tool (`scan`, `probe`, `watch`, `led`, `i2c-scan`, `i2c-identify`, `relay`) |
+| `crates/tower-bridge-cli` | `tower-bridge-cli` diagnostics tool (`scan`, `probe`, `watch`, `led`, `i2c-scan`, `i2c-identify`, `i2c-read`, `i2c-write`, `relay`, `co2`, `voc`, `gps`, `nfc`) |
 | `src-tauri` | Desktop app: tray, dashboard window, settings, notifications, commands |
 | `src` | Dashboard UI (Svelte 5, uPlot); translations in `src/lib/i18n/` |
 | `docs` | [Hardware protocol](docs/hardware.md), [Linux](docs/linux.md), [MQTT](docs/mqtt.md), [REST API & MCP](docs/api.md), [user manual](docs/manual/en.md) |
@@ -157,5 +166,8 @@ Third-party components include [Tauri](https://tauri.app) (MIT/Apache-2.0),
 (MIT), [Svelte](https://svelte.dev) (MIT), icons from
 [Lucide](https://lucide.dev) (ISC), the [Inter](https://rsms.me/inter/) and
 [Roboto Mono](https://github.com/googlefonts/RobotoMono) fonts (SIL OFL 1.1,
-`src/assets/fonts/OFL-*.txt`) and the Barlow Condensed font (SIL OFL 1.1,
-`src-tauri/assets/fonts/OFL.txt`).
+`src/assets/fonts/OFL-*.txt`), the Barlow Condensed font (SIL OFL 1.1,
+`src-tauri/assets/fonts/OFL.txt`), and map data from
+[Natural Earth](https://www.naturalearthdata.com) (public domain) via
+[world-atlas](https://github.com/topojson/world-atlas) (ISC) with place names
+from [Wikidata](https://www.wikidata.org) (CC0).

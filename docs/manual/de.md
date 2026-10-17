@@ -10,6 +10,8 @@ Sie benötigen:
 - **TOWER Climate Module** (Revision R1 oder R2) für Temperatur, relative Luftfeuchtigkeit, Beleuchtungsstärke und Luftdruck.
 - Optional TOWER Sensor-Tags: **Humidity Tag**, **Temperature Tag**, **Lux Meter Tag** und **Barometer Tag**, allein oder neben dem Climate Module.
 - Optional ein **TOWER Relay Module**, ein bistabiles Relais, das Sie aus der App schalten.
+- Optional ein **TOWER NFC Tag**, der einem Telefon, das ihn berührt, eine Webadresse Ihrer Wahl übergibt.
+- Optional ein **TOWER CO2 Module** (Kohlendioxid), ein **VOC-LP Tag** (flüchtige organische Verbindungen) und ein **TOWER GPS Module** (Position).
 
 Die App läuft in der Menüleiste (macOS) oder im Infobereich der Taskleiste (Windows, Linux). Sie misst auch bei geschlossenem Fenster weiter.
 
@@ -81,9 +83,28 @@ Das Relais ist bistabil und behält seine Stellung auch ohne Strom. Sein Zustand
 
 ![Ein Impuls auf TRUE](diagrams/relay-pulse.svg)
 
+### CO₂ und VOC {#air}
+
+CO₂- und VOC-Panels erscheinen, wenn ein TOWER CO2 Module oder ein VOC-LP Tag angeschlossen ist.
+
+- **CO₂** in ppm. Der erste Wert kommt etwa eine Minute nach dem Start, während das Modul seinen Kondensator lädt; danach wird bei jeder Messung gemessen, höchstens alle 16 Sekunden. Der Wert ist rauschgefiltert und mit dem Barometer, falls vorhanden, auf den Luftdruck korrigiert. Der Sensor korrigiert seine Basislinie alle 8 Tage selbst, lüften Sie den Raum also ab und zu; nach einem Neustart pendeln sich die Werte innerhalb weniger Tage ein.
+- **VOC** (flüchtige organische Verbindungen gesamt) in ppb, gemessen alle 30 Sekunden. Die ersten Werte kommen nach etwa fünf Minuten Aufwärmzeit. Mit einem Feuchtesensor auf demselben Kanal wird der Wert auf die Feuchte korrigiert.
+
+Beide Sensoren behalten, was sie gelernt haben, auch wenn die App neu startet.
+
+### GPS {#gps}
+
+![Die GPS-Karte](images/de/gps.webp)
+
+Die GPS-Karte erscheint, wenn ein TOWER GPS Module angeschlossen ist. Sie zeigt, ob der Empfänger eine Position bestimmt hat und wie viele Satelliten er nutzt; mit Position auch die Koordinaten, ihre Genauigkeit, die Höhe über dem Meer und die Zeit der Satelliten. Die Karte daneben funktioniert ohne Internet: Länder, Flüsse, Seen und Städte, die Position als roter Punkt. Ziehen verschiebt sie, vergrößert wird mit den Tasten + und −, mit Strg/⌘ und dem Mausrad oder mit zwei Fingern; nach dem Verschieben holt eine dritte Taste die Position zurück in die Mitte. Für Straßen öffnet **Auf der Karte zeigen** die Position in OpenStreetMap. Die erste Positionsbestimmung kann einige Minuten dauern und braucht freie Sicht zum Himmel; mit einer Position leuchtet die grüne LED am Modul.
+
+### TOWER NFC Tag {#nfc}
+
+Der TOWER NFC Tag enthält eine Webadresse. Ein Telefon, das ihn berührt, öffnet sie, zum Beispiel eine Seite über den Raum oder das Gerät. Die Karte erscheint, wenn der Tag angeschlossen ist, und zeigt die Adresse auf dem Tag. Geben Sie eine neue ein und drücken Sie **Schreiben**; ohne `https://` wird es ergänzt. Adressen bis 240 Zeichen passen.
+
 ### TOWER Bridge Module {#bridge}
 
-Zeigt die auf jedem I²C-Kanal erkannten Module (auch das Relay Module). **Identifizieren** lässt die LED am Bridge Module blinken. **Neu suchen** sucht erneut nach Modulen. Sind mehrere Bridge Module angeschlossen, warnt die Karte: Die App liest nur eines davon, das, dessen LED bei **Identifizieren** blinkt. Trennen Sie die anderen, sonst können sich Messwerte verschiedener Aufbauten vermischen.
+Zeigt die auf jedem I²C-Kanal erkannten Module (auch das Relay Module). **Identifizieren** lässt die LED am Bridge Module blinken. **Neu suchen** sucht erneut nach Modulen. Sind mehrere Bridge Module angeschlossen, warnt die Karte: Die App liest nur eines davon, das, dessen LED bei **Identifizieren** blinkt. Trennen Sie die anderen, sonst können sich Messwerte verschiedener Aufbauten vermischen. Die Karte steht auf dem Dashboard immer zuletzt.
 
 ## Daten {#data}
 
@@ -120,7 +141,7 @@ Im Diagramm steigt der Wert über die Grenze: Der Alarm beginnt und Sie erhalten
 
 MQTT ist standardmäßig aus. Eingeschaltet veröffentlicht die App jeden Messwert auf Ihrem eigenen MQTT-Broker, zum Beispiel Mosquitto oder dem Broker in Home Assistant; einen eigenen Broker betreibt sie nicht. Geben Sie die **Broker-Adresse** ein und bei Bedarf Port, TLS und Anmeldung. Änderungen gelten sofort, und die App verbindet sich von selbst neu, wenn der Broker weg war. Der Status unter dem Schalter zeigt, ob sie verbunden ist.
 
-Jeder Messwert wird als Retained-Nachricht unter dem Topic-Präfix (standardmäßig `tower`) mit dem I²C-Kanal am Ende veröffentlicht: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` und `tower/altitude/0`. Sensoren an Kanal 1 veröffentlichen auf `tower/temperature/1` und so weiter. Der Relaiszustand wird auf `tower/relay/0` (dem Kanal des Relay Module) als `true`, `false` oder, solange er unbekannt ist, `null` veröffentlicht. `tower/status` meldet `online`, solange die App veröffentlicht, und `offline`, wenn sie aufhört.
+Jeder Messwert wird als Retained-Nachricht unter dem Topic-Präfix (standardmäßig `tower`) mit dem I²C-Kanal am Ende veröffentlicht: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` und `tower/altitude/0`. Sensoren an Kanal 1 veröffentlichen auf `tower/temperature/1` und so weiter. Ein TOWER CO2 Module veröffentlicht auf `tower/co2/0` (ppm), ein VOC-LP Tag auf `tower/voc/0` (ppb) und ein TOWER GPS Module auf `tower/gps/0/latitude`, `/longitude`, `/altitude` und `/satellites`. Der Relaiszustand wird auf `tower/relay/0` (dem Kanal des Relay Module) als `true`, `false` oder, solange er unbekannt ist, `null` veröffentlicht. `tower/status` meldet `online`, solange die App veröffentlicht, und `offline`, wenn sie aufhört.
 
 Mit eingeschaltetem **Relaissteuerung erlauben** nimmt das Relais `true` oder `false` auf `tower/relay/0/set` und einen Impuls auf `tower/relay/0/pulse` an.
 

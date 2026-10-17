@@ -10,6 +10,8 @@ Potrzebujesz:
 - **TOWER Climate Module** (rewizja R1 lub R2) do pomiaru temperatury, wilgotności względnej, natężenia oświetlenia i ciśnienia atmosferycznego.
 - Opcjonalnie tagi czujników TOWER: **Humidity Tag**, **Temperature Tag**, **Lux Meter Tag** i **Barometer Tag**, same lub obok Climate Module.
 - Opcjonalnie **TOWER Relay Module**, przekaźnika bistabilnego, którym sterujesz z aplikacji.
+- Opcjonalnie **TOWER NFC Tag**, który przekazuje wybrany przez Ciebie adres internetowy telefonowi, który go dotknie.
+- Opcjonalnie **TOWER CO2 Module** (dwutlenek węgla), **VOC-LP Tag** (lotne związki organiczne) i **TOWER GPS Module** (pozycja).
 
 Aplikacja działa na pasku menu (macOS) lub w zasobniku systemowym (Windows, Linux). Mierzy także przy zamkniętym oknie.
 
@@ -81,9 +83,28 @@ Przekaźnik jest bistabilny, więc utrzymuje położenie bez zasilania. Jego sta
 
 ![Impuls do stanu TRUE](diagrams/relay-pulse.svg)
 
+### CO₂ i VOC {#air}
+
+Panele CO₂ i VOC pojawiają się, gdy podłączony jest TOWER CO2 Module lub VOC-LP Tag.
+
+- **CO₂** w ppm. Pierwsza wartość pojawia się około minuty po uruchomieniu, gdy moduł ładuje kondensator; potem jest mierzona przy każdym pomiarze, najwyżej co 16 sekund. Wartość jest odfiltrowana z szumu i skorygowana o ciśnienie powietrza z barometru, jeśli jest podłączony. Czujnik co 8 dni sam koryguje swoją linię bazową, dlatego czasem przewietrz pomieszczenie; po nowym uruchomieniu wartości stabilizują się w ciągu kilku dni.
+- **VOC** (lotne związki organiczne łącznie) w ppb, mierzone co 30 sekund. Pierwsze wartości pojawiają się po około pięciu minutach rozgrzewania. Z czujnikiem wilgotności na tym samym kanale wartość jest korygowana o wilgotność.
+
+Oba czujniki pamiętają to, czego się nauczyły, także po ponownym uruchomieniu aplikacji.
+
+### GPS {#gps}
+
+![Karta GPS](images/pl/gps.webp)
+
+Karta GPS pojawia się, gdy podłączony jest TOWER GPS Module. Pokazuje, czy odbiornik ustalił pozycję i ilu satelitów używa; po ustaleniu pozycji także współrzędne, ich dokładność, wysokość nad poziomem morza i czas z satelitów. Mapa obok działa bez internetu: państwa, rzeki, jeziora i miasta, pozycja to czerwona kropka. Przeciągnij, aby się rozejrzeć; przybliżaj przyciskami + i −, klawiszem Ctrl/⌘ z kółkiem myszy lub gestem szczypania; po przesunięciu mapy pojawia się trzeci przycisk, który przywraca pozycję na środek. Ulice pokaże **Pokaż na mapie**, który otwiera pozycję w OpenStreetMap. Pierwsze ustalenie pozycji może potrwać kilka minut i wymaga widoku nieba; po ustaleniu pozycji na module zapala się zielona dioda.
+
+### TOWER NFC Tag {#nfc}
+
+TOWER NFC Tag przechowuje adres internetowy. Telefon, który go dotknie, otwiera ten adres, na przykład stronę o pomieszczeniu lub urządzeniu. Karta pojawia się, gdy tag jest podłączony, i pokazuje adres zapisany na tagu. Wpisz nowy i naciśnij **Zapisz**; bez `https://` zostanie dodane automatycznie. Mieszczą się adresy do 240 znaków.
+
 ### TOWER Bridge Module {#bridge}
 
-Pokazuje moduły wykryte na każdym kanale I²C (w tym Relay Module). **Identyfikuj** miga diodą na Bridge Module. **Wyszukaj ponownie** ponownie szuka modułów. Gdy podłączono więcej niż jeden Bridge Module, karta ostrzega: aplikacja odczytuje tylko jeden z nich, ten, którego dioda miga po **Identyfikuj**. Odłącz pozostałe, w przeciwnym razie odczyty z różnych zestawów mogą się wymieszać.
+Pokazuje moduły wykryte na każdym kanale I²C (w tym Relay Module). **Identyfikuj** miga diodą na Bridge Module. **Wyszukaj ponownie** ponownie szuka modułów. Gdy podłączono więcej niż jeden Bridge Module, karta ostrzega: aplikacja odczytuje tylko jeden z nich, ten, którego dioda miga po **Identyfikuj**. Odłącz pozostałe, w przeciwnym razie odczyty z różnych zestawów mogą się wymieszać. Ta karta jest zawsze ostatnia na pulpicie.
 
 ## Dane {#data}
 
@@ -120,7 +141,7 @@ Przycisk **Wyślij** przy Powiadomieniu testowym sprawdza, czy powiadomienia doc
 
 MQTT jest domyślnie wyłączone. Po włączeniu aplikacja publikuje każdy odczyt w Twoim własnym brokerze MQTT, na przykład Mosquitto lub brokerze w Home Assistant; sama nie uruchamia brokera. Wpisz **Adres brokera**, a w razie potrzeby port, TLS i logowanie. Zmiany obowiązują od razu, a aplikacja sama łączy się ponownie, gdy broker zniknie. Stan pod przełącznikiem mówi, czy jest połączona.
 
-Każdy odczyt jest publikowany jako wiadomość retained pod prefiksem tematów (domyślnie `tower`) z kanałem I²C na końcu: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` i `tower/altitude/0`. Czujniki na kanale 1 publikują na `tower/temperature/1` i tak dalej. Stan przekaźnika jest publikowany na `tower/relay/0` (kanał Relay Module) jako `true`, `false` lub `null`, dopóki jest nieznany. `tower/status` mówi `online`, dopóki aplikacja publikuje, i `offline`, gdy przestanie.
+Każdy odczyt jest publikowany jako wiadomość retained pod prefiksem tematów (domyślnie `tower`) z kanałem I²C na końcu: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` i `tower/altitude/0`. Czujniki na kanale 1 publikują na `tower/temperature/1` i tak dalej. TOWER CO2 Module publikuje na `tower/co2/0` (ppm), VOC-LP Tag na `tower/voc/0` (ppb), a TOWER GPS Module na `tower/gps/0/latitude`, `/longitude`, `/altitude` i `/satellites`. Stan przekaźnika jest publikowany na `tower/relay/0` (kanał Relay Module) jako `true`, `false` lub `null`, dopóki jest nieznany. `tower/status` mówi `online`, dopóki aplikacja publikuje, i `offline`, gdy przestanie.
 
 Po włączeniu **Zezwalaj na sterowanie przekaźnikiem** przekaźnik przyjmuje `true` lub `false` na `tower/relay/0/set` i impuls na `tower/relay/0/pulse`.
 

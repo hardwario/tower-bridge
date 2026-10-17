@@ -168,11 +168,8 @@ impl ApiBackend for AppApiBackend {
     }
 
     fn set_alert_rule(&self, metric: Metric, rule: AlertRule) -> Result<AlertRules, ApiError> {
-        let saved = crate::actions::update_settings(&self.app, |settings| match metric {
-            Metric::Temperature => settings.alerts.temperature = rule,
-            Metric::Humidity => settings.alerts.humidity = rule,
-            Metric::Illuminance => settings.alerts.illuminance = rule,
-            Metric::Pressure => settings.alerts.pressure = rule,
+        let saved = crate::actions::update_settings(&self.app, |settings| {
+            *settings.alerts.get_mut(metric) = rule;
         })
         .map_err(|e| ApiError::Internal(format!("cannot save settings: {e}")))?;
         Ok(saved.alerts.clone())
@@ -192,6 +189,10 @@ impl ApiBackend for AppApiBackend {
         *self.app.state::<AppState>().relay.read()
     }
 
+    fn gps(&self) -> Option<tower_bridge_core::gps::GpsInfo> {
+        self.app.state::<AppState>().gps.read().clone()
+    }
+
     fn set_relay(&self, state: bool) -> Result<RelayInfo, ApiError> {
         crate::actions::set_relay(&self.app, state).map_err(api_error)
     }
@@ -208,8 +209,10 @@ impl ApiBackend for AppApiBackend {
 fn api_error(e: tower_bridge_core::acquisition::AcqError) -> ApiError {
     match e {
         tower_bridge_core::acquisition::AcqError::NotConnected
-        | tower_bridge_core::acquisition::AcqError::NoRelay => ApiError::Unavailable(e.to_string()),
-        tower_bridge_core::acquisition::AcqError::Bus(m) => ApiError::Internal(m),
+        | tower_bridge_core::acquisition::AcqError::NoRelay
+        | tower_bridge_core::acquisition::AcqError::NoNfc => ApiError::Unavailable(e.to_string()),
+        tower_bridge_core::acquisition::AcqError::Nfc(m)
+        | tower_bridge_core::acquisition::AcqError::Bus(m) => ApiError::Internal(m),
     }
 }
 

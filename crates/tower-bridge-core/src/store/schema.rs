@@ -45,6 +45,9 @@ const MIGRATIONS: &[&str] = &[
     DROP TABLE readings;
     ALTER TABLE readings_v2 RENAME TO readings;
     ALTER TABLE alert_log ADD COLUMN channel INTEGER NOT NULL DEFAULT 0;",
+    // 3: CO2 (ppm) and TVOC (ppb).
+    "ALTER TABLE readings ADD COLUMN co2 REAL;
+    ALTER TABLE readings ADD COLUMN voc REAL;",
 ];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {

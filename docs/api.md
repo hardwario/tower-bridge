@@ -31,7 +31,7 @@ cross-site requests.
 ## REST API
 
 Values are SI units: temperature °C, relative humidity %, illuminance lx,
-pressure **Pa**, altitude m. Timestamps and durations are milliseconds.
+pressure **Pa**, altitude m; CO₂ in ppm and TVOC in ppb. Timestamps and durations are milliseconds.
 JSON keys are lowercase with underscores (`bucket_ms`, `pulse_until`, …). Time parameters
 accept Unix milliseconds or RFC 3339. The OpenAPI description is at
 `/api/v1/openapi.json`.
@@ -48,13 +48,14 @@ alerts carry their `channel`.
 | GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV, one row per measurement and channel |
 | GET | `/api/v1/alerts` | Alert rules and active alerts |
 | GET | `/api/v1/alerts/log?limit=50` | Recent alert events |
-| GET | `/api/v1/alerts/{metric}` | One rule (`temperature`, `humidity`, `illuminance`, `pressure`) |
+| GET | `/api/v1/alerts/{metric}` | One rule (`temperature`, `humidity`, `illuminance`, `pressure`, `co2`, `voc`) |
 | PATCH / PUT | `/api/v1/alerts/{metric}` | Update fields of a rule, e.g. `{"enabled": true, "max": 26}` *(changes)* |
 | POST | `/api/v1/device/identify` | Blink the bridge LED *(changes)* |
 | POST | `/api/v1/device/rescan` | Look for the sensors again *(changes)* |
 | GET | `/api/v1/relay` | Relay Module state: `{"state": true, "channel": 0, "address": 59, "pulse_until": null}`; `state` is `true`, `false` or `null` (unknown); 404 without a relay |
 | PUT | `/api/v1/relay` | `{"state": true}` or `false`; ends a running pulse *(changes)* |
 | POST | `/api/v1/relay/pulse` | Switch to a state for a while, then back. Body optional: `{"state": false, "duration_ms": 2000}`; defaults are the opposite state (or, while a pulse runs, extending it) and the configured length *(changes)* |
+| GET | `/api/v1/gps` | GPS Module: `{"channel": 0, "fix": true, "satellites": 9, "latitude": 50.771168, "longitude": 15.056328, "altitude": 374.2, "accuracy": 3.1, "time": 1792245600000}`; position, altitude (m above sea level) and accuracy (m) are `null` without a fix; 404 without a GPS Module |
 | GET | `/metrics` | Prometheus text format |
 
 Errors are JSON: `{"error": {"code": "…", "message": "…"}}`.
@@ -78,7 +79,8 @@ The latest readings:
 The history has a series per channel: `channels` lists them (e.g. `[0, 1]`),
 and each metric holds one `{"avg": [...], "min": [...], "max": [...]}` per
 entry of `channels`, aligned with `t` (seconds). A channel without a value in
-a bucket has `null` there.
+a bucket has `null` there. Readings carry `co2` and `voc` too; they are `null`
+without a TOWER CO2 Module or VOC-LP Tag on that channel.
 
 ```sh
 curl http://127.0.0.1:8180/api/v1/readings/latest
@@ -96,7 +98,8 @@ and cannot be read back. `/metrics` exports a known state as
 
 Every value in `/metrics` carries a `channel` label, for example
 `tower_bridge_temperature_celsius{device="TB4F2A91",channel="1"} 12.44`;
-alert gauges are labelled with the metric, channel and bound.
+alert gauges are labelled with the metric, channel and bound. CO₂ and VOC are
+`tower_bridge_co2_ppm` and `tower_bridge_voc_ppb`.
 
 Prometheus scrape config:
 
@@ -109,14 +112,14 @@ scrape_configs:
 
 ## MCP server
 
-The tools use friendly units (°C, %, lx, **hPa**):
+The tools use friendly units (°C, %, lx, **hPa**, ppm, ppb):
 
 | Tool | Description |
 |---|---|
 | `get_current_readings` | Latest values of each channel with the module that measured them, measurement time, active alerts |
 | `get_history` | Averaged points and min/avg/max per channel for `hours` back or a `from`/`to` range |
 | `get_alerts` | Alert limits, active alerts, recent events (with the channel) |
-| `get_device_status` | Bridge status, serial number, the modules and sensors on each channel with their I²C addresses, interval, relay state |
+| `get_device_status` | Bridge status, serial number, the modules and sensors on each channel with their I²C addresses, interval, relay state, GPS position |
 | `set_alert_threshold` | Change one metric's limits *(only with "Allow changes")* |
 | `identify_device` | Blink the bridge LED *(only with "Allow changes")* |
 | `set_relay` | Switch the Relay Module: `state` `true` or `false` *(only with "Allow changes")* |

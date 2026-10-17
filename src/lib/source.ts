@@ -1,5 +1,16 @@
 import { fill, t } from "./i18n/index.svelte";
-import type { DeviceInfo, DeviceState, History, Metric, ModuleKind, Reading, RelayInfo, SensorSource } from "./types";
+import type {
+  DeviceInfo,
+  DeviceState,
+  GpsInfo,
+  History,
+  Metric,
+  ModuleKind,
+  NfcInfo,
+  Reading,
+  RelayInfo,
+  SensorSource,
+} from "./types";
 
 /** Product names; they stay the same in every language. */
 export const MODULE_NAMES: Record<ModuleKind, string> = {
@@ -9,6 +20,8 @@ export const MODULE_NAMES: Record<ModuleKind, string> = {
   temperature_tag: "Temperature Tag",
   lux_meter_tag: "Lux Meter Tag",
   barometer_tag: "Barometer Tag",
+  co2_module: "CO2 Module",
+  voc_lp_tag: "VOC-LP Tag",
 };
 
 /** Where a value comes from: module, bus, switch channel and sensor address. */
@@ -73,19 +86,28 @@ const PRODUCTS: Record<ModuleKind, Omit<ModuleLine, "channel">> = {
   temperature_tag: { product: "HARDWARIO Temperature Tag", revision: null },
   lux_meter_tag: { product: "HARDWARIO Lux Meter Tag", revision: null },
   barometer_tag: { product: "HARDWARIO Barometer Tag", revision: null },
+  co2_module: { product: "TOWER CO2 Module", revision: null },
+  voc_lp_tag: { product: "HARDWARIO VOC-LP Tag", revision: null },
 };
 
 /**
  * Every module once, in channel order; the Relay Module after the sensors on
  * its channel (it measures nothing, so it is not among the sources).
  */
-export function moduleLines(sources: SensorSource[], relay: RelayInfo | null): ModuleLine[] {
+export function moduleLines(
+  sources: SensorSource[],
+  relay: RelayInfo | null,
+  nfc: NfcInfo | null = null,
+  gps: GpsInfo | null = null,
+): ModuleLine[] {
   const out: ModuleLine[] = [];
   for (const s of sources) {
     const line = { channel: s.channel, ...(PRODUCTS[s.module] ?? { product: s.module, revision: null }) };
     if (!out.some((l) => l.channel === line.channel && l.product === line.product)) out.push(line);
   }
   if (relay) out.push({ channel: relay.channel, product: "TOWER Relay Module", revision: null });
+  if (nfc) out.push({ channel: nfc.channel, product: "TOWER NFC Tag", revision: null });
+  if (gps) out.push({ channel: gps.channel, product: "TOWER GPS Module", revision: null });
   // Stable: within a channel, the order above stays.
   return out.sort((a, b) => a.channel - b.channel);
 }
@@ -149,6 +171,17 @@ export function channelLabel(
   if (!channels.includes(channel)) channels.push(channel);
   const labels = lineLabels(channels.map((c) => ({ channel: c, name: channelName(device, metric, c) })));
   return labels[channels.indexOf(channel)];
+}
+
+export function nfcSource(device: DeviceState, nfc: NfcInfo): Source | null {
+  if (device.status !== "ready" && device.status !== "no_module") return null;
+  return {
+    module: t().nfc.title,
+    backend: device.device.backend,
+    channel: nfc.channel,
+    address: nfc.address,
+    part: nfc.part,
+  };
 }
 
 export function relaySource(device: DeviceState, relay: RelayInfo): Source | null {

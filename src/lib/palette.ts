@@ -29,6 +29,8 @@ const DEFAULT_COLORS: Record<Metric, ChartColor[]> = {
   humidity: ["blue", "pink"],
   illuminance: ["gold", "violet"],
   pressure: ["violet", "green"],
+  co2: ["green", "pink"],
+  voc: ["teal", "orange"],
 };
 
 const DEFAULT_LINES = { show_min: false, show_avg: true, show_max: false, hidden_channels: [] };

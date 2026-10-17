@@ -116,7 +116,14 @@ fn empty_schema() -> Value {
 }
 
 fn metric_enum() -> Value {
-    json!(["temperature", "humidity", "illuminance", "pressure"])
+    json!([
+        "temperature",
+        "humidity",
+        "illuminance",
+        "pressure",
+        "co2",
+        "voc"
+    ])
 }
 
 /// Tool definitions; changing tools are listed only when allowed.
@@ -292,6 +299,8 @@ fn friendly_key(m: Metric) -> &'static str {
         Metric::Humidity => "humidity_pct",
         Metric::Illuminance => "illuminance_lx",
         Metric::Pressure => "pressure_hpa",
+        Metric::Co2 => "co2_ppm",
+        Metric::Voc => "voc_ppb",
     }
 }
 
@@ -301,6 +310,8 @@ fn friendly_unit(m: Metric) -> &'static str {
         Metric::Humidity => "%",
         Metric::Illuminance => "lx",
         Metric::Pressure => "hPa",
+        Metric::Co2 => "ppm",
+        Metric::Voc => "ppb",
     }
 }
 
@@ -310,6 +321,7 @@ fn friendly(m: Metric, v: f64) -> f64 {
         Metric::Temperature => round(v, 2),
         Metric::Humidity | Metric::Illuminance => round(v, 1),
         Metric::Pressure => round(v / 100.0, 2),
+        Metric::Co2 | Metric::Voc => round(v, 0),
     }
 }
 
@@ -791,6 +803,7 @@ impl McpServer {
             out["sensors"] = json!(sensors);
         }
         out["relay"] = self.backend.relay().map_or(Value::Null, |r| relay_json(&r));
+        out["gps"] = self.backend.gps().map_or(Value::Null, |g| json!(g));
         out
     }
 
@@ -825,7 +838,9 @@ impl McpServer {
             .get("metric")
             .and_then(Value::as_str)
             .and_then(metric_from_str)
-            .ok_or("'metric' must be one of temperature, humidity, illuminance, pressure")?;
+            .ok_or(
+                "'metric' must be one of temperature, humidity, illuminance, pressure, co2, voc",
+            )?;
         let mut rule = self.backend.alert_rules().get(metric).clone();
         let number = |key: &str| -> Result<Option<Option<f64>>, String> {
             match args.get(key) {

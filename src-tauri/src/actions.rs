@@ -105,6 +105,20 @@ pub fn set_relay(app: &AppHandle, state: bool) -> Result<RelayInfo, AcqError> {
     )
 }
 
+/// Write a URL to the NFC Tag; returns what the tag holds afterwards. Up to
+/// 240 bytes take 16 blocks of about 25 ms each, after the measurement that
+/// may be running.
+pub fn write_nfc_url(
+    app: &AppHandle,
+    url: String,
+) -> Result<tower_bridge_core::nfc::NfcInfo, AcqError> {
+    request(
+        app,
+        |r| AcqCommand::WriteNfcUrl(url, Some(r)),
+        Duration::from_secs(10),
+    )
+}
+
 /// Timed relay pulse; the length defaults to the setting. Returns once the
 /// relay has switched over.
 pub fn pulse_relay(

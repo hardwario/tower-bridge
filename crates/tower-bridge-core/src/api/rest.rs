@@ -121,6 +121,7 @@ pub(crate) fn router(ctx: Ctx) -> Router {
         .route("/api/v1/device/identify", post(identify))
         .route("/api/v1/device/rescan", post(rescan))
         .route("/api/v1/relay", get(relay).put(set_relay))
+        .route("/api/v1/gps", get(gps))
         .route("/api/v1/relay/pulse", post(pulse_relay))
         .route("/api/v1/openapi.json", get(openapi))
         .route("/metrics", get(metrics))
@@ -174,6 +175,7 @@ async fn index(State(ctx): State<Ctx>) -> Json<Value> {
             "alerts": "/api/v1/alerts",
             "alert_log": "/api/v1/alerts/log",
             "relay": "/api/v1/relay",
+            "gps": "/api/v1/gps",
             "metrics": "/metrics",
             "openapi": "/api/v1/openapi.json",
             "mcp": if policy.mcp { Some("/mcp") } else { None },
@@ -388,6 +390,16 @@ fn no_relay() -> HttpError {
     )
 }
 
+async fn gps(State(ctx): State<Ctx>) -> HttpResult<Json<crate::gps::GpsInfo>> {
+    ctx.backend.gps().map(Json).ok_or_else(|| {
+        HttpError::new(
+            StatusCode::NOT_FOUND,
+            "no_gps",
+            "no GPS Module is connected",
+        )
+    })
+}
+
 async fn relay(State(ctx): State<Ctx>) -> HttpResult<Json<RelayInfo>> {
     ctx.backend.relay().map(Json).ok_or_else(no_relay)
 }
@@ -468,7 +480,7 @@ async fn metrics(State(ctx): State<Ctx>) -> Response {
         Vec::new()
     };
     type Gauge = (&'static str, &'static str, fn(&Reading) -> Option<f64>);
-    let gauges: [Gauge; 6] = [
+    let gauges: [Gauge; 8] = [
         ("temperature_celsius", "Temperature", |r| {
             r.values.temperature
         }),
@@ -481,6 +493,10 @@ async fn metrics(State(ctx): State<Ctx>) -> Response {
         }),
         ("altitude_meters", "Altitude estimated from pressure", |r| {
             r.altitude
+        }),
+        ("co2_ppm", "CO2 concentration", |r| r.values.co2),
+        ("voc_ppb", "Total volatile organic compounds", |r| {
+            r.values.voc
         }),
         (
             "last_reading_timestamp_seconds",

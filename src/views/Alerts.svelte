@@ -10,7 +10,7 @@
   import { fill, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
   import { channelLabel, metricChannels } from "../lib/source";
-  import { METRICS, type AlertLogEntry } from "../lib/types";
+  import { METRICS, OPTIONAL_METRICS, type AlertLogEntry } from "../lib/types";
 
   let log = $state<AlertLogEntry[]>([]);
   let tested = $state(false);
@@ -45,7 +45,7 @@
   {#if live.settings}
     {@const s = live.settings}
     <Section title={t().alerts.thresholds} description={t().alerts.thresholdsHint}>
-      {#each METRICS as m (m)}
+      {#each METRICS.filter((m) => !OPTIONAL_METRICS.includes(m) || s.alerts[m].enabled || metricChannels(live.device, m, null, live.latest, false).length) as m (m)}
         <ThresholdRow
           metric={m}
           rule={s.alerts[m]}

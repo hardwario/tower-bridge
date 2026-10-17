@@ -11,7 +11,11 @@
 //! tower/illuminance/0    lux
 //! tower/pressure/0       Pa
 //! tower/altitude/0       m
+//! tower/co2/0            ppm (TOWER CO2 Module)
+//! tower/voc/0            ppb TVOC (TOWER VOC-LP Tag)
 //! tower/relay/0          true | false | null (unknown); Relay Module, when present
+//! tower/gps/0/latitude   degrees (WGS 84); also longitude, altitude (m) and
+//!                        satellites; GPS Module, when present
 //! tower/status           online | offline (also the client's last will)
 //! ```
 //!
@@ -32,6 +36,7 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::Sender;
 use tracing::{info, warn};
 
+use crate::gps::GpsInfo;
 use crate::model::Reading;
 use crate::relay::{RelayInfo, parse_state, pulse_from_ms};
 
@@ -392,6 +397,38 @@ impl Publisher {
         }
     }
 
+    /// The GPS position as retained plain numbers under
+    /// `<prefix>/gps/<channel>/`: latitude, longitude, altitude (m) and
+    /// satellites. Without a fix the position keeps its last value; `None`
+    /// (no module) clears them all.
+    pub fn publish_gps(&mut self, gps: Option<&GpsInfo>) -> Result<(), MqttError> {
+        let stem = format!("{}/gps/", self.prefix);
+        let Some(g) = gps else {
+            let stale: Vec<String> = self
+                .published
+                .iter()
+                .filter(|t| t.starts_with(&stem))
+                .cloned()
+                .collect();
+            for topic in stale {
+                self.publish(topic, String::new())?;
+            }
+            return Ok(());
+        };
+        let values = [
+            ("latitude", g.latitude.map(|v| format!("{v:.7}"))),
+            ("longitude", g.longitude.map(|v| format!("{v:.7}"))),
+            ("altitude", g.altitude.map(|v| format!("{v:.1}"))),
+            ("satellites", Some(g.satellites.to_string())),
+        ];
+        for (name, payload) in values {
+            if let Some(p) = payload {
+                self.publish(format!("{stem}{}/{name}", g.channel), p)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn publish_reading(&mut self, reading: &Reading) -> Result<(), MqttError> {
         for (topic, payload) in topics(&self.prefix, reading) {
             self.publish(topic, payload)?;
@@ -434,6 +471,8 @@ pub fn topics(prefix: &str, r: &Reading) -> Vec<(String, String)> {
         ("illuminance", v.illuminance.map(|l| format!("{l:.1}"))),
         ("pressure", v.pressure.map(|p| format!("{p:.2}"))),
         ("altitude", r.altitude.map(|a| format!("{a:.1}"))),
+        ("co2", v.co2.map(|c| format!("{c:.0}"))),
+        ("voc", v.voc.map(|c| format!("{c:.0}"))),
     ]
     .into_iter()
     .filter_map(|(name, payload)| payload.map(|p| (format!("{prefix}/{name}/{}", r.channel), p)))
@@ -461,6 +500,8 @@ mod tests {
                 humidity: Some(45.21),
                 illuminance: None,
                 pressure: Some(98_765.25),
+                co2: None,
+                voc: None,
             },
             altitude: Some(312.44),
         };

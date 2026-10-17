@@ -302,6 +302,80 @@ impl SimDevice for SimSht30 {
     }
 }
 
+/// The NFC Tag's NTAG I2C plus: 16-byte blocks, block 0 with the NXP
+/// manufacturer ID and a capability container, user memory from block 1 (a
+/// fresh tag holds an empty NDEF message). The memory is shared, so a test
+/// can look at it.
+pub struct SimNtag {
+    memory: Arc<Mutex<Vec<u8>>>,
+    pointer: u8,
+}
+
+impl SimNtag {
+    const BLOCKS: usize = 0x3B;
+
+    pub fn new() -> Self {
+        let mut memory = vec![0u8; Self::BLOCKS * 16];
+        memory[..16].copy_from_slice(&[
+            0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x80, 0, 0, 0, 0, 0xE1, 0x10, 0x6D, 0x00,
+        ]);
+        memory[16..19].copy_from_slice(&[0x03, 0x00, 0xFE]);
+        Self {
+            memory: Arc::new(Mutex::new(memory)),
+            pointer: 0,
+        }
+    }
+
+    /// Without a capability container (not NDEF formatted).
+    pub fn unformatted() -> Self {
+        let tag = Self::new();
+        if let Ok(mut m) = tag.memory.lock() {
+            m[12..16].fill(0);
+            m[16..19].fill(0);
+        }
+        tag
+    }
+
+    pub fn memory(&self) -> Arc<Mutex<Vec<u8>>> {
+        self.memory.clone()
+    }
+}
+
+impl Default for SimNtag {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SimDevice for SimNtag {
+    fn write(&mut self, data: &[u8]) -> Result<(), BusError> {
+        let (&block, rest) = data.split_first().ok_or(BusError::DataNack)?;
+        if usize::from(block) >= Self::BLOCKS {
+            return Err(BusError::DataNack);
+        }
+        self.pointer = block;
+        match rest.len() {
+            0 => Ok(()),
+            16 if block > 0 => {
+                let start = usize::from(block) * 16;
+                if let Ok(mut m) = self.memory.lock() {
+                    m[start..start + 16].copy_from_slice(rest);
+                }
+                Ok(())
+            }
+            _ => Err(BusError::DataNack),
+        }
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<(), BusError> {
+        let start = usize::from(self.pointer) * 16;
+        if let Ok(m) = self.memory.lock() {
+            copy_out(buf, &m[start..start + 16]);
+        }
+        Ok(())
+    }
+}
+
 /// SHT20 in no-hold mode.
 pub struct SimSht20 {
     env: SharedEnv,
@@ -562,6 +636,8 @@ impl SimulatedBridge {
                 humidity: tags.humidity.map(|h| (h + 9.0).min(100.0)),
                 illuminance: tags.illuminance.map(|l| l * 1.8),
                 pressure: tags.pressure.map(|p| p + 12.0),
+                co2: None,
+                voc: None,
             };
         }
     }
@@ -584,6 +660,8 @@ pub fn simulated_values(wall: f64, noise: [f64; 4]) -> Values {
         ),
         illuminance: Some(((day - 1.75).sin() * 720.0).max(0.0) + 25.0 + 8.0 * noise[2]),
         pressure: Some(100_150.0 + 650.0 * weather + 40.0 * (wall / 7200.0).sin() + 3.0 * noise[3]),
+        co2: None,
+        voc: None,
     }
 }
 

@@ -7,6 +7,8 @@
   import Icon from "../lib/components/Icon.svelte";
   import MetricCard, { type PanelLine } from "../lib/components/MetricCard.svelte";
   import RelayCard from "../lib/components/RelayCard.svelte";
+  import NfcCard from "../lib/components/NfcCard.svelte";
+  import GpsCard from "../lib/components/GpsCard.svelte";
   import SegmentedControl from "../lib/components/SegmentedControl.svelte";
   import { NO_VALUE, fmtDateTime, fmtDuration, fmtNumber } from "../lib/format";
   import { fill, t } from "../lib/i18n/index.svelte";
@@ -15,9 +17,8 @@
   import { channelColor, chartStyle, lineColor } from "../lib/palette";
   import { theme } from "../lib/theme.svelte";
   import { channelLabel, channelName, metricChannels, metricSource, moduleLines, sourcesOf } from "../lib/source";
-  import type { History, Metric } from "../lib/types";
+  import { OPTIONAL_METRICS, type History, type Metric } from "../lib/types";
   import { altitude } from "../lib/units";
-  import DragHandle from "../lib/components/DragHandle.svelte";
   import { SPANS, type Span } from "../lib/time";
   import DeviceBanners from "./DeviceBanners.svelte";
 
@@ -88,10 +89,11 @@
   const latest = $derived(ready ? live.latest : []);
   const newest = $derived(ready ? live.newestTs : null);
 
-  /** One line per I²C channel measuring `m`. */
+  /** One line per I²C channel measuring `m` (none for CO₂ and VOC without a sensor or data). */
   function panelLines(m: Metric): PanelLine[] {
     // The whole span counts too, so a panel keeps its lines while zooming.
-    return metricChannels(live.device, m, [history, shown], latest).map((channel) => ({
+    const fallback = !OPTIONAL_METRICS.includes(m);
+    return metricChannels(live.device, m, [history, shown], latest, fallback).map((channel) => ({
       channel,
       name: channelName(live.device, m, channel),
       value: latest.find((r) => r.channel === channel)?.[m] ?? null,
@@ -120,11 +122,19 @@
         )
       : [],
   );
-  const modules = $derived(moduleLines(sourcesOf(live.device), live.relay));
+  const modules = $derived(moduleLines(sourcesOf(live.device), live.relay, live.nfc, live.gps));
   /** Measurement intervals offered in the card, in seconds (other values set through the API also show). */
   const INTERVALS = [5, 10, 20, 60, 180];
 
-  const panels = $derived(layout.order.filter((id) => id !== "relay" || live.relay));
+  const panels = $derived(
+    layout.order.filter((id) => {
+      if (id === "relay") return !!live.relay;
+      if (id === "nfc") return !!live.nfc;
+      if (id === "gps") return !!live.gps;
+      if (OPTIONAL_METRICS.includes(id as Metric)) return panelLines(id as Metric).length > 0;
+      return true;
+    }),
+  );
   let innerHeight = $state(800);
   /** Chart height of a maximized card: most of the window. */
   const tallChart = $derived(Math.min(700, Math.max(240, innerHeight - 380)));
@@ -165,7 +175,6 @@
           <Icon name={deviceActions.busy === "rescan" ? "loader" : "refresh"} size={14} />
           {deviceActions.busy === "rescan" ? t().overview.rescanning : t().overview.rescan}
         </button>
-        <DragHandle onstart={(e) => layout.startDrag(e, "device")} />
       </div>
     </div>
     {#if device && device.bridges_connected > 1}
@@ -244,7 +253,7 @@
     {#each panels as id (id)}
       <div
         class="panel"
-        class:wide={id === "relay" || id === "device" || layout.maximized === id}
+        class:wide={id === "relay" || id === "nfc" || id === "gps" || layout.maximized === id}
         class:dragging={layout.dragging === id}
         data-panel={id}
         animate:flip={{ duration: 220 }}
@@ -252,8 +261,10 @@
         <div class="lift">
           {#if id === "relay"}
             {#if live.relay}<RelayCard relay={live.relay} ondragstart={(e) => layout.startDrag(e, "relay")} />{/if}
-          {:else if id === "device"}
-            {@render deviceCard()}
+          {:else if id === "nfc"}
+            {#if live.nfc}<NfcCard nfc={live.nfc} ondragstart={(e) => layout.startDrag(e, "nfc")} />{/if}
+          {:else if id === "gps"}
+            {#if live.gps}<GpsCard gps={live.gps} ondragstart={(e) => layout.startDrag(e, "gps")} />{/if}
           {:else}
             {@const m = id as Metric}
             <MetricCard
@@ -289,6 +300,10 @@
         </div>
       </div>
     {/each}
+    <!-- The TOWER Bridge Module card stays last and does not move. -->
+    <div class="panel wide">
+      <div class="lift">{@render deviceCard()}</div>
+    </div>
   </div>
 </div>
 

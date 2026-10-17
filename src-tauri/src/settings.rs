@@ -211,6 +211,8 @@ pub struct ChartStyles {
     pub humidity: ChartStyle,
     pub illuminance: ChartStyle,
     pub pressure: ChartStyle,
+    pub co2: ChartStyle,
+    pub voc: ChartStyle,
 }
 
 impl Default for ChartStyles {
@@ -226,18 +228,22 @@ impl Default for ChartStyles {
             humidity: colored(ChartColor::Blue, ChartColor::Pink),
             illuminance: colored(ChartColor::Gold, ChartColor::Violet),
             pressure: colored(ChartColor::Violet, ChartColor::Green),
+            co2: colored(ChartColor::Green, ChartColor::Pink),
+            voc: colored(ChartColor::Teal, ChartColor::Orange),
         }
     }
 }
 
 impl ChartStyles {
-    fn each(&mut self) -> [(&mut ChartStyle, ChartStyle); 4] {
+    fn each(&mut self) -> [(&mut ChartStyle, ChartStyle); 6] {
         let d = Self::default();
         [
             (&mut self.temperature, d.temperature),
             (&mut self.humidity, d.humidity),
             (&mut self.illuminance, d.illuminance),
             (&mut self.pressure, d.pressure),
+            (&mut self.co2, d.co2),
+            (&mut self.voc, d.voc),
         ]
     }
 
@@ -436,12 +442,7 @@ impl Settings {
             self.api.token = generate_token();
         }
         for metric in Metric::ALL {
-            let rule = match metric {
-                Metric::Temperature => &mut self.alerts.temperature,
-                Metric::Humidity => &mut self.alerts.humidity,
-                Metric::Illuminance => &mut self.alerts.illuminance,
-                Metric::Pressure => &mut self.alerts.pressure,
-            };
+            let rule = self.alerts.get_mut(metric);
             rule.hysteresis = rule.hysteresis.max(0.0);
             if let (Some(min), Some(max)) = (rule.min, rule.max)
                 && min > max

@@ -15,7 +15,7 @@ pub fn document(info: &ApiInfo) -> Value {
     ]);
     let metric_param = json!({
         "name": "metric", "in": "path", "required": true,
-        "schema": { "type": "string", "enum": ["temperature", "humidity", "illuminance", "pressure"] }
+        "schema": { "type": "string", "enum": ["temperature", "humidity", "illuminance", "pressure", "co2", "voc"] }
     });
     let control = "Requires \"Allow changes\" in the app settings.";
     json!({
@@ -24,7 +24,7 @@ pub fn document(info: &ApiInfo) -> Value {
             "title": "TOWER Bridge API",
             "version": info.version,
             "description": "Local API of the TOWER Bridge desktop app. Values are SI units: temperature °C, \
-    humidity %RH, illuminance lx, pressure Pa, altitude m. Timestamps are Unix milliseconds. Sensors can sit \
+    humidity %RH, illuminance lx, pressure Pa, altitude m; CO2 ppm and TVOC ppb. Timestamps are Unix milliseconds. Sensors can sit \
     on I2C channel 0 and 1 of the bridge; readings and alerts carry the channel.",
             "license": { "name": "MIT" }
         },
@@ -48,7 +48,9 @@ pub fn document(info: &ApiInfo) -> Value {
                         "channel": { "type": "integer", "description": "I2C switch channel of the sensors" },
                         "temperature": { "type": ["number", "null"] }, "humidity": { "type": ["number", "null"] },
                         "illuminance": { "type": ["number", "null"] }, "pressure": { "type": ["number", "null"] },
-                        "altitude": { "type": ["number", "null"] }
+                        "altitude": { "type": ["number", "null"] },
+                        "co2": { "type": ["number", "null"], "description": "ppm" },
+                        "voc": { "type": ["number", "null"], "description": "ppb TVOC" }
                     }
                 },
                 "Latest": {
@@ -116,6 +118,10 @@ pub fn document(info: &ApiInfo) -> Value {
                 "responses": { "200": { "description": "OK" }, "403": { "description": "Changes disabled" } } } },
             "/api/v1/device/rescan": { "post": { "summary": "Look for the sensors again", "description": control,
                 "responses": { "200": { "description": "OK" }, "403": { "description": "Changes disabled" } } } },
+            "/api/v1/gps": {
+                "get": { "summary": "GPS Module: fix, position (WGS 84 degrees), altitude (m above sea level), horizontal accuracy (m), satellites, UTC time (Unix ms)",
+                    "responses": { "200": { "description": "GPS" }, "404": { "description": "No GPS Module connected" } } }
+            },
             "/api/v1/relay": {
                 "get": { "summary": "Relay Module state (true, false or null when unknown)",
                     "responses": { "200": { "description": "Relay", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Relay" } } } },

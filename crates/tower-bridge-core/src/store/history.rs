@@ -77,6 +77,8 @@ pub struct History {
     pub humidity: Vec<Series>,
     pub illuminance: Vec<Series>,
     pub pressure: Vec<Series>,
+    pub co2: Vec<Series>,
+    pub voc: Vec<Series>,
 }
 
 impl History {
@@ -89,16 +91,21 @@ impl History {
             Metric::Humidity => self.humidity.get(i),
             Metric::Illuminance => self.illuminance.get(i),
             Metric::Pressure => self.pressure.get(i),
+            Metric::Co2 => self.co2.get(i),
+            Metric::Voc => self.voc.get(i),
         }
     }
 }
+
+/// Metrics in the query, in `Metric::ALL` order.
+const METRICS: usize = crate::model::Metric::ALL.len();
 
 /// One aggregated row of the query: a bucket of one channel.
 struct Row {
     bucket: i64,
     channel: u8,
     /// avg, min, max per metric.
-    values: [[Option<f64>; 3]; 4],
+    values: [[Option<f64>; 3]; METRICS],
 }
 
 /// Smallest ladder step that keeps the point count under `max_points`.
@@ -123,13 +130,15 @@ pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
                 AVG(temperature), MIN(temperature), MAX(temperature),
                 AVG(humidity), MIN(humidity), MAX(humidity),
                 AVG(illuminance), MIN(illuminance), MAX(illuminance),
-                AVG(pressure), MIN(pressure), MAX(pressure)
+                AVG(pressure), MIN(pressure), MAX(pressure),
+                AVG(co2), MIN(co2), MAX(co2),
+                AVG(voc), MIN(voc), MAX(voc)
          FROM readings WHERE ts >= ?2 AND ts < ?3
          GROUP BY b, channel ORDER BY b, channel",
     )?;
     let rows: Vec<Row> = stmt
         .query_map(params![bucket, q.from, q.to], |r| {
-            let mut values = [[None; 3]; 4];
+            let mut values = [[None; 3]; METRICS];
             for (m, v) in values.iter_mut().enumerate() {
                 for (k, x) in v.iter_mut().enumerate() {
                     *x = r.get(2 + m * 3 + k)?;
@@ -182,6 +191,8 @@ pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
         humidity: empty(),
         illuminance: empty(),
         pressure: empty(),
+        co2: empty(),
+        voc: empty(),
     };
     let mut i = 0;
     for r in &rows {
@@ -196,6 +207,8 @@ pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
             &mut h.humidity,
             &mut h.illuminance,
             &mut h.pressure,
+            &mut h.co2,
+            &mut h.voc,
         ]
         .into_iter()
         .enumerate()

@@ -9,7 +9,7 @@
   import { theme } from "./lib/theme.svelte";
   import StatusPill from "./lib/components/StatusPill.svelte";
   import { live } from "./lib/live.svelte";
-  import { modulesByChannel, sourcesOf } from "./lib/source";
+  import { moduleLines, sourcesOf } from "./lib/source";
   import Alerts from "./views/Alerts.svelte";
   import Data from "./views/Data.svelte";
   import Manual from "./views/Manual.svelte";
@@ -32,8 +32,15 @@
     live.init().catch((e) => (failed = String(e)));
   });
 
-  /** Modules on further channels, below the status pill. */
-  const moreModules = $derived(modulesByChannel(sourcesOf(live.device)).slice(1));
+  /** Every module, one per line as in the Bridge Module card, without the brand (too long here). */
+  const devices = $derived(
+    moduleLines(sourcesOf(live.device), live.relay, live.nfc, live.gps).map((m) => ({
+      key: `${m.channel}:${m.product}`,
+      channel: m.channel,
+      name: m.product.replace(/^(TOWER|HARDWARIO) /, "") + (m.revision ? ` ${m.revision}` : ""),
+      relay: m.product.endsWith("Relay Module"),
+    })),
+  );
 </script>
 
 <div class="app">
@@ -76,28 +83,22 @@
       <PrefsSwitcher />
     </div>
     <div class="status">
-      <StatusPill device={live.device} />
-      {#each moreModules as entry (entry.channel)}
-        <span class="relay-status" title={fill(t().common.channel, { n: entry.channel })}>
-          <span class="dot"></span>
-          <span class="label">{entry.names.join(", ")}</span>
-        </span>
-      {/each}
-      {#if live.relay}
-        <span class="relay-status">
+      <!-- While searching, unplugged or without sensors: what is wrong. -->
+      {#if live.device.status !== "ready"}<StatusPill device={live.device} />{/if}
+      {#each devices as d (d.key)}
+        <span class="relay-status" title={fill(t().common.channel, { n: d.channel })}>
           <span class="dot"></span>
           <span class="label"
-            >{t().relay.title}
-            <span class="muted"
-              >· {live.relay.state === null
-                ? t().relay.unknown
-                : live.relay.state
-                  ? t().relay.stateTrue
-                  : t().relay.stateFalse}</span
-            ></span
+            >{d.name}{#if d.relay && live.relay}{" "}<span class="muted"
+                >· {live.relay.state === null
+                  ? t().relay.unknown
+                  : live.relay.state
+                    ? t().relay.stateTrue
+                    : t().relay.stateFalse}</span
+              >{/if}</span
           >
         </span>
-      {/if}
+      {/each}
     </div>
     <div class="about">
       <div class="links">

@@ -1,11 +1,29 @@
 import { METRICS, type Metric } from "./types";
 
-/** Panels on the overview, in the order the user arranged them. */
-export type PanelId = Metric | "relay" | "device";
+/**
+ * Panels on the overview, in the order the user arranged them. The TOWER
+ * Bridge Module card is not one of them: it always comes last.
+ */
+export type PanelId = Metric | "relay" | "nfc" | "gps";
 
-const DEFAULT_ORDER: PanelId[] = ["relay", ...METRICS, "device"];
+const DEFAULT_ORDER: PanelId[] = ["relay", ...METRICS, "nfc", "gps"];
 /** v2: the relay moved to the top; earlier saved orders start over once. */
 const KEY = "tower-bridge.overview.layout.v2";
+
+/**
+ * The saved order with the panels it does not know yet (such as one added in
+ * a newer version) at their default place: before the next default panel
+ * that is there, so a new card lands next to its neighbours, not at the end.
+ */
+export function mergeOrder(saved: readonly PanelId[], defaults: readonly PanelId[] = DEFAULT_ORDER): PanelId[] {
+  const order = [...new Set(saved.filter((id) => defaults.includes(id)))];
+  defaults.forEach((id, i) => {
+    if (order.includes(id)) return;
+    const next = defaults.slice(i + 1).find((d) => order.includes(d));
+    order.splice(next === undefined ? order.length : order.indexOf(next), 0, id);
+  });
+  return order;
+}
 
 function load(): { order: PanelId[]; maximized: Metric | null } {
   let saved: { order?: unknown; maximized?: unknown } = {};
@@ -14,11 +32,7 @@ function load(): { order: PanelId[]; maximized: Metric | null } {
   } catch {
     /* storage unavailable or corrupt */
   }
-  const known = Array.isArray(saved.order)
-    ? saved.order.filter((id): id is PanelId => DEFAULT_ORDER.includes(id as PanelId))
-    : [];
-  // Keep the saved order and append panels it does not know yet.
-  const order = [...new Set([...known, ...DEFAULT_ORDER])];
+  const order = mergeOrder(Array.isArray(saved.order) ? (saved.order as PanelId[]) : []);
   const maximized = METRICS.includes(saved.maximized as Metric) ? (saved.maximized as Metric) : null;
   return { order, maximized };
 }

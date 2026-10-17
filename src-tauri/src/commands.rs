@@ -7,7 +7,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tower_bridge_core::acquisition::{AcqError, RescanOutcome};
 use tower_bridge_core::alerts::ActiveAlert;
+use tower_bridge_core::gps::GpsInfo;
 use tower_bridge_core::model::{DeviceState, Reading};
+use tower_bridge_core::nfc::NfcInfo;
 use tower_bridge_core::relay::RelayInfo;
 use tower_bridge_core::store::{self, AlertLogEntry, CsvOptions, History, HistoryQuery};
 
@@ -36,6 +38,8 @@ fn acq_error(e: AcqError) -> CmdError {
         code: Some(match e {
             AcqError::NotConnected => "not_connected",
             AcqError::NoRelay => "no_relay",
+            AcqError::NoNfc => "no_nfc",
+            AcqError::Nfc(_) => "nfc",
             AcqError::Bus(_) => "bus",
         }),
         message: e.to_string(),
@@ -63,6 +67,8 @@ pub struct AppInfo {
 pub struct Snapshot {
     device: DeviceState,
     relay: Option<RelayInfo>,
+    nfc: Option<NfcInfo>,
+    gps: Option<GpsInfo>,
     /// The latest reading of each I2C channel.
     latest: Vec<Reading>,
     settings: Settings,
@@ -78,6 +84,8 @@ pub fn get_snapshot(app: AppHandle, state: State<'_, AppState>) -> Snapshot {
     Snapshot {
         device: state.device.read().clone(),
         relay: *state.relay.read(),
+        nfc: state.nfc.read().clone(),
+        gps: state.gps.read().clone(),
         latest: state.latest.read().clone(),
         settings: (*state.settings()).clone(),
         open_at_login: crate::autostart::is_enabled(&app),
@@ -281,6 +289,8 @@ pub async fn export_xlsx(
             illuminance: format!("{} (lx)", tr.metric(Metric::Illuminance)),
             pressure: format!("{} (hPa)", tr.metric(Metric::Pressure)),
             altitude: format!("{} (m)", tr.altitude),
+            co2: format!("{} (ppm)", tr.metric(Metric::Co2)),
+            voc: format!("{} (ppb)", tr.metric(Metric::Voc)),
         };
         let rows =
             store::export_xlsx_to_file(&conn, &path, from, to, opts, &labels, |done, total| {
@@ -310,6 +320,31 @@ pub async fn identify_device(app: AppHandle) -> CmdResult<()> {
 #[tauri::command]
 pub async fn set_relay(app: AppHandle, state: bool) -> CmdResult<RelayInfo> {
     tauri::async_runtime::spawn_blocking(move || crate::actions::set_relay(&app, state))
+        .await?
+        .map_err(acq_error)
+}
+
+/// Open a position on OpenStreetMap in the system browser (the URL is built
+/// here: the dashboard cannot open arbitrary addresses).
+#[tauri::command]
+pub fn open_map(app: AppHandle, latitude: f64, longitude: f64) -> CmdResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    if !(-90.0..=90.0).contains(&latitude) || !(-180.0..=180.0).contains(&longitude) {
+        return Err(CmdError::from(format!(
+            "no position: {latitude}, {longitude}"
+        )));
+    }
+    let url = format!(
+        "https://www.openstreetmap.org/?mlat={latitude:.6}&mlon={longitude:.6}#map=17/{latitude:.6}/{longitude:.6}"
+    );
+    app.opener().open_url(url, None::<&str>)?;
+    Ok(())
+}
+
+/// Write a URL to the NFC Tag; resolves with what the tag holds afterwards.
+#[tauri::command]
+pub async fn write_nfc_url(app: AppHandle, url: String) -> CmdResult<NfcInfo> {
+    tauri::async_runtime::spawn_blocking(move || crate::actions::write_nfc_url(&app, url))
         .await?
         .map_err(acq_error)
 }

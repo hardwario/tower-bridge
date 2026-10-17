@@ -47,6 +47,8 @@ connected to, `0` or `1`:
 | `tower/illuminance/0` | `320.5` | lx |
 | `tower/pressure/0` | `98765.25` | Pa |
 | `tower/altitude/0` | `312.4` | m |
+| `tower/co2/0` | `612` | ppm (TOWER CO2 Module) |
+| `tower/voc/0` | `74` | ppb TVOC (VOC-LP Tag) |
 
 With sensors on both channels, for example a Climate Module on channel 0 and
 the Humidity, Lux Meter and Barometer Tags on channel 1, the tags' values come
@@ -71,6 +73,20 @@ its channel:
 
 The relay is latching and cannot be read back, so the state is `null` until
 it has been switched. The topic is cleared when the module disappears.
+
+With a TOWER GPS Module connected, its position is published as plain
+numbers on the topics of its channel:
+
+| Topic | Payload | Unit |
+|---|---|---|
+| `tower/gps/0/latitude` | `50.7711680` | degrees, WGS 84, north positive |
+| `tower/gps/0/longitude` | `15.0563280` | degrees, east positive |
+| `tower/gps/0/altitude` | `374.2` | m above sea level |
+| `tower/gps/0/satellites` | `9` | satellites used |
+
+The receiver is read every 5 s, and the topics are published again whenever
+something changed. Without a fix only `satellites` is updated, and the position
+keeps its last value. All four topics are cleared when the module disappears.
 
 ## Relay control
 

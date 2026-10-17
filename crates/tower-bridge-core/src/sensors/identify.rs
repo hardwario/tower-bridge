@@ -69,5 +69,10 @@ pub fn scan(bus: &mut dyn I2cBus) -> Result<Vec<Found>, BusError> {
     if id8(bus, 0x60, 0x0C)? == Some(0xC4) {
         add(0x60, "MPL3115A2");
     }
+    for address in crate::nfc::ADDRESSES {
+        if let Some(part) = crate::nfc::identify(bus, address)? {
+            add(address, part);
+        }
+    }
     Ok(found)
 }

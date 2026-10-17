@@ -2,13 +2,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ActiveAlert,
-  ApiState,
   AlertEvent,
   AlertLogEntry,
+  ApiState,
   DeviceState,
   ExportResult,
+  GpsInfo,
   History,
   MqttState,
+  NfcInfo,
   Reading,
   RelayInfo,
   RescanOutcome,
@@ -31,8 +33,12 @@ export const api = {
   testNotification: () => invoke<void>("send_test_notification"),
   identify: () => invoke<void>("identify_device"),
   rescan: () => invoke<RescanOutcome>("rescan_device"),
-  /** Switch the relay to true (left) or false (right). */
+  /** Switch the relay to true or false. */
   setRelay: (state: boolean) => invoke<RelayInfo>("set_relay", { state }),
+  /** Write a URL to the NFC Tag; resolves with what the tag holds afterwards. */
+  writeNfcUrl: (url: string) => invoke<NfcInfo>("write_nfc_url", { url }),
+  /** Open a position on OpenStreetMap in the system browser. */
+  openMap: (latitude: number, longitude: number) => invoke<void>("open_map", { latitude, longitude }),
   /** Timed pulse to `state` (default: the opposite one) for `durationMs` (default: the setting). */
   pulseRelay: (state?: boolean, durationMs?: number) =>
     invoke<RelayInfo>("pulse_relay", { state: state ?? null, duration_ms: durationMs ?? null }),
@@ -46,6 +52,8 @@ export interface Events {
   reading: Reading;
   "device-state": DeviceState;
   "relay-state": RelayInfo | null;
+  "nfc-state": NfcInfo | null;
+  "gps-state": GpsInfo | null;
   "settings-changed": Settings;
   "open-at-login-changed": boolean;
   alert: AlertEvent;

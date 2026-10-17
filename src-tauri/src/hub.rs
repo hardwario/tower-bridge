@@ -10,8 +10,10 @@ use crossbeam_channel::{Receiver, Sender, select, tick};
 use tauri::{AppHandle, Emitter, Manager};
 use tower_bridge_core::acquisition::AcqEvent;
 use tower_bridge_core::alerts::{AlertEngine, AlertEvent, AlertKind, Bound};
+use tower_bridge_core::gps::GpsInfo;
 use tower_bridge_core::model::{DeviceState, Reading, altitude, source_label};
 use tower_bridge_core::mqtt::{self, ClientConfig, LinkEvent, MqttCommand, Publisher};
+use tower_bridge_core::nfc::NfcInfo;
 use tower_bridge_core::relay::RelayInfo;
 use tower_bridge_core::store::Store;
 use tracing::{error, info, warn};
@@ -160,6 +162,8 @@ impl Hub {
                     Ok(AcqEvent::Reading(r)) => self.on_reading(r),
                     Ok(AcqEvent::Device(d)) => self.on_device(d),
                     Ok(AcqEvent::Relay(r)) => self.on_relay(r),
+                    Ok(AcqEvent::Nfc(n)) => self.on_nfc(n),
+                    Ok(AcqEvent::Gps(g)) => self.on_gps(g),
                     Err(_) => break,
                 },
                 recv(hub_rx) -> msg => match msg {
@@ -317,6 +321,26 @@ impl Hub {
         let _ = self.app.emit("relay-state", relay);
     }
 
+    fn on_nfc(&mut self, nfc: Option<NfcInfo>) {
+        *self.state().nfc.write() = nfc.clone();
+        let _ = self.app.emit("nfc-state", nfc);
+    }
+
+    fn on_gps(&mut self, gps: Option<GpsInfo>) {
+        *self.state().gps.write() = gps.clone();
+        self.publish_gps();
+        let _ = self.app.emit("gps-state", gps);
+    }
+
+    fn publish_gps(&mut self) {
+        let gps = self.state().gps.read().clone();
+        if let Some(publisher) = self.publisher()
+            && let Err(e) = publisher.publish_gps(gps.as_ref())
+        {
+            warn!("MQTT publish failed: {e}");
+        }
+    }
+
     fn publish_relay(&mut self) {
         let relay = *self.state().relay.read();
         if let Some(publisher) = self.publisher()
@@ -348,6 +372,7 @@ impl Hub {
             }
         }
         self.publish_relay();
+        self.publish_gps();
     }
 
     fn on_link_event(&mut self, ev: LinkEvent) {

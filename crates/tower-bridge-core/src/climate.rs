@@ -10,6 +10,8 @@
 //! - OPT3001 @0x44: illuminance (Climate Module, Lux Meter Tag; the tag can
 //!   also sit at 0x45)
 //! - MPL3115A2 @0x60: pressure (Climate Module, Barometer Tag)
+//! - LP8 behind an SC16IS740 @0x4D: CO2 (CO2 Module, see [`crate::co2`])
+//! - SGPC3 @0x58: TVOC (VOC-LP Tag)
 //!
 //! Every channel is probed part by part, at the default address first. A
 //! Climate Module is recognised by its parts at their default addresses (an
@@ -20,15 +22,29 @@
 //! collects the results as they become ready, so one channel takes about one
 //! second (the OPT3001 800 ms conversion dominates). Channels are measured
 //! one after the other, because the same addresses are used on both.
+//!
+//! CO2 and TVOC keep their own pace: the LP8 is measured at the end of its
+//! channel's cycle once 16 s have passed since the last time, and the SGPC3
+//! every 30 s between the cycles ([`Sensors::service`]); a cycle reports
+//! their latest values.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::bus::{BusError, Clock, I2cBus};
+use crate::co2::{self, Co2Module};
 use crate::model::{Metric, ModuleKind, SensorSource, Values};
+use crate::sensors::sgpc3::{self, Sgpc3};
 use crate::sensors::{SensorError, mpl3115a2, opt3001, sht20, sht30, tmp112};
+
+/// A CO2 value is reported for this long after its measurement (the LP8
+/// measures at most every 16 s).
+const CO2_MAX_AGE: Duration = Duration::from_secs(60);
+/// The SGPC3 measures every 30 s.
+const VOC_MAX_AGE: Duration = Duration::from_secs(90);
 
 /// I2C switch on the Bridge Module (one bit per downstream channel).
 pub const SWITCH_ADDR: u8 = 0x70;
@@ -169,10 +185,14 @@ pub struct ChannelSensors {
     tmp112: Part,
     opt3001: Part,
     mpl: Part,
+    co2: Option<Co2Module>,
+    voc: Option<Sgpc3>,
+    /// Where the LP8 and SGPC3 keep their state between runs.
+    state_dir: Option<PathBuf>,
 }
 
 impl ChannelSensors {
-    fn new(channel: u8) -> Self {
+    fn new(channel: u8, state_dir: Option<PathBuf>) -> Self {
         Self {
             channel,
             sht30: Part::ABSENT,
@@ -180,7 +200,16 @@ impl ChannelSensors {
             tmp112: Part::ABSENT,
             opt3001: Part::ABSENT,
             mpl: Part::ABSENT,
+            co2: None,
+            voc: None,
+            state_dir,
         }
+    }
+
+    fn state_file(&self, name: &str) -> Option<PathBuf> {
+        self.state_dir
+            .as_ref()
+            .map(|d| d.join(format!("{name}-channel{}.txt", self.channel)))
     }
 
     pub fn channel(&self) -> u8 {
@@ -192,7 +221,9 @@ impl ChannelSensors {
             || self.sht20.present()
             || self.tmp112.present()
             || self.opt3001.present()
-            || self.mpl.present())
+            || self.mpl.present()
+            || self.co2.is_some()
+            || self.voc.is_some())
     }
 
     /// Look for the parts not present yet (the channel must be selected).
@@ -239,6 +270,16 @@ impl ChannelSensors {
         if !self.mpl.present() && answered(mpl3115a2::who_am_i(bus))? == Some(mpl3115a2::WHO_AM_I) {
             self.mpl = Part::found(Slot::Uninit, mpl3115a2::ADDR);
             found = true;
+        }
+        if self.voc.is_none() && sgpc3::probe(bus)?.is_some() {
+            let store = self.state_file("sgpc3");
+            self.voc = answered(Sgpc3::start(bus, clock, self.channel, store))?;
+            found |= self.voc.is_some();
+        }
+        if self.co2.is_none() && Co2Module::probe(bus)? {
+            let store = self.state_file("lp8");
+            self.co2 = answered(Co2Module::start(bus, clock, self.channel, store))?;
+            found |= self.co2.is_some();
         }
         Ok(found)
     }
@@ -331,7 +372,39 @@ impl ChannelSensors {
                 address: self.part_of(kind).addr,
             })
         })
+        .chain(self.co2.is_some().then(|| SensorSource {
+            metric: Metric::Co2,
+            channel: self.channel,
+            module: ModuleKind::Co2Module,
+            sensor: "LP8".into(),
+            address: co2::UART,
+        }))
+        .chain(self.voc.is_some().then(|| SensorSource {
+            metric: Metric::Voc,
+            channel: self.channel,
+            module: ModuleKind::VocLpTag,
+            sensor: "SGPC3".into(),
+            address: sgpc3::ADDR,
+        }))
         .collect()
+    }
+
+    /// Measure TVOC when due (the channel must be selected); `climate` is
+    /// this channel's temperature and humidity, for compensation.
+    fn service(
+        &mut self,
+        bus: &mut dyn I2cBus,
+        clock: &dyn Clock,
+        climate: Option<(f64, f64)>,
+    ) -> Result<(), BusError> {
+        if let Some(voc) = self.voc.as_mut() {
+            voc.service(bus, clock, climate)?;
+            if voc.gone() {
+                info!("VOC-LP Tag on channel {} stopped answering", self.channel);
+                self.voc = None;
+            }
+        }
+        Ok(())
     }
 
     fn part(&mut self, kind: SensorKind) -> &mut Part {
@@ -379,12 +452,14 @@ impl ChannelSensors {
         }
     }
 
-    /// Measure this channel; see [`Sensors::measure_with`].
+    /// Measure this channel; see [`Sensors::measure_with`]. `pressure_hint`
+    /// is the ambient pressure measured elsewhere, for the CO2 compensation.
     fn measure_with(
         &mut self,
         bus: &mut dyn I2cBus,
         clock: &dyn Clock,
         idle: &mut dyn FnMut(&mut dyn I2cBus, Duration) -> bool,
+        pressure_hint: Option<f64>,
     ) -> Result<CycleReport, BusError> {
         let started = clock.now();
         let mut report = CycleReport::default();
@@ -583,6 +658,25 @@ impl ChannelSensors {
             }
         }
 
+        // CO2 last, when due: the LP8 takes about 0.7 s, its waits lent out.
+        if let Some(co2) = self.co2.as_mut()
+            && on_channel
+            && co2.due(clock.now())
+        {
+            match co2.measure(bus, clock, &mut *idle, values.pressure.or(pressure_hint)) {
+                Ok(_) => {}
+                Err(co2::Co2Error::Bus(e)) if e.is_fatal() => return Err(e),
+                Err(e) => warn!("CO2 Module on channel {channel}: {e}"),
+            }
+            if co2.gone() {
+                info!("CO2 Module on channel {channel} stopped answering");
+                self.co2 = None;
+            }
+        }
+        let now = clock.now();
+        values.co2 = self.co2.as_ref().and_then(|c| c.value(now, CO2_MAX_AGE));
+        values.voc = self.voc.as_ref().and_then(|v| v.value(now, VOC_MAX_AGE));
+
         report.values = values;
         report.duration = clock.now() - started;
         Ok(report)
@@ -611,6 +705,9 @@ pub struct Sensors {
     mode: ChannelMode,
     /// Channels with at least one part, in channel order.
     channels: Vec<ChannelSensors>,
+    state_dir: Option<PathBuf>,
+    /// The latest values of each channel.
+    last: Vec<(u8, Values)>,
 }
 
 impl Sensors {
@@ -618,7 +715,58 @@ impl Sensors {
         Self {
             mode,
             channels: Vec::new(),
+            state_dir: None,
+            last: Vec::new(),
         }
+    }
+
+    /// Where the LP8 and SGPC3 keep their state between runs.
+    pub fn with_state_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.state_dir = dir;
+        self
+    }
+
+    fn last(&self, channel: u8) -> Option<&Values> {
+        self.last
+            .iter()
+            .find(|(c, _)| *c == channel)
+            .map(|(_, v)| v)
+    }
+
+    /// Switch the CO2 Module's sensor and charging off (the app stops).
+    pub fn stop(&self, bus: &mut dyn I2cBus) {
+        for co2 in self.channels.iter().filter_map(|c| c.co2.as_ref()) {
+            let _ = co2.stop(bus);
+        }
+    }
+
+    /// When [`service`](Self::service) has work next (clock time).
+    pub fn next_service(&self) -> Option<Duration> {
+        self.channels
+            .iter()
+            .filter_map(|c| c.voc.as_ref().map(Sgpc3::next))
+            .min()
+    }
+
+    /// Measure TVOC on the channels where it is due (between cycles).
+    pub fn service(&mut self, bus: &mut dyn I2cBus, clock: &dyn Clock) -> Result<(), BusError> {
+        let now = clock.now();
+        for i in 0..self.channels.len() {
+            if !self.channels[i].voc.as_ref().is_some_and(|v| v.due(now)) {
+                continue;
+            }
+            let channel = self.channels[i].channel;
+            let climate = self
+                .last(channel)
+                .and_then(|v| v.temperature.zip(v.humidity));
+            match select_channel(bus, channel) {
+                Ok(()) => self.channels[i].service(bus, clock, climate)?,
+                Err(e) if e.is_fatal() => return Err(e),
+                Err(e) => debug!("I2C switch did not accept channel {channel}: {e}"),
+            }
+        }
+        self.channels.retain(|c| !c.is_empty());
+        Ok(())
     }
 
     pub fn set_mode(&mut self, mode: ChannelMode) {
@@ -662,7 +810,7 @@ impl Sensors {
             let index = self.channels.iter().position(|c| c.channel == channel);
             let mut sensors = match index {
                 Some(i) => self.channels[i].clone(),
-                None => ChannelSensors::new(channel),
+                None => ChannelSensors::new(channel, self.state_dir.clone()),
             };
             if !sensors.probe(bus, clock)? {
                 continue;
@@ -711,9 +859,15 @@ impl Sensors {
         idle: &mut dyn FnMut(&mut dyn I2cBus, Duration) -> bool,
     ) -> Result<Vec<(u8, CycleReport)>, BusError> {
         let mut reports = Vec::with_capacity(self.channels.len());
-        for sensors in &mut self.channels {
-            let report = sensors.measure_with(bus, clock, idle)?;
-            reports.push((sensors.channel, report));
+        for i in 0..self.channels.len() {
+            // Pressure is the same throughout a building: any barometer.
+            let pressure = self.last.iter().find_map(|(_, v)| v.pressure);
+            let sensors = &mut self.channels[i];
+            let report = sensors.measure_with(bus, clock, idle, pressure)?;
+            let channel = sensors.channel;
+            self.last.retain(|(c, _)| *c != channel);
+            self.last.push((channel, report.values));
+            reports.push((channel, report));
         }
         self.channels.retain(|c| !c.is_empty());
         Ok(reports)
@@ -753,6 +907,8 @@ mod tests {
             humidity: Some(41.0),
             illuminance: Some(512.0),
             pressure: Some(98_765.25),
+            co2: None,
+            voc: None,
         }))
     }
 
@@ -985,6 +1141,8 @@ mod tests {
             humidity: Some(70.0),
             illuminance: Some(9000.0),
             pressure: Some(98_000.0),
+            co2: None,
+            voc: None,
         }));
         let mut bus = MockBus::with_climate(ClimateRevision::R1, 0, env());
         attach_tags(&mut bus, 1, outdoor);

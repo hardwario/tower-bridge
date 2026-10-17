@@ -177,6 +177,135 @@ one state and back after 0.5 s to 1 h (default 2 s). The acquisition thread
 times it and does not start a measurement cycle that would delay the return.
 If the bridge is unplugged during a pulse, the relay stays switched over.
 
+## TOWER NFC Tag
+
+An NXP NT3H2111 (NTAG I²C plus, 1k) with its antenna (schematic rev 1.3). The
+field detect output reaches the tag connector's INT pin through a transistor;
+the app does not use it.
+
+| Address | Where it comes from |
+|---|---|
+| `0x08` | HARDWARIO tags (as twr-sdk expects); verified on a real tag |
+| `0x55` | the chip's factory default |
+
+The address is stored in the chip (byte 0 of block 0), so it survives power
+cycles. The app looks at both, on both switch channels, on connect, on
+*Rescan* and every minute. A bare one-byte read does not find the chip, so
+`i2c-scan` misses it; `nfc --scan` sets the memory pointer first and tries
+every address.
+
+Over I²C the memory is read and written in 16-byte blocks: write the block
+number, STOP, then read 16 bytes (no repeated start). Writing a block takes
+about 5 ms of EEPROM programming, during which the chip does not acknowledge.
+
+| Block | Content |
+|---|---|
+| `0x00` | I²C address (reads back as the NXP ID `0x04`), serial number, static locks, capability container `E1 10 6D 00` |
+| `0x01` to `0x37` | user memory: the NDEF message as a TLV, `03 <length> <message> FE` |
+| `0x38` and up | dynamic locks and configuration |
+
+The app never writes block 0 (a wrong byte there moves the chip to another
+address or locks it for good) and nothing past the user memory. A URL is
+written as one URI record (`D1 01 <length> 55 <prefix code> <rest>`, prefix
+codes as in the NFC Forum URI record type, at most 240 bytes) and read back to
+verify. A tag reads, for example: block 1 `03 12 D1 01 0E 55 02 62 69 67 63 6C
+6F 77 6E 2E`, block 2 `63 6F 6D 2F FE`, which is `https://www.bigclown.com/`.
+
+## TOWER CO2 Module
+
+A Senseair LP8 (schematic rev 1.4) with its own supply, a storage capacitor
+for the lamp, and a UART. The bridge reaches it through an NXP SC16IS740 I²C
+UART at `0x4D` (13.56 MHz crystal, divisor 88: 9630 baud, close enough to the
+LP8's 9600 8N2) and a TCA9534A at `0x38`. The app finds the module by the
+expander's configuration register and the UART's scratchpad register, on both
+channels, on connect, on *Rescan* and every minute.
+
+The expander's output latch stays 0, so a pin switched to output pulls its
+line low (on) and an input lets the pull-up switch it off:
+
+| Pin | Function |
+|---|---|
+| P1 | capacitor charging |
+| P2 | sensor supply VDD2 |
+| P3 | sensor enable |
+| P6 | SC16IS740 reset, active low |
+| P7 | RDY from the LP8 (input) |
+
+Configuration register values: `0xEE` idle, `0xE8` charging with VDD2 on,
+`0xE0` the sensor enabled as well.
+
+One measurement is one power cycle of the sensor:
+
+1. Enable (`0xE0`), wait 150 ms, wait for RDY low (within 500 ms of power on).
+2. Write the calculation control, the 23-byte sensor state from the previous
+   measurement and the ambient pressure (0.1 hPa) to RAM `0x80`:
+   `FE 41 00 80 1A <control> <state> <pressure> <crc>`. The LP8 answers
+   `FE 41 81 E0`.
+3. Wait for RDY high (within 1 s of power on), then read 44 bytes from `0x80`:
+   `FE 44 00 80 2C 79 39`, 49 bytes back.
+4. Back to `0xE8`: the sensor is off, the capacitor keeps charging.
+
+The CRC is Modbus CRC-16, low byte first. Calculation control `0x10` starts
+over (no state yet), `0x20` is the normal sequential measurement, `0x70` adds
+an automatic baseline correction (ABC), which the host asks for every 8 days.
+The reported value is the filtered, pressure compensated concentration
+(`0xAA`), the one the datasheet states the accuracy for; the pressure comes
+from a barometer on the same bridge, or the LP8's default 1012.4 hPa. A
+measurement takes about 0.7 s, and measurements are at least 16 s apart, since
+the residual heat of the lamp spoils the next one. Error bits in status 0
+(`0xA7`) and status 1 (`0xA6`) that call for it make the app start over with
+control `0x10`; a capacitor below its limit postpones the next measurement.
+
+twr-sdk charges the capacitor for 5 s before every measurement and switches
+everything off afterwards, as a battery device must. The bridge runs on USB,
+so the app charges for a minute after start and then keeps charging, and a
+measurement can begin at any time. The sensor state is stored in
+`lp8-channel<N>.txt` in the data folder after every measurement and reused
+after a restart if it is less than a week old, so the filters and the ABC
+baseline carry on. The datasheet is "LP8 sensor module specifications and
+integration guideline" v1.02.
+
+## TOWER VOC-LP Tag
+
+A Sensirion SGPC3 at `0x58` (schematic rev 1.0). The app reads its feature set
+(`20 2F`, the tag answers `10 06`: product SGPC3, feature set 6), switches it
+to ultra-low power (`20 9F 00 00`), starts the algorithm with
+`init_preheat` (`20 AE`), and measures TVOC (`20 08`) every 30 s on a fixed
+grid, as the algorithm expects in that mode. Every word carries a CRC-8
+(polynomial 0x31, init 0xFF).
+
+Before each measurement it sets the absolute humidity (`20 61`, g/m³ in 8.8
+fixed point) from a thermometer and hygrometer on the same channel, or 0 to
+switch the compensation off. The sensor reads 0 ppb while it preheats; the app
+ignores zeros during the first five minutes. The baseline the sensor learns is
+read every hour (`20 15`), stored in `sgpc3-channel<N>.txt`, and written back
+(`20 1E`) after a restart if it is less than a week old.
+
+twr-sdk measured every 30 s without leaving the default low-power mode, whose
+algorithm expects a measurement every 2 s.
+
+## TOWER GPS Module
+
+A u-blox SAM-M8Q at `0x42` (schematic rev 1.2) and a TCA9534 at `0x21`:
+
+| Pin | Function |
+|---|---|
+| P0 | receiver supply |
+| P3 | red LED |
+| P5 | green LED, lit while there is a fix |
+| P7 | backup supply, kept on so the receiver finds a fix faster after a restart |
+
+twr-sdk reads the NMEA stream the receiver sends on I²C by default. Over the
+FT260 every transfer costs about 25 ms, so the app sends CFG-PRT to make the
+receiver output only UBX on I²C, and polls one UBX-NAV-PVT every 5 s: fix,
+position, altitude above sea level, horizontal accuracy, satellites and UTC
+time in one 100-byte message. Register `0xFD` and `0xFE` hold the number of
+bytes waiting, `0xFF` the stream, read in 60-byte chunks.
+
+The address `0x21` is not unique to this module, so the app takes the
+expander for a GPS Module only once the receiver answers at `0x42`; otherwise
+it puts the expander back to all inputs.
+
 ## Diagnostics CLI
 
 `tower-bridge-cli` validates hardware support without the desktop app:
@@ -189,6 +318,14 @@ cargo run -p tower-bridge-cli -- i2c-scan        # addresses per channel and in 
 cargo run -p tower-bridge-cli -- i2c-identify    # name the sensor chips on each channel
 cargo run -p tower-bridge-cli -- led on
 cargo run -p tower-bridge-cli -- relay [true|false]  # find the Relay Module, show or switch it
+cargo run -p tower-bridge-cli -- nfc [URL]       # find the TOWER NFC Tag, show its URL or write a new one
+cargo run -p tower-bridge-cli -- nfc --scan      # look for a TOWER NFC Tag at every address
+cargo run -p tower-bridge-cli -- co2             # find the TOWER CO2 Module, charge for a minute, measure 3 times
+cargo run -p tower-bridge-cli -- co2 --charge 5 --pressure 990 --state lp8.txt  # shorter charge, a pressure, a kept state
+cargo run -p tower-bridge-cli -- voc             # find the VOC-LP Tag and measure every 30 s
+cargo run -p tower-bridge-cli -- gps             # find the TOWER GPS Module and show the position every 5 s
+cargo run -p tower-bridge-cli -- i2c-read 0x38 0x03 --len 1   # write a register, STOP, read
+cargo run -p tower-bridge-cli -- i2c-write 0x38 0x03 0xff     # write bytes on --channel (default 0)
 ```
 
 `probe` prints the same lines as enmon (`@SENSOR: "Temperature",27.20`).

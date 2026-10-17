@@ -7,7 +7,9 @@ import type {
   ApiState,
   AppInfo,
   DeviceState,
+  GpsInfo,
   MqttState,
+  NfcInfo,
   Reading,
   RelayInfo,
   SensorSource,
@@ -21,6 +23,8 @@ class Live {
   ready = $state(false);
   device = $state<DeviceState>({ status: "searching" });
   relay = $state<RelayInfo | null>(null);
+  nfc = $state<NfcInfo | null>(null);
+  gps = $state<GpsInfo | null>(null);
   /** The latest reading of each I²C channel, in channel order. */
   latest = $state<Reading[]>([]);
   settings = $state<Settings | null>(null);
@@ -50,6 +54,14 @@ class Live {
         fresh.add("relay");
         this.relay = r;
       }),
+      on("nfc-state", (n) => {
+        fresh.add("nfc");
+        this.nfc = n;
+      }),
+      on("gps-state", (g) => {
+        fresh.add("gps");
+        this.gps = g;
+      }),
       on("settings-changed", (s) => this.setSettings(s)),
       on("open-at-login-changed", (v) => (this.openAtLogin = v)),
       on("alerts-active", (a) => {
@@ -63,6 +75,8 @@ class Live {
     const s = await api.snapshot();
     if (!fresh.has("device")) this.setDevice(s.device);
     if (!fresh.has("relay")) this.relay = s.relay;
+    if (!fresh.has("nfc")) this.nfc = s.nfc ?? null;
+    if (!fresh.has("gps")) this.gps = s.gps ?? null;
     this.app = s.app;
     this.setSettings(s.settings);
     this.openAtLogin = s.open_at_login;

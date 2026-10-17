@@ -43,6 +43,8 @@ pub struct AlertRules {
     pub humidity: AlertRule,
     pub illuminance: AlertRule,
     pub pressure: AlertRule,
+    pub co2: AlertRule,
+    pub voc: AlertRule,
 }
 
 impl Default for AlertRules {
@@ -68,6 +70,17 @@ impl Default for AlertRules {
                 hysteresis: 100.0,
                 ..AlertRule::default()
             },
+            // Above about 1000 ppm a room wants airing.
+            co2: AlertRule {
+                max: Some(1200.0),
+                hysteresis: 50.0,
+                ..AlertRule::default()
+            },
+            voc: AlertRule {
+                max: Some(500.0),
+                hysteresis: 25.0,
+                ..AlertRule::default()
+            },
         }
     }
 }
@@ -79,6 +92,19 @@ impl AlertRules {
             Metric::Humidity => &self.humidity,
             Metric::Illuminance => &self.illuminance,
             Metric::Pressure => &self.pressure,
+            Metric::Co2 => &self.co2,
+            Metric::Voc => &self.voc,
+        }
+    }
+
+    pub fn get_mut(&mut self, metric: Metric) -> &mut AlertRule {
+        match metric {
+            Metric::Temperature => &mut self.temperature,
+            Metric::Humidity => &mut self.humidity,
+            Metric::Illuminance => &mut self.illuminance,
+            Metric::Pressure => &mut self.pressure,
+            Metric::Co2 => &mut self.co2,
+            Metric::Voc => &mut self.voc,
         }
     }
 }

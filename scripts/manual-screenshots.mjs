@@ -20,7 +20,10 @@ const LANGS = ["en", "cs", "sk", "de", "pl"];
 const THEMES = ["light", "dark"];
 const VIEWPORT = { width: 1200, height: 780 };
 
-/** What to capture: a whole tab, or one element of it (optionally in a narrower window). */
+/**
+ * What to capture: a whole tab, or one element of it (optionally in a narrower
+ * or taller window, or with more preview parameters).
+ */
 const SHOTS = [
   { name: "dashboard", tab: "overview" },
   { name: "relay", tab: "overview", element: ".card.relay" },
@@ -32,7 +35,25 @@ const SHOTS = [
     element: "main .view > section",
     width: 900,
   },
+  // A GPS Module with a fix, its map loaded; tall so the card is in view.
+  { name: "gps", tab: "overview", element: ".card.gps", query: "gps=fix&tags=0", height: 1500 },
 ];
+
+/** Wait until the GPS map shows more than its water (the map data is several MB). */
+async function waitForMap(page) {
+  await page.waitForFunction(
+    () => {
+      const c = document.querySelector(".card.gps canvas");
+      const d = c?.width ? c.getContext("2d").getImageData(0, 0, c.width, c.height).data : [];
+      const colours = new Set();
+      for (let i = 0; i < d.length; i += 4 * 97) colours.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+      return colours.size > 4;
+    },
+    null,
+    { timeout: 15000 },
+  );
+  await page.waitForTimeout(300);
+}
 
 const langs = process.argv.slice(2).filter((a) => LANGS.includes(a));
 
@@ -59,15 +80,20 @@ try {
       });
       const page = await context.newPage();
       const cdp = await context.newCDPSession(page);
-      await page.goto(`${base}preview.html?lang=${lang}&theme=${theme}&relay=true`);
-      await page.waitForSelector(".card.relay");
-      await page.waitForTimeout(1200);
+      let query = null;
 
       for (const shot of SHOTS) {
         await page.setViewportSize({
           width: shot.width ?? VIEWPORT.width,
-          height: VIEWPORT.height,
+          height: shot.height ?? VIEWPORT.height,
         });
+        if ((shot.query ?? "relay=true") !== query) {
+          query = shot.query ?? "relay=true";
+          await page.goto(`${base}preview.html?lang=${lang}&theme=${theme}&${query}`);
+          await page.waitForSelector("nav button[data-tab]");
+          await page.waitForTimeout(1200);
+          if (shot.name === "gps") await waitForMap(page);
+        }
         await page.click(`nav button[data-tab="${shot.tab}"]`);
         await page.mouse.move(0, VIEWPORT.height - 1);
         await page.waitForTimeout(700);

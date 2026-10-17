@@ -7,7 +7,9 @@ use parking_lot::RwLock;
 use serde::Serialize;
 use tower_bridge_core::acquisition::AcqCommand;
 use tower_bridge_core::alerts::ActiveAlert;
+use tower_bridge_core::gps::GpsInfo;
 use tower_bridge_core::model::{DeviceState, Reading};
+use tower_bridge_core::nfc::NfcInfo;
 use tower_bridge_core::relay::RelayInfo;
 
 use crate::hub::HubMsg;
@@ -66,6 +68,8 @@ pub struct AppState {
     pub device: RwLock<DeviceState>,
     /// Detected Relay Module, if any.
     pub relay: RwLock<Option<RelayInfo>>,
+    pub nfc: RwLock<Option<NfcInfo>>,
+    pub gps: RwLock<Option<GpsInfo>>,
     pub alerts: RwLock<Vec<ActiveAlert>>,
     pub mqtt: RwLock<MqttState>,
     pub api: RwLock<ApiState>,

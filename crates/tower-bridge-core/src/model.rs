@@ -13,14 +13,20 @@ pub enum Metric {
     Humidity,
     Illuminance,
     Pressure,
+    /// Carbon dioxide (TOWER CO2 Module).
+    Co2,
+    /// Total volatile organic compounds (TOWER VOC-LP Tag).
+    Voc,
 }
 
 impl Metric {
-    pub const ALL: [Metric; 4] = [
+    pub const ALL: [Metric; 6] = [
         Metric::Temperature,
         Metric::Humidity,
         Metric::Illuminance,
         Metric::Pressure,
+        Metric::Co2,
+        Metric::Voc,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -29,6 +35,8 @@ impl Metric {
             Metric::Humidity => "humidity",
             Metric::Illuminance => "illuminance",
             Metric::Pressure => "pressure",
+            Metric::Co2 => "co2",
+            Metric::Voc => "voc",
         }
     }
 
@@ -38,12 +46,15 @@ impl Metric {
             Metric::Humidity => "Humidity",
             Metric::Illuminance => "Illuminance",
             Metric::Pressure => "Pressure",
+            Metric::Co2 => "CO2",
+            Metric::Voc => "VOC",
         }
     }
 }
 
-/// Values produced by one measurement cycle, in SI units: °C, %RH, lux, Pa.
-/// `None` means the sensor is absent or the measurement failed.
+/// Values produced by one measurement cycle, in SI units: °C, %RH, lux, Pa;
+/// CO2 in ppm and TVOC in ppb. `None` means the sensor is absent or the
+/// measurement failed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Values {
@@ -51,6 +62,10 @@ pub struct Values {
     pub humidity: Option<f64>,
     pub illuminance: Option<f64>,
     pub pressure: Option<f64>,
+    #[serde(default)]
+    pub co2: Option<f64>,
+    #[serde(default)]
+    pub voc: Option<f64>,
 }
 
 impl Values {
@@ -60,6 +75,19 @@ impl Values {
             Metric::Humidity => self.humidity,
             Metric::Illuminance => self.illuminance,
             Metric::Pressure => self.pressure,
+            Metric::Co2 => self.co2,
+            Metric::Voc => self.voc,
+        }
+    }
+
+    pub fn set(&mut self, metric: Metric, value: Option<f64>) {
+        match metric {
+            Metric::Temperature => self.temperature = value,
+            Metric::Humidity => self.humidity = value,
+            Metric::Illuminance => self.illuminance = value,
+            Metric::Pressure => self.pressure = value,
+            Metric::Co2 => self.co2 = value,
+            Metric::Voc => self.voc = value,
         }
     }
 
@@ -114,6 +142,8 @@ pub enum ModuleKind {
     TemperatureTag,
     LuxMeterTag,
     BarometerTag,
+    Co2Module,
+    VocLpTag,
 }
 
 impl ModuleKind {
@@ -126,6 +156,8 @@ impl ModuleKind {
             ModuleKind::TemperatureTag => "Temperature Tag",
             ModuleKind::LuxMeterTag => "Lux Meter Tag",
             ModuleKind::BarometerTag => "Barometer Tag",
+            ModuleKind::Co2Module => "CO2 Module",
+            ModuleKind::VocLpTag => "VOC-LP Tag",
         }
     }
 

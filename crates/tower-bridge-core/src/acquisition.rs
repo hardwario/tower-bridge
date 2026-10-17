@@ -9,12 +9,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use serde::Serialize;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::bus::discovery::{BackendPref, Discovery, OpenError};
 use crate::bus::{BusError, Clock, I2cBus, SystemClock};
+use crate::climate::select_channel;
 use crate::climate::{ChannelMode, Sensors};
+use crate::gps::{GpsInfo, GpsModule};
 use crate::model::{DeviceInfo, DeviceState, Reading, SensorSource};
+use crate::nfc::{NfcError, NfcInfo, NfcTag};
 use crate::relay::{MAX_PULSE, MIN_PULSE, RelayInfo, RelayModule};
 
 pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(2);
@@ -42,6 +45,10 @@ pub enum AcqError {
     NotConnected,
     #[error("Relay Module not found")]
     NoRelay,
+    #[error("TOWER NFC Tag not found")]
+    NoNfc,
+    #[error("{0}")]
+    Nfc(String),
     #[error("{0}")]
     Bus(String),
 }
@@ -77,6 +84,9 @@ pub enum AcqCommand {
         duration: Duration,
         reply: Option<Reply<RelayInfo>>,
     },
+    /// Write a URL to the NFC Tag (between measurements); replies with what
+    /// the tag holds afterwards.
+    WriteNfcUrl(String, Option<Reply<NfcInfo>>),
     Shutdown,
 }
 
@@ -88,12 +98,19 @@ pub enum AcqEvent {
     Reading(Reading),
     /// Relay Module found, switched or gone (`None`).
     Relay(Option<RelayInfo>),
+    /// NFC Tag found, written, its URL changed, or gone (`None`).
+    Nfc(Option<NfcInfo>),
+    /// GPS Module found, its position or fix changed, or gone (`None`).
+    Gps(Option<GpsInfo>),
 }
 
 #[derive(Clone, Debug)]
 pub struct AcqConfig {
     pub interval: Duration,
     pub channel: ChannelMode,
+    /// Where sensors keep state between runs (the LP8 sensor state, the
+    /// SGPC3 baseline); none keeps nothing.
+    pub state_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for AcqConfig {
@@ -101,6 +118,7 @@ impl Default for AcqConfig {
         Self {
             interval: Duration::from_secs(10),
             channel: ChannelMode::Auto,
+            state_dir: None,
         }
     }
 }
@@ -218,6 +236,9 @@ fn supervise(
         events,
         last_state: None,
         last_relay: None,
+        last_nfc: None,
+        last_gps: None,
+        gps_rejected_until: None,
         pulse: None,
         deferred: VecDeque::new(),
         pending_rescan: Vec::new(),
@@ -266,6 +287,8 @@ struct Session<'a> {
     bus: &'a mut dyn I2cBus,
     sensors: &'a mut Sensors,
     relay: &'a mut Option<RelayModule>,
+    nfc: &'a mut Option<NfcTag>,
+    gps: &'a mut Option<GpsModule>,
     /// Waiting for the next measurement tick (a new interval re-aligns it).
     ticking: bool,
 }
@@ -277,6 +300,11 @@ struct Worker {
     events: Sender<AcqEvent>,
     last_state: Option<DeviceState>,
     last_relay: Option<RelayInfo>,
+    last_nfc: Option<NfcInfo>,
+    last_gps: Option<GpsInfo>,
+    /// Clock time until which no GPS Module is looked for (something else
+    /// answered at its expander address).
+    gps_rejected_until: Option<Duration>,
     pulse: Option<PendingPulse>,
     /// Commands received during a measurement that wait for its end.
     deferred: VecDeque<AcqCommand>,
@@ -335,6 +363,132 @@ impl Worker {
         if self.last_relay != relay {
             self.last_relay = relay;
             let _ = self.events.send(AcqEvent::Relay(relay));
+        }
+    }
+
+    fn emit_nfc(&mut self, nfc: Option<NfcInfo>) {
+        if self.last_nfc != nfc {
+            match (&self.last_nfc, &nfc) {
+                (None, Some(n)) => info!(
+                    "TOWER NFC Tag ({}) found on I2C channel {}",
+                    n.part, n.channel
+                ),
+                (Some(_), None) => info!("TOWER NFC Tag gone"),
+                _ => {}
+            }
+            self.last_nfc = nfc.clone();
+            let _ = self.events.send(AcqEvent::Nfc(nfc));
+        }
+    }
+
+    fn emit_gps(&mut self, gps: Option<GpsInfo>) {
+        if self.last_gps != gps {
+            if self.last_gps.is_none() != gps.is_none() {
+                match &gps {
+                    Some(g) => info!("TOWER GPS Module found on I2C channel {}", g.channel),
+                    None => info!("TOWER GPS Module gone"),
+                }
+            }
+            self.last_gps = gps.clone();
+            let _ = self.events.send(AcqEvent::Gps(gps));
+        }
+    }
+
+    /// Look for a GPS Module on either channel and power its receiver.
+    fn probe_gps(
+        &mut self,
+        bus: &mut dyn I2cBus,
+        gps: &mut Option<GpsModule>,
+    ) -> Result<(), BusError> {
+        if gps.is_some()
+            || self
+                .gps_rejected_until
+                .is_some_and(|t| self.clock.now() < t)
+        {
+            return Ok(());
+        }
+        for channel in RELAY_CHANNELS {
+            let found = select_channel(bus, channel).and_then(|()| GpsModule::probe(bus));
+            match found {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(e) if e.is_fatal() => return Err(e),
+                Err(_) => continue,
+            }
+            match GpsModule::start(bus, self.clock.as_ref(), channel) {
+                Ok(module) => {
+                    *gps = Some(module);
+                    return Ok(());
+                }
+                Err(e) if e.is_fatal() => return Err(e),
+                Err(_) => continue,
+            }
+        }
+        Ok(())
+    }
+
+    /// Between measurements: TVOC every 30 s, the GPS position every 5 s.
+    fn serve_background(&mut self, s: &mut Session<'_>) {
+        let clock = Arc::clone(&self.clock);
+        if let Err(e) = s.sensors.service(&mut *s.bus, clock.as_ref()) {
+            // A lost bridge also fails the next measurement, which reopens it.
+            debug!("background measurement failed: {e}");
+        }
+        let Some(module) = s.gps.as_mut() else {
+            return;
+        };
+        let changed = if select_channel(&mut *s.bus, module.channel()).is_ok() {
+            module.service(&mut *s.bus, clock.as_ref()).unwrap_or(false)
+        } else {
+            false
+        };
+        if module.gone() {
+            // Not a GPS Module after all (or unplugged): leave it alone a while.
+            warn!("no GPS receiver answers on channel {}", module.channel());
+            let _ = module.release(&mut *s.bus);
+            *s.gps = None;
+            self.gps_rejected_until = Some(clock.now() + Duration::from_secs(600));
+            self.emit_gps(None);
+        } else if changed || self.last_gps.is_none() {
+            let info = module.info().cloned();
+            if info.is_some() {
+                self.emit_gps(info);
+            }
+        }
+    }
+
+    /// Clock time of the next background job.
+    fn background_due(s: &Session<'_>) -> Option<Duration> {
+        let gps = s.gps.as_ref().map(GpsModule::next);
+        match (s.sensors.next_service(), gps) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// Look for the NFC Tag again; it also catches a URL a phone wrote.
+    fn probe_nfc(
+        &mut self,
+        bus: &mut dyn I2cBus,
+        nfc: &mut Option<NfcTag>,
+    ) -> Result<(), BusError> {
+        *nfc = NfcTag::detect(bus, &RELAY_CHANNELS)?;
+        self.emit_nfc(nfc.as_ref().map(NfcTag::info));
+        Ok(())
+    }
+
+    fn write_nfc(&mut self, s: &mut Session<'_>, url: &str) -> Result<NfcInfo, AcqError> {
+        let tag = s.nfc.as_mut().ok_or(AcqError::NoNfc)?;
+        let result = tag.write_url(&mut *s.bus, self.clock.as_ref(), url);
+        let info = tag.info();
+        self.emit_nfc(Some(info.clone()));
+        match result {
+            Ok(()) => {
+                info!("TOWER NFC Tag URL written");
+                Ok(info)
+            }
+            Err(NfcError::Bus(e)) => Err(AcqError::Bus(e.to_string())),
+            Err(e) => Err(AcqError::Nfc(e.to_string())),
         }
     }
 
@@ -513,6 +667,8 @@ impl Worker {
                     Exit::Shutdown => {
                         self.pulse = None;
                         self.emit_relay(None);
+                        self.emit_nfc(None);
+                        self.emit_gps(None);
                         return;
                     }
                     Exit::Lost(e) => {
@@ -522,6 +678,8 @@ impl Worker {
                             );
                         }
                         self.emit_relay(None);
+                        self.emit_nfc(None);
+                        self.emit_gps(None);
                         warn!("bridge lost: {e}");
                         self.emit_state(DeviceState::Searching);
                         // A bridge that opens but fails right away must not
@@ -550,8 +708,11 @@ impl Worker {
         let mut device = bus.info().clone();
         self.recount(opener, &mut device);
         let _ = self.blink(bus, 1);
-        let mut sensors = Sensors::new(self.config.channel);
+        let mut sensors =
+            Sensors::new(self.config.channel).with_state_dir(self.config.state_dir.clone());
+        let mut gps: Option<GpsModule> = None;
         let mut relay: Option<RelayModule> = None;
+        let mut nfc: Option<NfcTag> = None;
         let mut probed = self.clock.now();
         let mut failed_cycles = 0u32;
         let mut deadline: Option<Duration> = None;
@@ -561,6 +722,12 @@ impl Worker {
                 if relay.is_none()
                     && let Err(e) = self.probe_relay(bus, &mut relay)
                 {
+                    return Exit::Lost(e);
+                }
+                if let Err(e) = self.probe_nfc(bus, &mut nfc) {
+                    return Exit::Lost(e);
+                }
+                if let Err(e) = self.probe_gps(bus, &mut gps) {
                     return Exit::Lost(e);
                 }
                 probed = self.clock.now();
@@ -581,10 +748,12 @@ impl Worker {
                             bus: &mut *bus,
                             sensors: &mut sensors,
                             relay: &mut relay,
+                            nfc: &mut nfc,
+                            gps: &mut gps,
                             ticking: false,
                         };
                         match self.wait(NO_MODULE_RETRY, Some(session)) {
-                            Flow::Shutdown => return self.close(bus),
+                            Flow::Shutdown => return self.close(bus, &sensors, gps.as_ref()),
                             Flow::Elapsed | Flow::Now => continue,
                         }
                     }
@@ -597,10 +766,12 @@ impl Worker {
                     bus: &mut *bus,
                     sensors: &mut sensors,
                     relay: &mut relay,
+                    nfc: &mut nfc,
+                    gps: &mut gps,
                     ticking: true,
                 };
                 match self.wait(d, Some(session)) {
-                    Flow::Shutdown => return self.close(bus),
+                    Flow::Shutdown => return self.close(bus, &sensors, gps.as_ref()),
                     Flow::Elapsed | Flow::Now => {}
                 }
                 if sensors.is_empty() {
@@ -613,6 +784,12 @@ impl Worker {
                 if relay.is_none()
                     && let Err(e) = self.probe_relay(bus, &mut relay)
                 {
+                    return Exit::Lost(e);
+                }
+                if let Err(e) = self.probe_nfc(bus, &mut nfc) {
+                    return Exit::Lost(e);
+                }
+                if let Err(e) = self.probe_gps(bus, &mut gps) {
                     return Exit::Lost(e);
                 }
                 match sensors.detect(bus, self.clock.as_ref()) {
@@ -631,10 +808,12 @@ impl Worker {
                         bus: &mut *bus,
                         sensors: &mut sensors,
                         relay: &mut relay,
+                        nfc: &mut nfc,
+                        gps: &mut gps,
                         ticking: false,
                     };
                     if self.wait(left, Some(session)) == Flow::Shutdown {
-                        return self.close(bus);
+                        return self.close(bus, &sensors, gps.as_ref());
                     }
                     if sensors.is_empty() {
                         continue;
@@ -689,7 +868,11 @@ impl Worker {
         }
     }
 
-    fn close(&mut self, bus: &mut dyn I2cBus) -> Exit {
+    fn close(&mut self, bus: &mut dyn I2cBus, sensors: &Sensors, gps: Option<&GpsModule>) -> Exit {
+        sensors.stop(bus);
+        if let Some(gps) = gps {
+            let _ = gps.stop(bus);
+        }
         let _ = bus.set_led(false);
         Exit::Shutdown
     }
@@ -718,10 +901,23 @@ impl Worker {
                 self.finish_pulse(&mut *s.bus, s.relay);
                 continue;
             }
+            let background = target
+                .as_ref()
+                .and_then(Self::background_due)
+                .map(|due| now + due.saturating_sub(self.clock.now()));
+            if let (Some(due), Some(s)) = (background, target.as_mut())
+                && due <= now
+            {
+                self.serve_background(s);
+                continue;
+            }
             if now >= deadline {
                 return Flow::Elapsed;
             }
-            let until = pulse_due.map_or(deadline, |due| due.min(deadline));
+            let until = [pulse_due, background]
+                .into_iter()
+                .flatten()
+                .fold(deadline, Instant::min);
             let cmd = match self.deferred.pop_front() {
                 Some(cmd) => cmd,
                 None => match self.rx.recv_timeout(until.saturating_duration_since(now)) {
@@ -764,6 +960,15 @@ impl Worker {
                         Some(s) => self
                             .blink(&mut *s.bus, 3)
                             .map_err(|e| AcqError::Bus(e.to_string())),
+                        None => Err(AcqError::NotConnected),
+                    };
+                    if let Some(reply) = reply {
+                        let _ = reply.send(result);
+                    }
+                }
+                AcqCommand::WriteNfcUrl(url, reply) => {
+                    let result = match target.as_mut() {
+                        Some(s) => self.write_nfc(s, &url),
                         None => Err(AcqError::NotConnected),
                     };
                     if let Some(reply) = reply {
@@ -842,6 +1047,8 @@ mod tests {
             humidity: Some(50.0),
             illuminance: Some(100.0),
             pressure: Some(100_000.0),
+            co2: None,
+            voc: None,
         }));
         let opener: Opener = Box::new(move || {
             Ok(
@@ -1030,6 +1237,56 @@ mod tests {
             ),
             other => panic!("unexpected {other:?}"),
         }
+        acq.shutdown(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn finds_the_nfc_tag_and_writes_a_url() {
+        let opener: Opener = Box::new(move || {
+            let env = Arc::new(Mutex::new(Values {
+                temperature: Some(21.0),
+                ..Values::default()
+            }));
+            let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, env);
+            bus.attach(
+                1,
+                crate::nfc::ADDRESSES[0],
+                Box::new(crate::bus::mock::SimNtag::new()),
+            );
+            Ok(Box::new(bus) as Box<dyn I2cBus>)
+        });
+        let (tx, rx) = unbounded();
+        let acq = match Acquisition::spawn(
+            AcqConfig::default(),
+            opener,
+            Box::new(MockClock::new()),
+            tx,
+        ) {
+            Ok(a) => a,
+            Err(e) => panic!("spawn failed: {e}"),
+        };
+        let found = recv_until(&rx, |e| matches!(e, AcqEvent::Nfc(Some(_))));
+        let Some(AcqEvent::Nfc(Some(info))) = found else {
+            panic!("no NFC Tag event");
+        };
+        assert_eq!((info.channel, info.url.as_deref()), (1, None));
+        let (reply, done) = crossbeam_channel::bounded(1);
+        let _ = acq.sender().send(AcqCommand::WriteNfcUrl(
+            "https://www.hardwario.com".into(),
+            Some(reply),
+        ));
+        match done.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(info)) => assert_eq!(info.url.as_deref(), Some("https://www.hardwario.com")),
+            other => panic!("unexpected {other:?}"),
+        }
+        let (reply, done) = crossbeam_channel::bounded(1);
+        let _ = acq
+            .sender()
+            .send(AcqCommand::WriteNfcUrl(" ".into(), Some(reply)));
+        assert!(matches!(
+            done.recv_timeout(Duration::from_secs(5)),
+            Ok(Err(AcqError::Nfc(_)))
+        ));
         acq.shutdown(Duration::from_secs(2));
     }
 

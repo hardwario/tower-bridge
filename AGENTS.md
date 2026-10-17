@@ -70,9 +70,12 @@ Use it with headless Chrome or Playwright to check layouts in every language and
 ```
 crates/tower-bridge-core/   hardware, data and protocols; no Tauri dependency
   bus/                      I2cBus trait: FT260 over hidapi, Linux i2c-dev, mock
-  sensors/                  SHT30, SHT20, TMP112, OPT3001, MPL3115A2, CRC, identify (I²C part detection)
+  sensors/                  SHT30, SHT20, TMP112, OPT3001, MPL3115A2, SGPC3, LP8 frames, SC16IS740 UART, CRC, identify (I²C part detection)
   climate.rs                I²C switch, sensor detection per channel and part, measurement cycles
   relay.rs                  Relay Module (TCA9534A/TCA9534 driving a latching relay)
+  nfc.rs                    NFC Tag (NTAG I²C plus): NDEF URI read and write
+  co2.rs                    CO2 Module: LP8 power cycle, capacitor, state kept between measurements and runs
+  gps.rs                    GPS Module: UBX configuration, NAV-PVT polling
   acquisition.rs            the thread that owns the device: reconnects, measures, runs commands
   alerts.rs                 pure alert engine (limits, hysteresis, repeat interval)
   store/                    SQLite schema, bucketed history, retention, CSV and XLSX export
@@ -94,6 +97,8 @@ src/                        Svelte 5 frontend, no router
   lib/chart-group.svelte.ts shared zoom and pan of the charts on a page
   lib/i18n/                 UI texts in en, cs, sk, de, pl
   lib/manual.ts             renders docs/manual for the Manual tab
+  lib/map.ts                offline map of the GPS card: TopoJSON decoding, Web Mercator, canvas drawing
+  assets/map/world.json     the map data (Natural Earth 1:10m), built by scripts/build-map.mjs
 docs/                       api.md, mqtt.md, hardware.md, manual/
 ```
 
@@ -112,6 +117,7 @@ FT260 ─USB HID─> bus ─> acquisition thread ──AcqEvent──> hub threa
 - **One device owner.** Only the acquisition thread touches the bus. Everything else sends an `AcqCommand` over a channel; replies come back on a one-shot channel. This covers identify, rescan, interval and channel changes, and relay set and pulse.
 - **Sensors on two channels.** The bridge's I²C switch has channels 0 and 1, and both may carry sensors (for example a Climate Module on 0 and tags on 1). `climate::Sensors` probes each part on each channel and names the module from the parts found. Every reading, sensor source, alert, export row and history series carries its channel; channels measured in one cycle share the timestamp. Parts are probed again every minute, and a part that fails three times in a row is dropped.
 - **Measurement cycle.** A channel takes about 1 s because its sensors convert in parallel; channels are measured one after the other. `ClimateModule::measure_with` calls an idle hook while it waits, so relay commands run within about 25 ms instead of after the cycle. When the hook used the bus, the cycle re-selects the I²C switch channel.
+- **Modules on their own clock.** The CO2 Module measures at the end of its channel's cycle when due (at most every 16 s, through the same idle hook), the SGPC3 every 30 s on a fixed grid and the GPS every 5 s; the last two are served from the wait loop between cycles (`Sensors::service`, `background_due`). A reading carries the latest CO₂ and VOC values only while they are fresh (60 s and 90 s), so a stalled sensor shows as missing, not as a frozen value. Sensor state that must survive a restart (`lp8-channel<N>.txt`, `sgpc3-channel<N>.txt`) goes to `AcqConfig.state_dir`, the data folder.
 - **Startup.** The app starts with no window; the dashboard webview is created on demand and destroyed when closed. Development instances (`--simulate` or `TOWER_BRIDGE_DATA_DIR`) skip the single-instance check, so they can run next to an installed copy.
 - **Settings.** `settings.json` uses snake_case serde. On load, `snake_case_keys` converts files from older camelCase builds. `SETTINGS_VERSION` triggers upgrade steps; see `ChartStyles::upgrade_from_v1`. `save_settings` diffs the old and new settings and applies only what changed.
 - **Storage.** The `readings` table holds one row per timestamp and device in SI units; NULL means the sensor failed. History queries bucket rows to about 1000 points and return columns ready for uPlot.
@@ -125,7 +131,8 @@ FT260 ─USB HID─> bus ─> acquisition thread ──AcqEvent──> hub threa
   - zoom needs Ctrl/⌘ with the scroll wheel, or a pinch, so plain scrolling still scrolls the page;
   - panning stays within the stored data.
 - Chart line colours come from the 8-colour palette in `src/lib/palette.ts`, with separate light and dark values. These values passed the dataviz validator, so re-validate any change. The status colours (good, warning, critical) are reserved for status and are never used as series colours.
-- The Dashboard layout (panel order) is kept in localStorage.
+- The Dashboard layout (panel order) is kept in localStorage. The TOWER Bridge Module card is not a panel: it always comes last and cannot be dragged (the user, 2026-10-17).
+- The GPS card's map is offline: `src/assets/map/world.json` (7.4 MB, about 1.5 MB compressed in the binary) is fetched only when a GPS card shows a position. It holds Natural Earth countries, lakes, rivers and populated places; `npm run map:build` rebuilds it from the sources named in `scripts/build-map.mjs`. Zoom levels match web maps (256 px tiles), so Natural Earth's `min_zoom` decides which places and rivers show.
 - **The drag handle is the rightmost tool** in every card header (the user, 2026-10-17).
 - **State never changes the font weight.** Active, current, selected or pressed items show it with colour, background, a border or an indicator. Bolder text is wider, so buttons grow and menus reflow (the user noticed it in the relay card and the manual's contents).
 
@@ -136,7 +143,7 @@ FT260 ─USB HID─> bus ─> acquisition thread ──AcqEvent──> hub threa
 - **JSON:** keys are lowercase snake_case everywhere: REST, MQTT payloads, MCP, `settings.json`, Tauri IPC. Durations are integer milliseconds with an `_ms` suffix (`duration_ms`, `pulse_duration_ms`). Enum values are snake_case too. Names defined by a protocol keep their spelling (MCP `structuredContent`).
 - **No em or en dashes.** This applies everywhere: code, comments, docs, UI texts and commit messages. Use a comma, a semicolon, a colon or parentheses, or split the sentence. A plain hyphen is fine. `src/repo.test.ts` fails on any long dash.
 - **I²C:** write "I²C" in UI texts and docs, and `i2c` in identifiers.
-- **Product names** keep their capitals: TOWER Bridge Module, TOWER Climate Module, TOWER Relay Module. The tags' full names are HARDWARIO Humidity Tag, HARDWARIO Temperature Tag, HARDWARIO Lux Meter Tag and HARDWARIO Barometer Tag (the user, 2026-10-17). The Bridge Module card lists the full names with the revision set small; tight places (legends, tray, status) use the short ones.
+- **Product names** keep their capitals: TOWER Bridge Module, TOWER Climate Module, TOWER Relay Module. The tags' full names are HARDWARIO Humidity Tag, HARDWARIO Temperature Tag, HARDWARIO Lux Meter Tag and HARDWARIO Barometer Tag (the user, 2026-10-17). The NFC Tag is the TOWER NFC Tag, also in its card title (the user, 2026-10-17). The other modules are the TOWER CO2 Module, TOWER GPS Module and HARDWARIO VOC-LP Tag. The Bridge Module card lists the full names with the revision set small; tight places (legends, tray, status) use the short ones.
 - **Five languages:** English, Czech, Slovak, German, Polish. Every UI text goes into all five files in `src/lib/i18n/`; a test checks that the keys match. Tray and notification texts are in `src-tauri/src/i18n.rs`.
 - **Rust:** edition 2024; `unwrap` and `expect` are denied by clippy outside tests. The core crate must not depend on Tauri.
 - **Comments** explain why, not what, at the density of the surrounding code.
@@ -205,3 +212,12 @@ Newest at the end. One bullet per learning, with the date and the reason.
 - 2026-10-17. The FT260 reports no USB serial number (hidapi gives none; `tower-bridge-cli scan` shows `serial=-`), so the app names every bridge "ft260" and cannot tell two apart. Discovery opens the first usable one in enumeration order.
 - 2026-10-17. Charts live on the Dashboard only; the History page duplicated them and became the Data page (table, custom range, export) at the user's request.
 - 2026-10-17. Manual screenshots have no reserved size, so a lazily loaded one grows while the page scrolls to a chapter and pushes the chapter away. They load eagerly, and a jump waits for them. During a jump the contents keep the clicked chapter; letting the scroll spy run would sweep the highlight through every chapter passed. Never change the font weight of the active entry: wider text reflows the menu.
+- 2026-10-17. The NFC Tag is an NXP NT3H2111 (NTAG I²C plus). HARDWARIO tags answer at 0x08 (as twr-sdk expects), not at the chip's factory default 0x55; the address is stored in block 0. A bare one-byte read does not find the chip, so `i2c-scan` misses it; `nfc --scan` finds it at any address. It wants a STOP between writing the memory address and reading a block (no repeated start). Never write block 0: a wrong byte moves the chip or locks it for good. The URL goes into user memory from block 1 as `03 len <URI record> FE`; each block needs about 5 ms of EEPROM programming. Verified on a real tag: read, write and a byte-exact restore.
+- 2026-10-17. The Temperature Tag's TMP112 sits at 0x48 like the Climate Module R1's thermometer; on one channel they collide (both answer every read). Its alternative address 0x49 needs R4 fitted and R5 removed.
+- 2026-10-17. The TOWER CO2 Module's LP8 datasheet ("LP8 sensor module specifications and integration guideline" v1.02) is published by Senseair. Report Filt_CO2_Pres (0xAA), the value the accuracy is specified for; write back the 23-byte sensor state every time, or the filters and ABC start over; keep 16 s between measurements; ask for ABC (control 0x70) every 8 days. The module's TCA9534A is switched by its direction register with the output latch at 0 (output = line low = on); the SC16IS740 crystal is 13.56 MHz, so the divisor for 9600 baud is 88. twr-sdk recharges the capacitor for 5 s before each measurement because it targets batteries; on USB the capacitor stays on charge.
+- 2026-10-17. The SGPC3 on the VOC-LP Tag must be switched to ultra-low power (`set_power_mode 0`) before `init_preheat` when it is read every 30 s; the default mode's algorithm expects 2 s. It reads 0 ppb while preheating, which is not a value.
+- 2026-10-17. The GPS Module's SAM-M8Q sends NMEA on I²C by default; over the FT260 (about 25 ms per transfer) reading that stream is too slow, so the app switches the port to UBX output and polls UBX-NAV-PVT. Its expander at 0x21 is generic, so a GPS Module counts only once the receiver at 0x42 answers.
+- 2026-10-17. TCA9534 expanders and the NT3H2111 do not acknowledge a bare one-byte read, so `i2c-scan` falls back to writing register pointer 0. `i2c-read` and `i2c-write` in the CLI help with new modules.
+- 2026-10-17. An inline grid (`display: inline-grid`) with `1fr` button columns sizes every such column to the widest button, which gives equal buttons with aligned edges without fixed widths (the relay card). Subgrid and container queries would be neater but need Safari 16, newer than the WebKit of macOS 11, the app's minimum.
+- 2026-10-17. Natural Earth's populated places have English, German and Polish names but no Czech or Slovak ones; the map builder takes those from Wikidata labels by the places' `WIKIDATAID` (CC0). The NE `NAME` is the English exonym ("Prague"), so the builder stores a language's name only where it differs.
+- 2026-10-17. Vitest 5 caches transformed modules in `node_modules/.vitest-cache`, including the result of `import.meta.glob`; a new file that matches a glob (such as a new manual screenshot) stays invisible to the tests until that folder is deleted.

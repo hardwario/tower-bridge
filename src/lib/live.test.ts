@@ -11,6 +11,8 @@ const reading = (channel: number): Reading => ({
   illuminance: null,
   pressure: null,
   altitude: null,
+  co2: null,
+  voc: null,
 });
 
 describe("live state", () => {

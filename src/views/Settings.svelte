@@ -136,7 +136,7 @@
     const sources: SensorSource[] = found.length
       ? found
       : METRICS.map((metric) => ({ metric, channel: 0, module: "climate_module_r1", sensor: "", address: 0 }));
-    const rows = mqttTopics(prefix, sources, live.relay);
+    const rows = mqttTopics(prefix, sources, live.relay, live.gps);
     const width = Math.max(...rows.map(([topic]) => topic.length)) + 3;
     return rows.map(([topic, unit]) => topic.padEnd(width) + unit).join("\n");
   }
@@ -245,6 +245,8 @@
           <option value="humidity">{t().metrics.humidity}</option>
           <option value="illuminance">{t().metrics.illuminance}</option>
           <option value="pressure">{t().metrics.pressure}</option>
+          <option value="co2">{t().metrics.co2}</option>
+          <option value="voc">{t().metrics.voc}</option>
           <option value="">{st.iconOnly}</option>
         </select>
       </Field>

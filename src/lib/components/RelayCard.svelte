@@ -100,8 +100,10 @@
     {#if ondragstart}<DragHandle onstart={ondragstart} />{/if}
   </div>
 
+  <!-- Two rows of a grid, so the four buttons share one width and their edges line up. -->
   <div class="controls">
-    <div class="group" role="group" aria-label={m.title}>
+    <div class="row" role="group" aria-labelledby="relay-manual">
+      <span class="row-label" id="relay-manual">{m.manualControl}</span>
       {#each STATES as state (state)}
         <button
           type="button"
@@ -117,18 +119,8 @@
       {/each}
     </div>
 
-    <div class="group" role="group" aria-label={m.pulse}>
-      <label class="length">
-        <span class="muted">{m.pulseDuration}</span>
-        <input
-          class="input num"
-          inputmode="decimal"
-          value={fmtInput(pulseS)}
-          disabled={remaining !== null}
-          onchange={(e) => setPulseLength(e.currentTarget.value, e.currentTarget)}
-        />
-        <span class="muted">s</span>
-      </label>
+    <div class="row" role="group" aria-labelledby="relay-pulse">
+      <span class="row-label" id="relay-pulse">{m.pulseControl}</span>
       {#each STATES as to (to)}
         {@const running = pulsingTo === to}
         {@const hint = running ? m.stopPulse : fill(to ? m.pulseToTrue : m.pulseToFalse, { time: seconds(pulseS) })}
@@ -148,6 +140,17 @@
           >
         </button>
       {/each}
+      <label class="length">
+        <span class="muted">{m.pulseDuration}</span>
+        <input
+          class="input num"
+          inputmode="decimal"
+          value={fmtInput(pulseS)}
+          disabled={remaining !== null}
+          onchange={(e) => setPulseLength(e.currentTarget.value, e.currentTarget)}
+        />
+        <span class="muted">s</span>
+      </label>
     </div>
   </div>
 
@@ -207,18 +210,38 @@
     background: var(--critical);
     box-shadow: none;
   }
+  /* An inline grid sizes its 1fr columns to the widest button, so all four
+     buttons are equally wide. The rows only group the cells for assistive
+     technology. */
   .controls {
-    display: flex;
+    display: inline-grid;
+    grid-template-columns: max-content 1fr 1fr max-content;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 10px 24px;
-    margin-top: 12px;
-  }
-  .group {
-    display: inline-flex;
-    align-items: center;
-    flex-wrap: wrap;
     gap: 8px;
+    max-width: 100%;
+    margin-top: 14px;
+  }
+  .row {
+    display: contents;
+  }
+  .row-label {
+    grid-column: 1;
+    margin-right: 12px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .controls .btn {
+    justify-content: center;
+    min-width: 0;
+  }
+  /* Narrow windows: the pulse duration gets a line of its own under the buttons. */
+  @media (max-width: 1000px) {
+    .controls {
+      grid-template-columns: max-content 1fr 1fr;
+    }
+    .length {
+      grid-column: 2 / -1;
+    }
   }
   /* The button of the current state: border, background and a lit LED, never
      a heavier weight (bolder text is wider, so the button would grow). */
@@ -262,8 +285,13 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-right: 4px;
+    margin-left: 16px;
     font-size: 13px;
+  }
+  @media (max-width: 1000px) {
+    .length {
+      margin-left: 0;
+    }
   }
   .length .input {
     width: 56px;

@@ -89,6 +89,10 @@ pub trait ApiBackend: Send + Sync + 'static {
     fn rescan(&self) -> Result<(), ApiError>;
     /// The Relay Module, when one is connected.
     fn relay(&self) -> Option<RelayInfo>;
+    /// What the GPS Module knows, when one is connected.
+    fn gps(&self) -> Option<crate::gps::GpsInfo> {
+        None
+    }
     /// Switch the relay to `true` or `false`.
     fn set_relay(&self, state: bool) -> Result<RelayInfo, ApiError>;
     /// Timed pulse; `None` fields take the app's defaults (opposite of the
@@ -224,6 +228,8 @@ pub(crate) mod testing {
                     humidity: Some(41.25),
                     illuminance: Some(320.4),
                     pressure: Some(100_322.0),
+                    co2: None,
+                    voc: None,
                 },
                 altitude: Some(83.2),
             }]
@@ -251,6 +257,8 @@ pub(crate) mod testing {
                 humidity: vec![series(40.0)],
                 illuminance: vec![series(300.0)],
                 pressure: vec![series(100_000.0)],
+                co2: Vec::new(),
+                voc: Vec::new(),
             })
         }
         fn csv(&self, _from: i64, _to: i64) -> Result<Vec<u8>, ApiError> {
@@ -285,12 +293,7 @@ pub(crate) mod testing {
                 .rules
                 .lock()
                 .map_err(|_| ApiError::Internal("poisoned".into()))?;
-            match metric {
-                Metric::Temperature => rules.temperature = rule,
-                Metric::Humidity => rules.humidity = rule,
-                Metric::Illuminance => rules.illuminance = rule,
-                Metric::Pressure => rules.pressure = rule,
-            }
+            *rules.get_mut(metric) = rule;
             Ok(rules.clone())
         }
         fn identify(&self) -> Result<(), ApiError> {

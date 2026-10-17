@@ -39,6 +39,7 @@ const LABELS = [
   "banners.noModuleTitle",
   "settings.mqtt.host",
   "overview.interval",
+  "nfc.write",
 ];
 
 describe("user manual", () => {

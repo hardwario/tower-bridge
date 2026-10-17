@@ -98,8 +98,8 @@ impl Store {
         let v = &reading.values;
         self.conn
             .prepare_cached(
-                "INSERT OR REPLACE INTO readings (ts, device_id, channel, temperature, humidity, illuminance, pressure)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT OR REPLACE INTO readings (ts, device_id, channel, temperature, humidity, illuminance, pressure, co2, voc)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             )?
             .execute(params![
                 reading.ts,
@@ -108,7 +108,9 @@ impl Store {
                 v.temperature,
                 v.humidity,
                 v.illuminance,
-                v.pressure
+                v.pressure,
+                v.co2,
+                v.voc
             ])?;
         Ok(())
     }
@@ -248,6 +250,8 @@ mod tests {
                 humidity: Some(40.0),
                 illuminance: None,
                 pressure: Some(100_000.0),
+                co2: None,
+                voc: None,
             },
             altitude: None,
         }

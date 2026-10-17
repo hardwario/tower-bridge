@@ -92,14 +92,16 @@ fn metric_index(m: Metric) -> usize {
         Metric::Humidity => 1,
         Metric::Illuminance => 2,
         Metric::Pressure => 3,
+        Metric::Co2 => 4,
+        Metric::Voc => 5,
     }
 }
 
 #[derive(Debug)]
 pub struct Tr {
-    metrics: [&'static str; 4],
-    high: [&'static str; 4],
-    low: [&'static str; 4],
+    metrics: [&'static str; 6],
+    high: [&'static str; 6],
+    low: [&'static str; 6],
     pub back_to_normal: &'static str,
     pub above_limit: &'static str,
     pub below_limit: &'static str,
@@ -156,18 +158,29 @@ impl Tr {
 }
 
 static EN: Tr = Tr {
-    metrics: ["Temperature", "Humidity", "Illuminance", "Pressure"],
+    metrics: [
+        "Temperature",
+        "Humidity",
+        "Illuminance",
+        "Pressure",
+        "CO₂",
+        "VOC",
+    ],
     high: [
         "High temperature",
         "High humidity",
         "High illuminance",
         "High pressure",
+        "High CO₂",
+        "High VOC",
     ],
     low: [
         "Low temperature",
         "Low humidity",
         "Low illuminance",
         "Low pressure",
+        "Low CO₂",
+        "Low VOC",
     ],
     back_to_normal: "{metric} is back to normal",
     above_limit: "{value} is above the {limit} limit.",
@@ -208,18 +221,22 @@ The tray icon keeps working. Download WebView2 now?",
 };
 
 static CS: Tr = Tr {
-    metrics: ["Teplota", "Vlhkost", "Osvětlení", "Tlak"],
+    metrics: ["Teplota", "Vlhkost", "Osvětlení", "Tlak", "CO₂", "VOC"],
     high: [
         "Vysoká teplota",
         "Vysoká vlhkost",
         "Vysoké osvětlení",
         "Vysoký tlak",
+        "Vysoké CO₂",
+        "Vysoké VOC",
     ],
     low: [
         "Nízká teplota",
         "Nízká vlhkost",
         "Nízké osvětlení",
         "Nízký tlak",
+        "Nízké CO₂",
+        "Nízké VOC",
     ],
     back_to_normal: "{metric} je opět v normě",
     above_limit: "{value} je nad limitem {limit}.",
@@ -260,18 +277,22 @@ Ikona v oznamovací oblasti funguje dál. Stáhnout WebView2 nyní?",
 };
 
 static SK: Tr = Tr {
-    metrics: ["Teplota", "Vlhkosť", "Osvetlenie", "Tlak"],
+    metrics: ["Teplota", "Vlhkosť", "Osvetlenie", "Tlak", "CO₂", "VOC"],
     high: [
         "Vysoká teplota",
         "Vysoká vlhkosť",
         "Vysoké osvetlenie",
         "Vysoký tlak",
+        "Vysoké CO₂",
+        "Vysoké VOC",
     ],
     low: [
         "Nízka teplota",
         "Nízka vlhkosť",
         "Nízke osvetlenie",
         "Nízky tlak",
+        "Nízke CO₂",
+        "Nízke VOC",
     ],
     back_to_normal: "{metric} je opäť v norme",
     above_limit: "{value} je nad limitom {limit}.",
@@ -317,18 +338,24 @@ static DE: Tr = Tr {
         "Luftfeuchtigkeit",
         "Beleuchtungsstärke",
         "Luftdruck",
+        "CO₂",
+        "VOC",
     ],
     high: [
         "Hohe Temperatur",
         "Hohe Luftfeuchtigkeit",
         "Hohe Beleuchtungsstärke",
         "Hoher Luftdruck",
+        "Hoher CO₂-Wert",
+        "Hoher VOC-Wert",
     ],
     low: [
         "Niedrige Temperatur",
         "Niedrige Luftfeuchtigkeit",
         "Niedrige Beleuchtungsstärke",
         "Niedriger Luftdruck",
+        "Niedriger CO₂-Wert",
+        "Niedriger VOC-Wert",
     ],
     back_to_normal: "{metric} wieder normal",
     above_limit: "{value} liegt über dem Grenzwert von {limit}.",
@@ -369,18 +396,29 @@ Das Symbol im Infobereich funktioniert weiterhin. WebView2 jetzt herunterladen?"
 };
 
 static PL: Tr = Tr {
-    metrics: ["Temperatura", "Wilgotność", "Oświetlenie", "Ciśnienie"],
+    metrics: [
+        "Temperatura",
+        "Wilgotność",
+        "Oświetlenie",
+        "Ciśnienie",
+        "CO₂",
+        "VOC",
+    ],
     high: [
         "Wysoka temperatura",
         "Wysoka wilgotność",
         "Wysokie natężenie oświetlenia",
         "Wysokie ciśnienie",
+        "Wysokie CO₂",
+        "Wysokie VOC",
     ],
     low: [
         "Niska temperatura",
         "Niska wilgotność",
         "Niskie natężenie oświetlenia",
         "Niskie ciśnienie",
+        "Niskie CO₂",
+        "Niskie VOC",
     ],
     back_to_normal: "{metric}: ponownie w normie",
     above_limit: "{value} przekracza limit {limit}.",

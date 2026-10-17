@@ -17,7 +17,10 @@ import { createServer } from "vite";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** [query, steps]; a step is ["click" | "hover", selector] or ["tab", name]. */
+/**
+ * [query, steps]; a step is ["click" | "hover", selector], ["tab", name] or
+ * ["drawn", canvas selector] (waits until the canvas shows more than a few colours).
+ */
 const CASES = [];
 for (const lang of ["en", "cs", "de"]) {
   for (const theme of ["light", "dark"]) {
@@ -64,7 +67,36 @@ CASES.push([
 ]);
 CASES.push(["lang=pl&gap=2", [["tab", "data"]]]);
 CASES.push(["lang=cs&bridges=2", []]);
-CASES.push(["lang=de&decimal=point", [["tab", "data"], ["tab", "settings"]]]);
+CASES.push([
+  "lang=de&decimal=point",
+  [
+    ["tab", "data"],
+    ["tab", "settings"],
+  ],
+]);
+CASES.push(["lang=en&nfc=empty", [["click", ".card.nfc input"]]]);
+CASES.push([
+  "lang=en&co2=1&gps=fix",
+  [
+    ["drawn", ".card.gps canvas"],
+    // Zoom out on the GPS map.
+    ["click", ".card.gps .tools button:nth-child(2)"],
+    ["hover", "article.metric .u-over"],
+    ["tab", "data"],
+    ["tab", "alerts"],
+    ["tab", "settings"],
+  ],
+]);
+CASES.push([
+  "lang=de&gps=fix&tags=0&theme=dark",
+  [
+    ["drawn", ".card.gps canvas"],
+    ["click", ".card.gps .tools button"],
+  ],
+]);
+CASES.push(["lang=cs&co2=1&gps=nofix&theme=dark", [["tab", "data"]]]);
+CASES.push(["lang=cs&nfc=url&theme=dark", []]);
+CASES.push(["lang=pl&nfc=unformatted", []]);
 for (const mqtt of ["off", "connecting", "no_host"]) CASES.push([`lang=de&mqtt=${mqtt}`, [["tab", "settings"]]]);
 
 const server = await createServer({
@@ -135,7 +167,19 @@ try {
       try {
         if (kind === "tab") await page.click(`nav button[data-tab="${target}"]`);
         else if (kind === "click") await page.locator(target).first().click({ timeout: 2000 });
-        else if (kind === "hover") {
+        else if (kind === "drawn") {
+          await page.waitForFunction(
+            (sel) => {
+              const c = document.querySelector(sel);
+              const d = c?.width ? c.getContext("2d").getImageData(0, 0, c.width, c.height).data : [];
+              const colours = new Set();
+              for (let i = 0; i < d.length; i += 4 * 97) colours.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+              return colours.size > 4;
+            },
+            target,
+            { timeout: 10000 },
+          );
+        } else if (kind === "hover") {
           const box = await page.locator(target).first().boundingBox({ timeout: 2000 });
           if (box) await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
         }

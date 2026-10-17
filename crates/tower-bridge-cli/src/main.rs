@@ -9,9 +9,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use tower_bridge_core::acquisition::{AcqCommand, AcqConfig, AcqEvent, Acquisition, Opener};
 use tower_bridge_core::bus::discovery::{BackendPref, Discovery};
 use tower_bridge_core::bus::mock::SimulatedBridge;
-use tower_bridge_core::bus::{BusError, I2cBus, SystemClock};
+use tower_bridge_core::bus::{BusError, Clock, I2cBus, SystemClock};
 use tower_bridge_core::climate::{ChannelMode, Sensors, select_channel};
 use tower_bridge_core::model::{STANDARD_SEA_LEVEL_PA, Values, altitude};
+use tower_bridge_core::nfc::NfcTag;
 use tower_bridge_core::relay::RelayModule;
 
 #[derive(Parser)]
@@ -55,14 +56,71 @@ enum Command {
         #[arg(value_enum)]
         state: LedState,
     },
-    /// List I2C addresses that acknowledge on a switch channel.
+    /// List I2C addresses that acknowledge on a switch channel (a read, or a
+    /// write of register pointer 0 for chips that ignore a bare read).
     I2cScan,
     /// Identify the sensor chips on each switch channel.
     I2cIdentify,
+    /// Read bytes from a device: write the register (unless omitted), STOP,
+    /// then read. On the channel given with --channel (default 0).
+    I2cRead {
+        /// 7-bit address, e.g. 0x38
+        #[arg(value_parser = parse_byte)]
+        address: u8,
+        /// Register to read from
+        #[arg(value_parser = parse_byte)]
+        register: Option<u8>,
+        /// Number of bytes
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=60))]
+        len: u16,
+    },
+    /// Write bytes to a device, e.g. `i2c-write 0x38 0x03 0xff`. On the
+    /// channel given with --channel (default 0).
+    I2cWrite {
+        #[arg(value_parser = parse_byte)]
+        address: u8,
+        #[arg(value_parser = parse_byte, required = true)]
+        bytes: Vec<u8>,
+    },
     /// Find the Relay Module and show its state or switch it to true or false.
     Relay {
         #[arg(value_enum, default_value_t = RelayAction::Status)]
         action: RelayAction,
+    },
+    /// Find the TOWER CO2 Module and measure (the first charge of its
+    /// capacitor takes a minute).
+    Co2 {
+        /// Measurements to take, 16 s apart.
+        #[arg(long, default_value_t = 3)]
+        count: u32,
+        /// Seconds to charge the capacitor first.
+        #[arg(long, default_value_t = 60)]
+        charge: u64,
+        /// Ambient pressure in hPa for the compensation.
+        #[arg(long)]
+        pressure: Option<f64>,
+        /// File to keep the sensor state in between runs.
+        #[arg(long)]
+        state: Option<std::path::PathBuf>,
+    },
+    /// Find the TOWER VOC-LP Tag and measure TVOC every 30 s.
+    Voc {
+        #[arg(long, default_value_t = 3)]
+        count: u32,
+    },
+    /// Find the TOWER GPS Module and show the position every 5 s.
+    Gps {
+        #[arg(long, default_value_t = 6)]
+        count: u32,
+    },
+    /// Find the TOWER NFC Tag and show its URL, or write a new one.
+    Nfc {
+        /// URL to write, e.g. https://www.hardwario.com
+        url: Option<String>,
+        /// Look for an NTAG I2C plus at every address (its address can be
+        /// changed), on the switch channels and in front of the switch.
+        #[arg(long, conflicts_with = "url")]
+        scan: bool,
     },
 }
 
@@ -147,8 +205,274 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::I2cScan => i2c_scan(&cli),
         Command::I2cIdentify => i2c_identify(&cli),
+        Command::I2cRead {
+            address,
+            register,
+            len,
+        } => i2c_read(&cli, address, register, len),
+        Command::I2cWrite { address, ref bytes } => i2c_write(&cli, address, bytes),
         Command::Relay { action } => relay(&cli, action),
+        Command::Co2 {
+            count,
+            charge,
+            pressure,
+            ref state,
+        } => co2(&cli, count, charge, pressure, state.clone()),
+        Command::Voc { count } => voc(&cli, count),
+        Command::Gps { count } => gps(&cli, count),
+        Command::Nfc { scan: true, .. } => nfc_scan(&cli),
+        Command::Nfc { ref url, .. } => nfc(&cli, url.as_deref()),
     }
+}
+
+fn co2(
+    cli: &Cli,
+    count: u32,
+    charge: u64,
+    pressure: Option<f64>,
+    state: Option<std::path::PathBuf>,
+) -> Result<()> {
+    use tower_bridge_core::co2::Co2Module;
+    let mut bus = open(cli)?;
+    let clock = SystemClock::new();
+    let channels: &[u8] = match cli.channel {
+        ChannelArg::Auto => &[0, 1],
+        ChannelArg::Zero => &[0],
+        ChannelArg::One => &[1],
+    };
+    let mut found = None;
+    for &ch in channels {
+        select_channel(bus.as_mut(), ch).context("I2C switch not responding")?;
+        if Co2Module::probe(bus.as_mut())? {
+            found = Some(ch);
+            break;
+        }
+    }
+    let Some(ch) = found else {
+        bail!("no TOWER CO2 Module found (expander 0x38 and UART 0x4d)");
+    };
+    println!("TOWER CO2 Module on channel {ch}; charging the capacitor for {charge} s");
+    let mut module = Co2Module::start(bus.as_mut(), &clock, ch, state)?;
+    std::thread::sleep(Duration::from_secs(charge));
+    let mut idle = |_: &mut dyn I2cBus, until: Duration| {
+        clock.sleep_until(until);
+        false
+    };
+    for i in 0..count {
+        if i > 0 {
+            std::thread::sleep(tower_bridge_core::co2::MIN_PERIOD);
+        }
+        let started = std::time::Instant::now();
+        match module.measure(bus.as_mut(), &clock, &mut idle, pressure.map(|h| h * 100.0)) {
+            Ok(ppm) => {
+                let took = started.elapsed().as_millis();
+                if let Some(m) = module.last() {
+                    println!(
+                        "{}: {} ppm (filtered {}, unfiltered {} / compensated {}), {:.2} °C, VCAP {:.2} / {:.2} V, status {:02x?}, {took} ms",
+                        i + 1,
+                        ppm.map_or("-".into(), |v| format!("{v:.0}")),
+                        m.filtered,
+                        m.co2,
+                        m.co2_pressure,
+                        m.temperature,
+                        m.vcap1,
+                        m.vcap2,
+                        m.status
+                    );
+                }
+            }
+            Err(e) => println!("{}: failed: {e}", i + 1),
+        }
+    }
+    module.stop(bus.as_mut())?;
+    Ok(())
+}
+
+/// The first channel (of those asked for) where `probe` finds something;
+/// that channel stays selected.
+fn find_channel(
+    cli: &Cli,
+    bus: &mut dyn I2cBus,
+    probe: &mut dyn FnMut(&mut dyn I2cBus) -> Result<bool, BusError>,
+) -> Result<Option<u8>> {
+    let channels: &[u8] = match cli.channel {
+        ChannelArg::Auto => &[0, 1],
+        ChannelArg::Zero => &[0],
+        ChannelArg::One => &[1],
+    };
+    for &ch in channels {
+        select_channel(bus, ch).context("I2C switch not responding")?;
+        if probe(bus)? {
+            return Ok(Some(ch));
+        }
+    }
+    Ok(None)
+}
+
+fn voc(cli: &Cli, count: u32) -> Result<()> {
+    use tower_bridge_core::sensors::sgpc3::{self, Sgpc3};
+    let mut bus = open(cli)?;
+    let clock = SystemClock::new();
+    let Some(ch) = find_channel(cli, bus.as_mut(), &mut |b| Ok(sgpc3::probe(b)?.is_some()))? else {
+        bail!("no TOWER VOC-LP Tag found (SGPC3 at 0x58)");
+    };
+    println!("TOWER VOC-LP Tag on channel {ch}; first value in 30 s");
+    let mut sensor = Sgpc3::start(bus.as_mut(), &clock, ch, None)?;
+    let mut done = 0;
+    while done < count {
+        clock.sleep_until(sensor.next());
+        if let Some(ppb) = sensor.service(bus.as_mut(), &clock, None)? {
+            done += 1;
+            println!("{done}: {ppb:.0} ppb");
+        } else {
+            println!("no value");
+            done += 1;
+        }
+    }
+    Ok(())
+}
+
+fn gps(cli: &Cli, count: u32) -> Result<()> {
+    use tower_bridge_core::gps::GpsModule;
+    let mut bus = open(cli)?;
+    let clock = SystemClock::new();
+    let Some(ch) = find_channel(cli, bus.as_mut(), &mut |b| GpsModule::probe(b))? else {
+        bail!("no TOWER GPS Module found (expander 0x21)");
+    };
+    println!("TOWER GPS Module on channel {ch}");
+    let mut module = GpsModule::start(bus.as_mut(), &clock, ch)?;
+    let mut polls = 0;
+    while polls < count {
+        clock.sleep_until(module.next());
+        module.service(bus.as_mut(), &clock)?;
+        if let Some(info) = module.info() {
+            polls += 1;
+            println!("{polls}: {info:?}");
+        }
+        if module.gone() {
+            bail!("the GPS receiver does not answer");
+        }
+    }
+    module.stop(bus.as_mut())?;
+    Ok(())
+}
+
+fn parse_byte(s: &str) -> Result<u8, String> {
+    let s = s.trim();
+    let r = match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        Some(hex) => u8::from_str_radix(hex, 16),
+        None => s.parse(),
+    };
+    r.map_err(|e| format!("{s}: {e}"))
+}
+
+/// The one channel a raw transfer goes to (`auto` means channel 0).
+fn raw_channel(cli: &Cli, bus: &mut dyn I2cBus) -> Result<()> {
+    let ch = if matches!(cli.channel, ChannelArg::One) {
+        1
+    } else {
+        0
+    };
+    select_channel(bus, ch).context("I2C switch not responding")
+}
+
+fn i2c_read(cli: &Cli, address: u8, register: Option<u8>, len: u16) -> Result<()> {
+    let mut bus = open(cli)?;
+    raw_channel(cli, bus.as_mut())?;
+    if let Some(reg) = register {
+        bus.write(address, &[reg])
+            .with_context(|| format!("write to 0x{address:02x}"))?;
+    }
+    let mut buf = vec![0u8; usize::from(len)];
+    bus.read(address, &mut buf)
+        .with_context(|| format!("read from 0x{address:02x}"))?;
+    println!(
+        "{}",
+        buf.iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    Ok(())
+}
+
+fn i2c_write(cli: &Cli, address: u8, bytes: &[u8]) -> Result<()> {
+    let mut bus = open(cli)?;
+    raw_channel(cli, bus.as_mut())?;
+    bus.write(address, bytes)
+        .with_context(|| format!("write to 0x{address:02x}"))?;
+    println!("ok");
+    Ok(())
+}
+
+fn nfc_scan(cli: &Cli) -> Result<()> {
+    let mut bus = open(cli)?;
+    let channels: &[u8] = match cli.channel {
+        ChannelArg::Auto => &[0, 1],
+        ChannelArg::Zero => &[0],
+        ChannelArg::One => &[1],
+    };
+    let mut passes: Vec<Option<u8>> = channels.iter().copied().map(Some).collect();
+    if matches!(cli.channel, ChannelArg::Auto) {
+        passes.push(None);
+    }
+    let mut found = 0;
+    for pass in passes {
+        match pass {
+            Some(ch) => select_channel(bus.as_mut(), ch).context("I2C switch not responding")?,
+            None => bus
+                .write(tower_bridge_core::climate::SWITCH_ADDR, &[0])
+                .context("I2C switch not responding")?,
+        }
+        let place = pass.map_or("upstream (switch off)".to_string(), |c| {
+            format!("channel {c}")
+        });
+        for addr in 0x08u8..0x78 {
+            if addr == tower_bridge_core::climate::SWITCH_ADDR {
+                continue;
+            }
+            if let Some(part) = tower_bridge_core::nfc::identify(bus.as_mut(), addr)? {
+                println!("{place}: {part} at 0x{addr:02x}");
+                found += 1;
+            }
+        }
+    }
+    if found == 0 {
+        println!("no NTAG I2C plus answered at any address");
+    }
+    Ok(())
+}
+
+fn nfc(cli: &Cli, url: Option<&str>) -> Result<()> {
+    let mut bus = open(cli)?;
+    let channels: &[u8] = match cli.channel {
+        ChannelArg::Auto => &[0, 1],
+        ChannelArg::Zero => &[0],
+        ChannelArg::One => &[1],
+    };
+    let Some(mut tag) = NfcTag::detect(bus.as_mut(), channels)? else {
+        bail!("no TOWER NFC Tag found (tried 0x08 and 0x55; `nfc --scan` tries every address)");
+    };
+    let show = |info: &tower_bridge_core::nfc::NfcInfo| {
+        println!(
+            "TOWER NFC Tag {} on channel {} at 0x{:02x}{}: {}",
+            info.part,
+            info.channel,
+            info.address,
+            if info.formatted {
+                ""
+            } else {
+                " (not NDEF formatted)"
+            },
+            info.url.as_deref().unwrap_or("no URL")
+        );
+    };
+    show(&tag.info());
+    if let Some(url) = url {
+        tag.write_url(bus.as_mut(), &SystemClock::new(), url)?;
+        show(&tag.info());
+    }
+    Ok(())
 }
 
 fn relay(cli: &Cli, action: RelayAction) -> Result<()> {
@@ -299,6 +623,7 @@ fn watch(cli: &Cli, interval: Duration) -> Result<()> {
     let (tx, rx) = crossbeam_channel::unbounded();
     let acq = Acquisition::spawn(
         AcqConfig {
+            state_dir: None,
             interval,
             channel: cli.channel.into(),
         },
@@ -311,6 +636,8 @@ fn watch(cli: &Cli, interval: Duration) -> Result<()> {
         match ev {
             AcqEvent::Device(state) => eprintln!("device: {state:?}"),
             AcqEvent::Relay(relay) => eprintln!("relay: {relay:?}"),
+            AcqEvent::Nfc(nfc) => eprintln!("nfc: {nfc:?}"),
+            AcqEvent::Gps(gps) => eprintln!("gps: {gps:?}"),
             AcqEvent::Reading(r) => {
                 println!("# ts={} device={} channel={}", r.ts, r.device, r.channel);
                 print_values(&r.values);
@@ -374,7 +701,12 @@ fn i2c_scan(cli: &Cli) -> Result<()> {
                 continue;
             }
             let mut b = [0u8; 1];
-            match bus.read(addr, &mut b) {
+            // Some chips (TCA9534 expanders, the NTAG) ignore a bare read;
+            // setting register pointer 0 is harmless for every chip here.
+            match bus.read(addr, &mut b).or_else(|e| match e {
+                BusError::AddrNack => bus.write(addr, &[0x00]),
+                e => Err(e),
+            }) {
                 Ok(()) => found.push(addr),
                 Err(e) if e.is_fatal() => return Err(e.into()),
                 Err(BusError::AddrNack) => {}

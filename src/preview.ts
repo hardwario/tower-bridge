@@ -5,16 +5,21 @@
 //                   &tags=0 (only the Climate Module on channel 0, no sensor tags on channel 1)
 //                   &mqtt=off|connecting|no_host (the MQTT connection; connected by default)
 //                   &bridges=2 (more than one TOWER Bridge Module plugged in)
+//                   &nfc=url|empty|unformatted (an NFC Tag on channel 0)
+//                   &co2=1 (a CO2 Module and a VOC-LP Tag on channel 0)  &gps=fix|nofix (a GPS Module)
 
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import type { LanguagePref } from "./lib/i18n/index.svelte";
 import type { ThemePref } from "./lib/theme.svelte";
+import { METRICS } from "./lib/types";
 import type {
   DateFormat,
   DecimalSeparator,
   DeviceState,
+  GpsInfo,
   History,
+  NfcInfo,
   Reading,
   RelayInfo,
   SensorSource,
@@ -22,7 +27,6 @@ import type {
   Settings,
   Snapshot,
   TimeFormat,
-  Values,
 } from "./lib/types";
 
 const params = new URLSearchParams(location.search);
@@ -30,8 +34,15 @@ const mqttParam = params.get("mqtt");
 const DAY = 86_400_000;
 /** A Climate Module on channel 0, and the Humidity, Lux Meter and Barometer Tags on channel 1. */
 const CHANNELS = params.get("tags") === "0" ? [0] : [0, 1];
+/** ?co2=1: a CO2 Module and a VOC-LP Tag on channel 0. */
+const AIR = params.get("co2") === "1";
 
-function values(ts: number, channel = 0): Record<keyof Values, number> {
+type Mocked = Record<"temperature" | "humidity" | "illuminance" | "pressure", number> & {
+  co2: number | null;
+  voc: number | null;
+};
+
+function values(ts: number, channel = 0): Mocked {
   if (channel === 1) {
     // The tags are somewhere a bit cooler, damper and brighter.
     const v = values(ts - 1_800_000);
@@ -40,6 +51,8 @@ function values(ts: number, channel = 0): Record<keyof Values, number> {
       humidity: Math.min(100, v.humidity + 9),
       illuminance: v.illuminance * 1.8,
       pressure: v.pressure + 12,
+      co2: null,
+      voc: null,
     };
   }
   const wall = ts / 1000;
@@ -52,6 +65,9 @@ function values(ts: number, channel = 0): Record<keyof Values, number> {
     humidity: 45 - 5 * Math.sin(day - 2) + 1.5 * drift - 3 * weather + 0.2 * n(),
     illuminance: Math.max(0, Math.sin(day - 1.75) * 720) + 25 + 8 * n(),
     pressure: 100150 + 650 * weather + 40 * Math.sin(wall / 7200) + 3 * n(),
+    // People in the room during the day.
+    co2: AIR ? Math.round(620 + 380 * Math.max(0, Math.sin(day - 2.2)) + 40 * drift + 8 * n()) : null,
+    voc: AIR ? Math.round(110 + 90 * Math.max(0, Math.sin(day - 2.4)) + 20 * drift + 5 * n()) : null,
   };
 }
 
@@ -77,16 +93,18 @@ function history(from: number, to: number, maxPoints = 900): History {
     humidity: empty(),
     illuminance: empty(),
     pressure: empty(),
+    co2: empty(),
+    voc: empty(),
   };
   for (let b = Math.floor(Math.max(from, first) / bucket) * bucket; b < Math.min(to, Date.now()); b += bucket) {
     h.t.push((b + bucket / 2) / 1000);
     CHANNELS.forEach((channel, c) => {
       const samples = [0, 0.33, 0.66].map((f) => values(b + f * bucket, channel));
-      for (const m of ["temperature", "humidity", "illuminance", "pressure"] as const) {
-        const xs = samples.map((s) => s[m]);
-        h[m][c].avg.push(xs.reduce((a, x) => a + x, 0) / xs.length);
-        h[m][c].min.push(Math.min(...xs));
-        h[m][c].max.push(Math.max(...xs));
+      for (const m of METRICS) {
+        const xs = samples.map((s) => s[m]).filter((x): x is number => x !== null);
+        h[m][c].avg.push(xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : null);
+        h[m][c].min.push(xs.length ? Math.min(...xs) : null);
+        h[m][c].max.push(xs.length ? Math.max(...xs) : null);
       }
     });
   }
@@ -122,6 +140,12 @@ const SOURCES: SensorSource[] = [
     sensor: "MPL3115A2",
     address: 0x60,
   },
+  ...(AIR
+    ? ([
+        { metric: "co2", channel: 0, module: "co2_module", sensor: "LP8", address: 0x4d },
+        { metric: "voc", channel: 0, module: "voc_lp_tag", sensor: "SGPC3", address: 0x58 },
+      ] satisfies SensorSource[])
+    : []),
   ...(CHANNELS.includes(1)
     ? ([
         {
@@ -195,6 +219,8 @@ const settings: Settings = {
     humidity: { enabled: true, min: 30, max: 60, hysteresis: 2, cooldown_s: 900, notify_recovery: true },
     illuminance: { enabled: false, min: null, max: null, hysteresis: 10, cooldown_s: 900, notify_recovery: true },
     pressure: { enabled: false, min: null, max: null, hysteresis: 100, cooldown_s: 900, notify_recovery: true },
+    co2: { enabled: true, min: null, max: 1200, hysteresis: 50, cooldown_s: 900, notify_recovery: true },
+    voc: { enabled: false, min: null, max: 500, hysteresis: 25, cooldown_s: 900, notify_recovery: true },
   },
   notify_device_lost: true,
   mqtt: {
@@ -214,6 +240,8 @@ const settings: Settings = {
     humidity: { colors: ["blue", "pink"], show_min: false, show_avg: true, show_max: false, hidden_channels: [] },
     illuminance: { colors: ["gold", "violet"], show_min: false, show_avg: false, show_max: true, hidden_channels: [] },
     pressure: { colors: ["violet", "green"], show_min: false, show_avg: true, show_max: false, hidden_channels: [] },
+    co2: { colors: ["green", "pink"], show_min: false, show_avg: true, show_max: true, hidden_channels: [] },
+    voc: { colors: ["teal", "orange"], show_min: false, show_avg: true, show_max: false, hidden_channels: [] },
   },
   api: {
     enabled: true,
@@ -234,9 +262,51 @@ let relay: RelayInfo | null =
     ? null
     : { channel: 0, address: 0x3b, state: relayParam === "unknown" ? null : relayParam === "true", pulse_until: null };
 
+// ?nfc=url|empty|unformatted shows an NFC Tag on channel 0.
+const nfcParam = params.get("nfc");
+let nfc: NfcInfo | null =
+  nfcParam === null
+    ? null
+    : {
+        channel: 0,
+        address: 0x55,
+        part: "NT3H2111",
+        url: nfcParam === "url" ? "https://www.hardwario.com" : null,
+        formatted: nfcParam !== "unformatted",
+      };
+
+// ?gps=fix|nofix shows a GPS Module on channel 0.
+const gpsParam = params.get("gps");
+const gps: GpsInfo | null =
+  gpsParam === null
+    ? null
+    : gpsParam === "fix"
+      ? {
+          channel: 0,
+          fix: true,
+          satellites: 9,
+          latitude: 50.771168,
+          longitude: 15.056328,
+          altitude: 374.5,
+          accuracy: 2.4,
+          time: Date.now(),
+        }
+      : {
+          channel: 0,
+          fix: false,
+          satellites: 0,
+          latitude: null,
+          longitude: null,
+          altitude: null,
+          accuracy: null,
+          time: null,
+        };
+
 const snapshot: Snapshot = {
   device,
   relay,
+  nfc,
+  gps,
   latest,
   settings,
   open_at_login: true,
@@ -332,6 +402,17 @@ mockIPC(
         }, ms);
         return new Promise((resolve) => setTimeout(() => resolve(relay), 300));
       }
+      case "open_map":
+        return null;
+      case "write_nfc_url":
+        return new Promise((resolve, reject) =>
+          setTimeout(() => {
+            if (!nfc) return reject({ code: "no_nfc", message: "TOWER NFC Tag not found" });
+            nfc = { ...nfc, url: a.url as string };
+            void emit("nfc-state", nfc);
+            resolve(nfc);
+          }, 500),
+        );
       case "rescan_device":
         return new Promise((resolve) => setTimeout(() => resolve({ status: "found", sources: SOURCES }), 600));
       default:

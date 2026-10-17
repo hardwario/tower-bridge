@@ -77,6 +77,8 @@ describe("data source", () => {
         { avg: [null], min: [null], max: [null] },
         { avg: [1000], min: [1000], max: [1000] },
       ],
+      co2: [],
+      voc: [],
     };
     expect(metricChannels({ status: "searching" }, "pressure", history, [])).toEqual([1]);
     expect(channelName(ready, "temperature", 1)).toBe("Humidity Tag");
@@ -102,6 +104,8 @@ describe("data source", () => {
       humidity: [],
       illuminance: [],
       pressure: pressure.map((avg) => ({ ...empty, avg })),
+      co2: [],
+      voc: [],
     });
     const span = h([0, 1], [[1000], [1010]]);
     const zoomed = h([0], [[1000]]);
@@ -116,6 +120,8 @@ describe("data source", () => {
       illuminance: null,
       pressure: null,
       altitude: null,
+      co2: null,
+      voc: null,
     };
     expect(metricChannels({ status: "searching" }, "humidity", null, [reading])).toEqual([1]);
     expect(metricChannels({ status: "searching" }, "temperature", null, [reading])).toEqual([0]);

@@ -3,14 +3,20 @@
 import type { Lang, LanguagePref } from "./i18n/index.svelte";
 import type { ThemePref } from "./theme.svelte";
 
-export type Metric = "temperature" | "humidity" | "illuminance" | "pressure";
-export const METRICS: Metric[] = ["temperature", "humidity", "illuminance", "pressure"];
+export type Metric = "temperature" | "humidity" | "illuminance" | "pressure" | "co2" | "voc";
+export const METRICS: Metric[] = ["temperature", "humidity", "illuminance", "pressure", "co2", "voc"];
+/** Shown only where a sensor measures them (the others always have a panel). */
+export const OPTIONAL_METRICS: Metric[] = ["co2", "voc"];
 
 export interface Values {
   temperature: number | null;
   humidity: number | null;
   illuminance: number | null;
   pressure: number | null;
+  /** ppm */
+  co2: number | null;
+  /** ppb TVOC */
+  voc: number | null;
 }
 
 /** The values measured on one I²C channel in one cycle. */
@@ -41,7 +47,14 @@ export type DeviceState =
 
 /** A TOWER module or tag that carries sensors. */
 export type ModuleKind =
-  "climate_module_r1" | "climate_module_r2" | "humidity_tag" | "temperature_tag" | "lux_meter_tag" | "barometer_tag";
+  | "climate_module_r1"
+  | "climate_module_r2"
+  | "humidity_tag"
+  | "temperature_tag"
+  | "lux_meter_tag"
+  | "barometer_tag"
+  | "co2_module"
+  | "voc_lp_tag";
 
 /** The sensor behind one value: I²C channel, module, part and address. */
 export interface SensorSource {
@@ -200,6 +213,8 @@ export interface History {
   humidity: Series[];
   illuminance: Series[];
   pressure: Series[];
+  co2: Series[];
+  voc: Series[];
 }
 
 export interface AppInfo {
@@ -222,9 +237,39 @@ export interface RelayInfo {
   pulse_until: number | null;
 }
 
+/** What the GPS Module knows. */
+export interface GpsInfo {
+  channel: number;
+  /** A valid 2D or 3D position. */
+  fix: boolean;
+  satellites: number;
+  /** Degrees (WGS 84). */
+  latitude: number | null;
+  longitude: number | null;
+  /** Metres above sea level. */
+  altitude: number | null;
+  /** Estimated horizontal accuracy in metres. */
+  accuracy: number | null;
+  /** UTC time from the satellites (Unix ms). */
+  time: number | null;
+}
+
+/** Detected NFC Tag (NTAG I²C plus). */
+export interface NfcInfo {
+  channel: number;
+  address: number;
+  part: string;
+  /** The URL on the tag; null when it holds none. */
+  url: string | null;
+  /** NDEF formatted, so a URL can be written. */
+  formatted: boolean;
+}
+
 export interface Snapshot {
   device: DeviceState;
   relay: RelayInfo | null;
+  nfc: NfcInfo | null;
+  gps: GpsInfo | null;
   /** The latest reading of each I²C channel, in channel order. */
   latest: Reading[];
   settings: Settings;
