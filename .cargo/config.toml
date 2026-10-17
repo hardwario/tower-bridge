@@ -1,0 +1,7 @@
+# Link the C runtime statically on Windows so the portable exe has no
+# VCRUNTIME140.dll dependency (hidapi and the bundled SQLite are built by `cc`).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

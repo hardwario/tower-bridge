@@ -1,0 +1,8 @@
+/target
+/node_modules
+/dist
+/src-tauri/gen
+CLAUDE.md
+.claude/
+.DS_Store
+*.log

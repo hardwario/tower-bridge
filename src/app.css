@@ -1,0 +1,317 @@
+/* Inter (UI) and Roboto Mono (values, codes), both SIL OFL 1.1, see
+   assets/fonts/OFL-*.txt. Variable weight (Inter also optical size). Latin,
+   Latin Extended, Greek and Cyrillic subsets cover all official EU languages
+   (Greek and Bulgarian included). Browsers load a subset only when the page
+   contains characters from its unicode-range. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./assets/fonts/inter-latin-ext-opsz-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./assets/fonts/inter-latin-opsz-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./assets/fonts/inter-greek-opsz-normal.woff2") format("woff2-variations");
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./assets/fonts/inter-cyrillic-opsz-normal.woff2") format("woff2-variations");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
+@font-face {
+  font-family: "Roboto Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 700;
+  src: url("./assets/fonts/roboto-mono-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Roboto Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 700;
+  src: url("./assets/fonts/roboto-mono-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Roboto Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 700;
+  src: url("./assets/fonts/roboto-mono-greek-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+
+@font-face {
+  font-family: "Roboto Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 700;
+  src: url("./assets/fonts/roboto-mono-cyrillic-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
+:root {
+  color-scheme: light dark;
+  --bg: #f4f4f6;
+  --sidebar: #ececef;
+  --surface: #ffffff;
+  --surface-2: #f8f8fa;
+  --border: rgba(37, 37, 50, 0.1);
+  --border-strong: rgba(37, 37, 50, 0.18);
+  --text: #252532;
+  --text-2: #55555f;
+  --text-muted: #85858e;
+  --accent: #e4002b;
+  --accent-hover: #c70025;
+  --accent-weak: rgba(228, 0, 43, 0.08);
+  --series: #2a78d6;
+  --series-band: rgba(42, 120, 214, 0.1);
+  --grid: #ececef;
+  --axis: #c9c9cf;
+  --critical: #d03b3b;
+  --critical-weak: rgba(208, 59, 59, 0.1);
+  --good: #0ca30c;
+  --warning: #b77900;
+  --warning-weak: rgba(250, 178, 25, 0.14);
+  --focus: rgba(42, 120, 214, 0.45);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 2px rgba(20, 20, 30, 0.04), 0 1px 1px rgba(20, 20, 30, 0.02);
+  --font: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "Roboto Mono Variable", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+/* Dark palette: follows the system unless the user picked a theme
+   (data-theme on <html>, set by the app). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121216;
+    --sidebar: #17171c;
+    --surface: #1b1b21;
+    --surface-2: #202027;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --text: #ececf1;
+    --text-2: #b4b4be;
+    --text-muted: #85858f;
+    --accent: #ff1f4b;
+    --accent-hover: #ff4366;
+    --accent-weak: rgba(255, 31, 75, 0.12);
+    --series: #3987e5;
+    --series-band: rgba(57, 135, 229, 0.14);
+    --grid: #26262e;
+    --axis: #3a3a44;
+    --critical: #e66767;
+    --critical-weak: rgba(230, 103, 103, 0.14);
+    --good: #0ca30c;
+    --warning: #fab219;
+    --warning-weak: rgba(250, 178, 25, 0.12);
+    --shadow: none;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121216;
+  --sidebar: #17171c;
+  --surface: #1b1b21;
+  --surface-2: #202027;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #ececf1;
+  --text-2: #b4b4be;
+  --text-muted: #85858f;
+  --accent: #ff1f4b;
+  --accent-hover: #ff4366;
+  --accent-weak: rgba(255, 31, 75, 0.12);
+  --series: #3987e5;
+  --series-band: rgba(57, 135, 229, 0.14);
+  --grid: #26262e;
+  --axis: #3a3a44;
+  --critical: #e66767;
+  --critical-weak: rgba(230, 103, 103, 0.14);
+  --good: #0ca30c;
+  --warning: #fab219;
+  --warning-weak: rgba(250, 178, 25, 0.12);
+  --shadow: none;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+#app {
+  height: 100%;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+select,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--accent-weak);
+}
+
+.input,
+.select {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.input:disabled,
+.select:disabled {
+  opacity: 0.55;
+}
+
+.input.num {
+  width: 92px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+code,
+.mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
