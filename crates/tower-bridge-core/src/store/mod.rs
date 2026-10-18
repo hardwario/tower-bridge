@@ -7,6 +7,7 @@
 
 mod export;
 mod history;
+mod hourly;
 mod retention;
 mod schema;
 #[cfg(feature = "xlsx")]
@@ -130,41 +131,41 @@ impl Store {
         Ok(id)
     }
 
+    /// Insert a reading, and update the hourly summary of its hour.
     pub fn insert(&mut self, reading: &Reading) -> Result<()> {
         if reading.values.is_empty() {
             return Ok(());
         }
         let device_id = self.device_id(&reading.device, None)?;
-        let v = &reading.values;
-        self.conn
-            .prepare_cached(
-                "INSERT OR REPLACE INTO readings (ts, device_id, channel, temperature, humidity, illuminance, pressure, co2, voc)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            )?
-            .execute(params![
-                reading.ts,
-                device_id,
-                reading.channel,
-                v.temperature,
-                v.humidity,
-                v.illuminance,
-                v.pressure,
-                v.co2,
-                v.voc
-            ])?;
+        let tx = self.conn.transaction()?;
+        insert_row(&tx, device_id, reading)?;
+        hourly::refresh(&tx, hourly::hour_of(reading.ts), reading.channel)?;
+        tx.commit()?;
         Ok(())
     }
 
-    /// Insert many readings in one transaction.
+    /// Insert many readings in one transaction; each hour's summary is
+    /// computed once at the end.
     pub fn insert_many(&mut self, readings: &[Reading]) -> Result<()> {
-        self.conn.execute_batch("BEGIN")?;
-        for r in readings {
-            if let Err(e) = self.insert(r) {
-                let _ = self.conn.execute_batch("ROLLBACK");
-                return Err(e);
+        let mut devices = HashMap::new();
+        for r in readings.iter().filter(|r| !r.values.is_empty()) {
+            if !devices.contains_key(&r.device) {
+                devices.insert(r.device.clone(), self.device_id(&r.device, None)?);
             }
         }
-        self.conn.execute_batch("COMMIT")?;
+        let tx = self.conn.transaction()?;
+        let mut hours = std::collections::BTreeSet::new();
+        for r in readings {
+            if let Some(&device_id) = devices.get(&r.device)
+                && !r.values.is_empty()
+            {
+                insert_row(&tx, device_id, r)?;
+                hours.insert((hourly::hour_of(r.ts), r.channel));
+            }
+        }
+        hourly::refresh_all(&tx, &hours)?;
+        // Dropped without a commit on an error: rolled back.
+        tx.commit()?;
         Ok(())
     }
 
@@ -190,6 +191,26 @@ impl Store {
     pub fn purge_older_than(&mut self, cutoff_ms: i64) -> Result<usize> {
         purge_older_than(&self.conn, cutoff_ms)
     }
+}
+
+fn insert_row(conn: &Connection, device_id: i64, reading: &Reading) -> Result<()> {
+    let v = &reading.values;
+    conn.prepare_cached(
+        "INSERT OR REPLACE INTO readings (ts, device_id, channel, temperature, humidity, illuminance, pressure, co2, voc)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+    )?
+    .execute(params![
+        reading.ts,
+        device_id,
+        reading.channel,
+        v.temperature,
+        v.humidity,
+        v.illuminance,
+        v.pressure,
+        v.co2,
+        v.voc
+    ])?;
+    Ok(())
 }
 
 fn bound_str(b: Bound) -> &'static str {

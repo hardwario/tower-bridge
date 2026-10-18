@@ -68,7 +68,7 @@ Zakres czasu wybierz nad wykresami, od 1 godziny do 365 dni. Wszystkie wykresy n
 | Powiększenie zakresu | <kbd>Shift</kbd> + przeciągnięcie |
 | Powrót do zakresu czasu | Ikona resetu (4) |
 
-Czerwona krawędź u góry panelu oznacza, że wartość jest poza limitami alarmu; przerywana czerwona linia na wykresie pokazuje limit.
+Czerwona krawędź u góry panelu oznacza, że wartość jest poza limitami alarmu; na wykresie jasnoczerwony pas pokrywa wartości poza limitem.
 
 Gdy ta sama wielkość jest mierzona na obu kanałach, na przykład temperaturę mierzą Climate Module i Humidity Tag, jej panel pokazuje obie wartości, dla każdego kanału linię we własnym kolorze, a pod wykresem dla każdego z nich wiersz z min, średnią i max. Kolorowa kropka na początku wiersza wybiera kolor jego linii, a nagłówki kolumn włączają i wyłączają linie min, średniej i max. Kliknięcie nazwy wiersza, na przykład *Humidity Tag*, ukrywa jego linię na wykresie; wiersz robi się szary, a kolejne kliknięcie przywraca linię. Jedna linia zawsze zostaje.
 
@@ -164,3 +164,5 @@ Opcjonalny lokalny serwer udostępnia REST API, metryki Prometheus i serwer MCP 
 ## O aplikacji {#about}
 
 TOWER Bridge to oprogramowanie open source na licencji MIT, © HARDWARIO a.s. Dokumentacja platformy TOWER jest na [docs.hardwario.com/tower](https://docs.hardwario.com/tower/); sprzęt kupisz w [sklepie internetowym HARDWARIO](https://www.hardwario.store/).
+
+TOWER Bridge zawiera oprogramowanie, czcionki, ikony i dane mapowe innych autorów; ich licencje są w części [Licencje stron trzecich](#notices).

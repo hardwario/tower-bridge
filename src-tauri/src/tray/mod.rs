@@ -422,8 +422,7 @@ fn status_text(
         return Some(tr.several_bridges.into());
     }
     // Two intervals and a minute: a slow cycle or a CO2 measurement is no stall.
-    let interval_ms =
-        i64::try_from(settings.sample_interval_s.saturating_mul(1000)).unwrap_or(i64::MAX / 4);
+    let interval_ms = i64::try_from(settings.sample_interval_ms).unwrap_or(i64::MAX / 4);
     let overdue_ms = 2 * interval_ms + 60_000;
     Some(match device {
         DeviceState::Ready { .. } => match reading {

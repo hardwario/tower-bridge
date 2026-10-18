@@ -136,7 +136,7 @@ pub async fn get_history(
 ) -> CmdResult<History> {
     let state = app.state::<AppState>();
     let db = state.paths.db_file();
-    let interval_ms = state.settings().sample_interval_s as i64 * 1000;
+    let interval_ms = i64::try_from(state.settings().sample_interval_ms).unwrap_or(i64::MAX);
     let query = HistoryQuery {
         from,
         to,

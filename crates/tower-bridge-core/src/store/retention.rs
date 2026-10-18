@@ -24,6 +24,7 @@ pub fn purge_older_than(conn: &Connection, cutoff_ms: i64) -> Result<usize> {
             break;
         }
     }
+    super::hourly::purge_older_than(conn, cutoff_ms)?;
     conn.execute("DELETE FROM alert_log WHERE ts < ?1", params![cutoff_ms])?;
     // Each step of this pragma frees one page, and `execute_batch` steps
     // only once: step it to the end.
@@ -42,9 +43,8 @@ mod tests {
     fn gives_the_freed_pages_back() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut s = Store::open(&dir.path().join("t.db"))?;
-        for i in 0..20_000 {
-            s.insert(&reading(i * 1000, 1.0))?;
-        }
+        let rows: Vec<_> = (0..20_000).map(|i| reading(i * 1000, 1.0)).collect();
+        s.insert_many(&rows)?;
         let pages = |s: &Store| -> rusqlite::Result<i64> {
             s.conn().query_row("PRAGMA page_count", [], |r| r.get(0))
         };

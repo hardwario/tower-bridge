@@ -22,7 +22,9 @@ describe("repository", () => {
   // Long dashes read as machine written; use a comma, a semicolon, a colon or two sentences.
   it("has no em or en dashes", () => {
     const offenders: string[] = [];
-    for (const file of repoFiles().filter((f) => TEXT.test(f) && !f.endsWith("package-lock.json"))) {
+    // The notices quote third-party license texts verbatim.
+    const exempt = (f: string) => f.endsWith("package-lock.json") || f === "THIRD-PARTY-NOTICES.md";
+    for (const file of repoFiles().filter((f) => TEXT.test(f) && !exempt(f))) {
       let text: string;
       try {
         text = readFileSync(file, "utf8");

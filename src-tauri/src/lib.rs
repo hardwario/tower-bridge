@@ -167,7 +167,7 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
                 );
             }
             if simulated {
-                seed_simulated_history(&mut s, settings.sample_interval_s);
+                seed_simulated_history(&mut s, settings.sample_interval_ms);
             }
             Some(s)
         }
@@ -189,7 +189,7 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
     };
     let acq = Acquisition::spawn(
         AcqConfig {
-            interval: Duration::from_secs(settings.sample_interval_s),
+            interval: Duration::from_millis(settings.sample_interval_ms),
             channel: settings.i2c_channel,
             state_dir: Some(paths.data_dir.clone()),
         },
@@ -239,7 +239,7 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
 
 /// Development aid: with `TOWER_BRIDGE_SEED_DAYS=<n>` in simulation mode,
 /// fill an empty database with `n` days of generated readings.
-fn seed_simulated_history(store: &mut Store, interval_s: u64) {
+fn seed_simulated_history(store: &mut Store, interval_ms: u64) {
     let Some(days) = std::env::var("TOWER_BRIDGE_SEED_DAYS")
         .ok()
         .and_then(|v| v.parse::<i64>().ok())
@@ -250,7 +250,7 @@ fn seed_simulated_history(store: &mut Store, interval_s: u64) {
     if !matches!(tower_bridge_core::store::first_ts(store.conn()), Ok(None)) {
         return;
     }
-    let step = interval_s.max(2) as i64 * 1000;
+    let step = i64::try_from(interval_ms.max(2_000)).unwrap_or(i64::MAX);
     let now = tower_bridge_core::acquisition::unix_ms();
     let mut seed = 0x9E37_79B9_7F4A_7C15u64;
     let mut noise = || {

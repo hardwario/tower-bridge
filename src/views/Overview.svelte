@@ -130,8 +130,8 @@
       : [],
   );
   const modules = $derived(moduleLines(sourcesOf(live.device), live.relay, live.nfc, live.gps));
-  /** Measurement intervals offered in the card, in seconds (other values set through the API also show). */
-  const INTERVALS = [5, 10, 20, 60, 180];
+  /** Measurement intervals offered in the header, in milliseconds (other values set through the API also show). */
+  const INTERVALS = [5_000, 10_000, 20_000, 60_000, 180_000];
 
   const panels = $derived(
     layout.order.filter((id) => {
@@ -234,16 +234,16 @@
         >
       {/if}
       {#if live.settings}
-        {@const current = live.settings.sample_interval_s}
+        {@const current = live.settings.sample_interval_ms}
         <label class="interval" title={t().overview.intervalHint}>
           <span class="muted">{t().overview.interval}</span>
           <select
             class="select"
             value={current}
-            onchange={(e) => live.save((x) => (x.sample_interval_s = Number(e.currentTarget.value)))}
+            onchange={(e) => live.save((x) => (x.sample_interval_ms = Number(e.currentTarget.value)))}
           >
-            {#each INTERVALS.includes(current) ? INTERVALS : [...INTERVALS, current].sort((a, b) => a - b) as s (s)}
-              <option value={s}>{fmtDuration(s * 1000)}</option>
+            {#each INTERVALS.includes(current) ? INTERVALS : [...INTERVALS, current].sort((a, b) => a - b) as ms (ms)}
+              <option value={ms}>{fmtDuration(ms)}</option>
             {/each}
           </select>
         </label>

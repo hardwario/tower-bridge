@@ -5,7 +5,17 @@ import { en } from "./i18n/en";
 import type { Lang, Messages } from "./i18n/index.svelte";
 import { pl } from "./i18n/pl";
 import { sk } from "./i18n/sk";
-import { diagramLabels, hasImage, imagePaths, label, manualSource, renderManual, sectionIds } from "./manual";
+import {
+  diagramLabels,
+  hasImage,
+  imagePaths,
+  label,
+  manualSource,
+  NOTICES,
+  renderManual,
+  renderNotices,
+  sectionIds,
+} from "./manual";
 
 const DICTS: Record<Lang, Messages> = { en, cs, sk, de, pl };
 const LANGS = Object.keys(DICTS) as Lang[];
@@ -40,6 +50,7 @@ const LABELS = [
   "settings.mqtt.host",
   "overview.interval",
   "nfc.write",
+  "manual.notices",
 ];
 
 describe("user manual", () => {
@@ -73,6 +84,26 @@ describe("user manual", () => {
         expect(source.includes(text ?? ""), `${lang}.md lacks "${text}" (${key})`).toBe(true);
       }
     }
+  });
+
+  it("links only to its own sections and the notices", () => {
+    for (const lang of LANGS) {
+      const source = manualSource(lang);
+      const ids = new Set([...sectionIds(source), NOTICES]);
+      for (const m of source.matchAll(/\]\(#([^)]+)\)/g))
+        expect(ids.has(m[1]), `${lang}.md links to #${m[1]}`).toBe(true);
+    }
+  });
+
+  it("shows the third-party notices as text, the license texts folded", () => {
+    const html = renderNotices(
+      "# Third-party notices\n\n- serde 1.0.0: MIT, https://github.com/serde-rs/serde\n\n<details>\n<summary>MIT: serde 1.0.0</summary>\n\n```text\n<b>Copyright</b>\n```\n\n</details>\n",
+    );
+    expect(html).not.toContain("<h1");
+    expect(html).not.toContain("<a ");
+    expect(html).toContain("https://github.com/serde-rs/serde");
+    expect(html).toContain("<details>");
+    expect(html).toContain("&lt;b&gt;Copyright");
   });
 
   it("has a translation for every label in the diagrams", () => {

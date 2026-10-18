@@ -28,6 +28,9 @@
   let error = $state<string | null>(null);
   let exporting = $state<{ done: number; total: number } | null>(null);
   let exported = $state<ExportResult | null>(null);
+  /** The sticky header's height and time column's width, which the scrollbars keep clear of. */
+  let headHeight = $state(0);
+  let timeWidth = $state(0);
   let exportError = $state<string | null>(null);
   let lastFetch = 0;
 
@@ -197,14 +200,14 @@
       <div>{t().data.empty}</div>
     </div>
   {:else if history}
-    <div class="card table-wrap" class:loading>
+    <div class="card table-wrap" class:loading style:--head-height="{headHeight}px" style:--time-width="{timeWidth}px">
       <table class="tabular">
         <thead>
           <tr>
             {#snippet arrow(key: string)}
               {#if sort.key === key}<span class="arrow" class:up={!sort.desc}><Icon name="chevron" size={12} /></span>{/if}
             {/snippet}
-            <th aria-sort={ariaSort("time")}>
+            <th aria-sort={ariaSort("time")} bind:offsetHeight={headHeight} bind:offsetWidth={timeWidth}>
               <button class="sort" title={t().data.sortHint} onclick={() => sortBy("time")}>
                 <span class="head"><span>{t().data.time}{@render arrow("time")}</span></span>
               </button>
@@ -328,6 +331,14 @@
     min-height: 220px;
     overflow: auto;
     transition: opacity 0.2s;
+  }
+  /* The scrollbars run along what scrolls: the rows below the sticky header,
+     the columns right of the sticky time (the user, 2026-10-18). */
+  .table-wrap::-webkit-scrollbar-track:vertical {
+    margin-top: var(--head-height);
+  }
+  .table-wrap::-webkit-scrollbar-track:horizontal {
+    margin-left: var(--time-width);
   }
   table {
     width: 100%;

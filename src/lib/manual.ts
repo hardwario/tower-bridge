@@ -122,3 +122,30 @@ export function renderManual(lang: Lang, m: Messages, version: string, dark: boo
     .replace(/<p>\s*(<figure[\s\S]*?<\/figure>)\s*<\/p>/g, "$1");
   return { title, html, sections };
 }
+
+/** The link target in the About chapter that opens the third-party notices. */
+export const NOTICES = "notices";
+
+/**
+ * THIRD-PARTY-NOTICES.md as HTML (`npm run notices` writes it). Links become
+ * plain text: the webview opens only known pages, and the addresses are there
+ * to be read and copied. The license texts are code blocks, so their wording
+ * stays verbatim and never turns into HTML.
+ */
+export function renderNotices(markdown: string): string {
+  const marked = new Marked({
+    gfm: true,
+    renderer: {
+      link({ tokens }: Tokens.Link) {
+        return this.parser.parseInline(tokens);
+      },
+    },
+  });
+  return marked.parse(markdown.replace(/^# .+\n/m, ""), { async: false });
+}
+
+/** Loads the notices on demand: they are large and rarely read. */
+export async function loadNotices(): Promise<string> {
+  const { default: markdown } = await import("../../THIRD-PARTY-NOTICES.md?raw");
+  return renderNotices(markdown);
+}

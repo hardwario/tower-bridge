@@ -70,7 +70,7 @@ export interface AlertRule {
   min: number | null;
   max: number | null;
   hysteresis: number;
-  cooldown_s: number;
+  cooldown_ms: number;
   notify_recovery: boolean;
 }
 
@@ -138,7 +138,7 @@ export interface Settings {
   time_format: TimeFormat;
   decimal_separator: DecimalSeparator;
   temperature_unit: TemperatureUnit;
-  sample_interval_s: number;
+  sample_interval_ms: number;
   tray_metric: Metric | null;
   retention_days: number;
   sea_level_pressure_pa: number;

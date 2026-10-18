@@ -20,9 +20,10 @@
     onchange: (r: AlertRule) => void;
   } = $props();
 
-  const COOLDOWNS_S = [300, 900, 1800, 3600, 14400];
+  const COOLDOWNS_MS = [300_000, 900_000, 1_800_000, 3_600_000, 14_400_000];
 
-  function cooldownLabel(s: number): string {
+  function cooldownLabel(ms: number): string {
+    const s = ms / 1000;
     return s % 3600 === 0 ? plural(t().units.hours, s / 3600) : plural(t().units.minutes, Math.round(s / 60));
   }
 
@@ -93,14 +94,14 @@
       <select
         class="select"
         disabled={!rule.enabled}
-        value={rule.cooldown_s}
-        onchange={(e) => onchange({ ...rule, cooldown_s: Number(e.currentTarget.value) })}
+        value={rule.cooldown_ms}
+        onchange={(e) => onchange({ ...rule, cooldown_ms: Number(e.currentTarget.value) })}
       >
-        {#each COOLDOWNS_S as s (s)}
-          <option value={s}>{cooldownLabel(s)}</option>
+        {#each COOLDOWNS_MS as ms (ms)}
+          <option value={ms}>{cooldownLabel(ms)}</option>
         {/each}
-        {#if !COOLDOWNS_S.includes(rule.cooldown_s)}
-          <option value={rule.cooldown_s}>{cooldownLabel(rule.cooldown_s)}</option>
+        {#if !COOLDOWNS_MS.includes(rule.cooldown_ms)}
+          <option value={rule.cooldown_ms}>{cooldownLabel(rule.cooldown_ms)}</option>
         {/if}
       </select>
     </label>

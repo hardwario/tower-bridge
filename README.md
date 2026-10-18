@@ -173,3 +173,8 @@ Third-party components include [Tauri](https://tauri.app) (MIT/Apache-2.0),
 [Natural Earth](https://www.naturalearthdata.com) (public domain) via
 [world-atlas](https://github.com/topojson/world-atlas) (ISC) with place names
 from [Wikidata](https://www.wikidata.org) (CC0).
+
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) lists every crate, npm package,
+font, icon set and map source in the app with its license text; the app shows it
+from the About chapter of the Manual. Regenerate it with `npm run notices` after
+a dependency change (CI fails when it is out of date).

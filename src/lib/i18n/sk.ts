@@ -32,7 +32,7 @@ export const sk: Messages = {
     co2: "CO₂",
     voc: "VOC",
   },
-  manual: { contents: "Obsah", close: "Zavrieť" },
+  manual: { contents: "Obsah", close: "Zavrieť", notices: "Licencie tretích strán", back: "Späť na návod" },
   nav: {
     overview: "Nástenka",
     data: "Dáta",

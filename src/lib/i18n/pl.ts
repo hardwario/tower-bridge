@@ -32,7 +32,7 @@ export const pl: Messages = {
     co2: "CO₂",
     voc: "VOC",
   },
-  manual: { contents: "Spis treści", close: "Zamknij" },
+  manual: { contents: "Spis treści", close: "Zamknij", notices: "Licencje stron trzecich", back: "Powrót do instrukcji" },
   nav: {
     overview: "Pulpit",
     data: "Dane",

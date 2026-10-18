@@ -72,6 +72,15 @@ CASES.push([
   [["click", ".fold"], ["tab", "data"], ["tab", "alerts"], ["tab", "settings"], ["tab", "manual"], ["click", ".fold"]],
 ]);
 CASES.push(["lang=cs&bridges=2", []]);
+// The third-party notices from the manual's About chapter, a license text unfolded, and back.
+CASES.push([
+  "tab=manual&lang=sk&theme=dark",
+  [
+    ["click", ".prose a[href='#notices']"],
+    ["click", ".notices summary"],
+    ["click", ".page-head .btn"],
+  ],
+]);
 CASES.push([
   "lang=de&decimal=point",
   [

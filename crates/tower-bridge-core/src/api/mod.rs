@@ -74,7 +74,7 @@ pub trait ApiBackend: Send + Sync + 'static {
     fn device(&self) -> DeviceState;
     /// The latest reading of each I2C channel, in channel order.
     fn latest(&self) -> Vec<Reading>;
-    fn sample_interval_s(&self) -> u64;
+    fn sample_interval_ms(&self) -> u64;
     fn history(&self, from: i64, to: i64, max_points: usize) -> Result<History, ApiError>;
     /// CSV export of individual readings in `[from, to)`.
     /// Write the readings of the range as CSV into `out`, row by row.
@@ -235,8 +235,8 @@ pub(crate) mod testing {
                 altitude: Some(83.2),
             }]
         }
-        fn sample_interval_s(&self) -> u64 {
-            10
+        fn sample_interval_ms(&self) -> u64 {
+            10_000
         }
         fn history(&self, from: i64, to: i64, _max: usize) -> Result<History, ApiError> {
             let series = |a: f64| Series {

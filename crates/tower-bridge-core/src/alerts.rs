@@ -18,8 +18,8 @@ pub struct AlertRule {
     pub max: Option<f64>,
     /// Distance back inside the limit needed to clear an alert.
     pub hysteresis: f64,
-    /// Minimum seconds between two notifications for the same limit.
-    pub cooldown_s: u64,
+    /// Minimum milliseconds between two notifications for the same limit.
+    pub cooldown_ms: u64,
     pub notify_recovery: bool,
 }
 
@@ -30,7 +30,7 @@ impl Default for AlertRule {
             min: None,
             max: None,
             hysteresis: 0.0,
-            cooldown_s: 900,
+            cooldown_ms: 900_000,
             notify_recovery: true,
         }
     }
@@ -230,9 +230,7 @@ impl AlertEngine {
                 };
                 st.value = value;
                 if !st.active && beyond {
-                    let cooldown_ms = i64::try_from(rule.cooldown_s)
-                        .unwrap_or(i64::MAX)
-                        .saturating_mul(1000);
+                    let cooldown_ms = i64::try_from(rule.cooldown_ms).unwrap_or(i64::MAX);
                     let notify = st
                         .last_notified
                         .is_none_or(|t| ts.saturating_sub(t) >= cooldown_ms);
@@ -315,7 +313,7 @@ mod tests {
                 min: Some(18.0),
                 max: Some(25.0),
                 hysteresis: 1.0,
-                cooldown_s: 600,
+                cooldown_ms: 600_000,
                 notify_recovery: true,
             },
             ..AlertRules::default()
@@ -382,7 +380,7 @@ mod tests {
         e.evaluate(0, 0, &temp(Some(30.0)));
         // Only the repeat interval changes: no second notification.
         let mut rules = e.rules().clone();
-        rules.temperature.cooldown_s += 60;
+        rules.temperature.cooldown_ms += 60_000;
         e.set_rules(rules.clone());
         assert!(e.evaluate(1, 0, &temp(Some(30.0))).is_empty());
         assert_eq!(e.active().len(), 1);
@@ -444,7 +442,7 @@ mod tests {
     fn huge_cooldown_never_renotifies() {
         let mut e = engine();
         let mut rules = e.rules().clone();
-        rules.temperature.cooldown_s = u64::MAX;
+        rules.temperature.cooldown_ms = u64::MAX;
         e.set_rules(rules);
         assert!(e.evaluate(1_000, 0, &temp(Some(30.0)))[0].notify);
         e.evaluate(2_000, 0, &temp(Some(20.0)));

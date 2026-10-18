@@ -126,8 +126,8 @@ impl ApiBackend for AppApiBackend {
         self.state().latest.read().clone()
     }
 
-    fn sample_interval_s(&self) -> u64 {
-        self.state().settings().sample_interval_s
+    fn sample_interval_ms(&self) -> u64 {
+        self.state().settings().sample_interval_ms
     }
 
     fn history(&self, from: i64, to: i64, max_points: usize) -> Result<History, ApiError> {
@@ -136,7 +136,7 @@ impl ApiBackend for AppApiBackend {
             from,
             to,
             max_points,
-            sample_interval_ms: self.sample_interval_s() as i64 * 1000,
+            sample_interval_ms: i64::try_from(self.sample_interval_ms()).unwrap_or(i64::MAX),
         };
         store::history(&conn, &query).map_err(|e| ApiError::Internal(e.to_string()))
     }

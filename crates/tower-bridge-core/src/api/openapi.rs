@@ -77,7 +77,7 @@ pub fn document(info: &ApiInfo) -> Value {
                     "properties": {
                         "enabled": { "type": "boolean" },
                         "min": { "type": ["number", "null"] }, "max": { "type": ["number", "null"] },
-                        "hysteresis": { "type": "number" }, "cooldown_s": { "type": "integer" },
+                        "hysteresis": { "type": "number" }, "cooldown_ms": { "type": "integer" },
                         "notify_recovery": { "type": "boolean" }
                     }
                 },
@@ -95,7 +95,7 @@ pub fn document(info: &ApiInfo) -> Value {
             "/api/v1/openapi.json": { "get": { "summary": "This document", "responses": guarded(json!({ "200": { "description": "OpenAPI 3.1" } })) } },
             "/api/v1/status": { "get": {
                 "summary": "App and device status: version, device state with the module, sensor and address behind each value, \
-    the relay, the measurement interval (sample_interval_s), last reading time, active alerts, whether MCP and changes are on",
+    the relay, the measurement interval (sample_interval_ms), last reading time, active alerts, whether MCP and changes are on",
                 "responses": guarded(json!({ "200": { "description": "Status" } })) } },
             "/api/v1/readings/latest": { "get": {
                 "summary": "Latest reading of each I2C channel",

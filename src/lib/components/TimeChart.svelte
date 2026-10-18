@@ -77,9 +77,49 @@
     return group.zoom ?? group.home ?? [history.from / 1000, history.to / 1000];
   }
 
-  function thresholds(): number[] {
-    if (!rule?.enabled) return [];
-    return [rule.min, rule.max].filter((v): v is number => v !== null).map((v) => toDisplay(metric, v, unit));
+  /** The alert limits in display units, while the rule is on. */
+  function thresholds(): { min: number | null; max: number | null } | null {
+    if (!rule?.enabled) return null;
+    const show = (v: number | null) => (v === null ? null : toDisplay(metric, v, unit));
+    return { min: show(rule.min), max: show(rule.max) };
+  }
+
+  /**
+   * The alert limits as a light red band over the values beyond them, under
+   * the data lines, with a thin line where the limit is (the user chose bands
+   * over dashed lines, which looked like the min and max lines).
+   */
+  function drawLimits(u: uPlot, th: ChartTheme, limits: ReturnType<typeof thresholds>) {
+    if (!limits) return;
+    const ctx = u.ctx;
+    const pr = uPlot.pxRatio;
+    const { left, top, width: w, height: h } = u.bbox;
+    const bottom = top + h;
+    const at = (v: number) => u.valToPos(v, "y", true);
+    const edge = (y: number) => {
+      if (y <= top || y >= bottom) return;
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = th.critical;
+      ctx.lineWidth = pr;
+      ctx.beginPath();
+      ctx.moveTo(left, Math.round(y) + 0.5);
+      ctx.lineTo(left + w, Math.round(y) + 0.5);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    };
+    ctx.save();
+    ctx.fillStyle = th.criticalWeak;
+    if (limits.max !== null) {
+      const y = Math.min(bottom, Math.max(top, at(limits.max)));
+      if (y > top) ctx.fillRect(left, top, w, y - top);
+      edge(at(limits.max));
+    }
+    if (limits.min !== null) {
+      const y = Math.min(bottom, Math.max(top, at(limits.min)));
+      if (y < bottom) ctx.fillRect(left, y, w, bottom - y);
+      edge(at(limits.min));
+    }
+    ctx.restore();
   }
 
   const spanMs = (u: uPlot) => ((u.scales.x.max ?? 0) - (u.scales.x.min ?? 0)) * 1000;
@@ -104,25 +144,11 @@
     return [i0, i1];
   }
 
-  function drawOverlays(u: uPlot, th: ChartTheme, limits: number[]) {
+  function drawOverlays(u: uPlot, th: ChartTheme) {
     const ctx = u.ctx;
     const pr = uPlot.pxRatio;
     const { left, width: w } = u.bbox;
-    const [lo, hi] = [u.scales.y.min ?? 0, u.scales.y.max ?? 0];
     ctx.save();
-
-    // Thresholds (dashed: these are limits, not data).
-    ctx.strokeStyle = th.critical;
-    ctx.lineWidth = 1.5 * pr;
-    ctx.setLineDash([5 * pr, 4 * pr]);
-    for (const v of limits) {
-      if (v < lo || v > hi) continue;
-      const y = Math.round(u.valToPos(v, "y", true)) + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(left + w, y);
-      ctx.stroke();
-    }
 
     // Minimum, average and maximum of the visible window, per line.
     const [i0, i1] = visibleRange(u);
@@ -379,7 +405,8 @@
         fill: bandColor(line.color, theme.effective === "dark"),
       })),
       hooks: {
-        draw: [(u) => drawOverlays(u, th, limits)],
+        drawAxes: [(u) => drawLimits(u, th, limits)],
+        draw: [(u) => drawOverlays(u, th)],
         setCursor: [(u) => updateCursor(u, d, label)],
         setSelect: [
           (u) => {

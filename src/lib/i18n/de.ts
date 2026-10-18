@@ -32,7 +32,7 @@ export const de: Messages = {
     co2: "CO₂",
     voc: "VOC",
   },
-  manual: { contents: "Inhalt", close: "Schließen" },
+  manual: { contents: "Inhalt", close: "Schließen", notices: "Lizenzen von Drittanbietern", back: "Zurück zum Handbuch" },
   nav: {
     overview: "Dashboard",
     data: "Daten",

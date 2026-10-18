@@ -4,11 +4,11 @@ Work in progress and open items, kept current so anyone (person or agent) can pi
 
 ## In progress
 
-Nothing.
+Nothing. The decisions of 2026-10-18 (below) are done but not committed: the JSON duration rename, the limit bands, the third-party notices, the workflow pinning and the hourly summary table.
 
-The work up to 2026-10-17 is committed on the branch `feature/channels-manual-mqtt` (not merged into `main` yet). The overnight review of 2026-10-18 (below) is not committed.
+The work up to the morning of 2026-10-18 is committed on the branch `feature/channels-manual-mqtt` (a674771, not merged into `main` yet).
 
-## Overnight review, 2026-10-18 (uncommitted, to be confirmed by the user)
+## Overnight review, 2026-10-18 (committed)
 
 Five reviews (Rust core, security, docs and translations, UI, release) found about 80 issues. Fixed:
 
@@ -42,11 +42,11 @@ A final independent review of the night's diff found one regression, fixed with 
 
 ### Decided by the user (2026-10-18), to do next
 
-- Rename the JSON durations to integer milliseconds: `cooldown_ms` (alert rules), `sample_interval_ms` (status, MCP), MCP `repeat_after_ms`; settings migration.
-- Third-party notices generated for every crate, npm package, font, icon set and the map data, shown in the Manual's About chapter.
-- An hourly summary table for long chart spans (schema migration).
-- Alert limits on charts as a faint band outside the range instead of dashed lines.
-- Release workflow: actions pinned to commit SHAs, and a Windows check that the exe needs no VCRUNTIME DLL.
+- Done: the JSON durations are integer milliseconds, `cooldown_ms` (alert rules), `sample_interval_ms` (settings, status, MCP), MCP `repeat_after_ms`; settings version 6 converts older files.
+- Done: alert limits on charts are a light red band over the values beyond the limit, with a faint line at the limit, instead of dashed lines.
+- Done: third-party notices (`THIRD-PARTY-NOTICES.md`, `npm run notices`) for every crate, bundled npm package, font, icon set and map source, opened from the Manual's About chapter ("Third-party notices"); CI checks that they are current.
+- Done: workflow actions pinned to commit SHAs, moved to their Node 24 majors (Node 20 is past end of life); the release checks that the Windows exe imports no C runtime DLL. Not yet run on GitHub.
+- Done: an hourly summary table (`readings_hourly`, schema migration 4) for chart buckets of an hour or more; checked against a copy of the real database (migration 9 ms, identical buckets).
 - Kept as they are: the brand red for switched-on toggles; the word "I²C channel" (not "bus").
 
 ## Open questions from the review

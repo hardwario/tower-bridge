@@ -31,7 +31,7 @@ export const en = {
     co2: "CO₂",
     voc: "VOC",
   },
-  manual: { contents: "Contents", close: "Close" },
+  manual: { contents: "Contents", close: "Close", notices: "Third-party notices", back: "Back to the manual" },
   nav: {
     overview: "Dashboard",
     data: "Data",

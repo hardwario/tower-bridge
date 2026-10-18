@@ -119,25 +119,35 @@ pub fn bucket_for(span_ms: i64, max_points: usize, sample_interval_ms: i64) -> i
         .unwrap_or(24 * HOUR)
 }
 
-pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
-    let bucket = bucket_for(
-        q.to.saturating_sub(q.from),
-        q.max_points,
-        q.sample_interval_ms,
-    );
-    let mut stmt = conn.prepare_cached(
-        "SELECT (ts / ?1) * ?1 AS b, channel,
-                AVG(temperature), MIN(temperature), MAX(temperature),
-                AVG(humidity), MIN(humidity), MAX(humidity),
-                AVG(illuminance), MIN(illuminance), MAX(illuminance),
-                AVG(pressure), MIN(pressure), MAX(pressure),
-                AVG(co2), MIN(co2), MAX(co2),
-                AVG(voc), MIN(voc), MAX(voc)
-         FROM readings WHERE ts >= ?2 AND ts < ?3
-         GROUP BY b, channel ORDER BY b, channel",
-    )?;
-    let rows: Vec<Row> = stmt
-        .query_map(params![bucket, q.from, q.to], |r| {
+/// Buckets of the readings themselves.
+const FROM_READINGS: &str = "SELECT (ts / ?1) * ?1 AS b, channel,
+        AVG(temperature), MIN(temperature), MAX(temperature),
+        AVG(humidity), MIN(humidity), MAX(humidity),
+        AVG(illuminance), MIN(illuminance), MAX(illuminance),
+        AVG(pressure), MIN(pressure), MAX(pressure),
+        AVG(co2), MIN(co2), MAX(co2),
+        AVG(voc), MIN(voc), MAX(voc)
+    FROM readings WHERE ts >= ?2 AND ts < ?3
+    GROUP BY b, channel ORDER BY b, channel";
+
+/// Buckets of whole hours from the hourly summary. The first bucket takes
+/// the whole hour `from` falls in, as a bucket of the readings would start
+/// at a bucket boundary too.
+const FROM_HOURS: &str = "SELECT (hour / ?1) * ?1 AS b, channel,
+        SUM(temperature_sum) / SUM(temperature_n), MIN(temperature_min), MAX(temperature_max),
+        SUM(humidity_sum) / SUM(humidity_n), MIN(humidity_min), MAX(humidity_max),
+        SUM(illuminance_sum) / SUM(illuminance_n), MIN(illuminance_min), MAX(illuminance_max),
+        SUM(pressure_sum) / SUM(pressure_n), MIN(pressure_min), MAX(pressure_max),
+        SUM(co2_sum) / SUM(co2_n), MIN(co2_min), MAX(co2_max),
+        SUM(voc_sum) / SUM(voc_n), MIN(voc_min), MAX(voc_max)
+    FROM readings_hourly WHERE hour >= (?2 / 3600000) * 3600000 AND hour < ?3
+    GROUP BY b, channel ORDER BY b, channel";
+
+/// The aggregated rows of `[from, to)` in buckets of `bucket` ms.
+fn rows(conn: &Connection, bucket: i64, from: i64, to: i64, hours: bool) -> Result<Vec<Row>> {
+    let mut stmt = conn.prepare_cached(if hours { FROM_HOURS } else { FROM_READINGS })?;
+    let rows = stmt
+        .query_map(params![bucket, from, to], |r| {
             let mut values = [[None; 3]; METRICS];
             for (m, v) in values.iter_mut().enumerate() {
                 for (k, x) in v.iter_mut().enumerate() {
@@ -151,6 +161,19 @@ pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
+pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
+    let bucket = bucket_for(
+        q.to.saturating_sub(q.from),
+        q.max_points,
+        q.sample_interval_ms,
+    );
+    // Whole hours come from the summary: a year is 9000 rows per channel
+    // there instead of 1.6 million.
+    let hours = bucket % HOUR == 0;
+    let rows = rows(conn, bucket, q.from, q.to, hours)?;
 
     let mut channels: Vec<u8> = rows.iter().map(|r| r.channel).collect();
     channels.sort_unstable();
@@ -227,6 +250,7 @@ mod tests {
     use super::*;
     use crate::store::Store;
     use crate::store::tests::reading;
+    use rusqlite::Connection;
 
     #[test]
     fn bucket_selection() {
@@ -296,6 +320,93 @@ mod tests {
             h.series(crate::model::Metric::Temperature, 1)
                 .map(|s| s.avg[1]),
             Some(Some(10.0))
+        );
+        Ok(())
+    }
+
+    /// Both sources agree, bucket by bucket, within rounding.
+    fn assert_same(conn: &Connection, bucket: i64, from: i64, to: i64) -> crate::store::Result<()> {
+        let raw = rows(conn, bucket, from, to, false)?;
+        let summary = rows(conn, bucket, from, to, true)?;
+        assert_eq!(raw.len(), summary.len(), "bucket count");
+        for (a, b) in raw.iter().zip(&summary) {
+            assert_eq!((a.bucket, a.channel), (b.bucket, b.channel));
+            for (m, (x, y)) in a.values.iter().zip(&b.values).enumerate() {
+                for k in 0..3 {
+                    match (x[k], y[k]) {
+                        (Some(x), Some(y)) => {
+                            assert!((x - y).abs() < 1e-9, "metric {m}: {x} vs {y}")
+                        }
+                        (x, y) => assert_eq!(x, y, "metric {m} at {}", a.bucket),
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Three days every 7 minutes on two channels, with gaps in the values.
+    fn three_days(s: &mut Store) -> crate::store::Result<()> {
+        let rows: Vec<_> = (0..3 * 24 * 60 / 7)
+            .flat_map(|i| {
+                [0u8, 1].map(|channel| {
+                    let mut r = reading(i * 7 * MINUTE, (i % 37) as f64 * 0.5 + channel as f64);
+                    r.channel = channel;
+                    r.values.co2 = (i % 3 == 0).then_some(400.0 + i as f64);
+                    r.values.humidity = None;
+                    r
+                })
+            })
+            .collect();
+        s.insert_many(&rows)
+    }
+
+    #[test]
+    fn the_hourly_summary_matches_the_readings() -> crate::store::Result<()> {
+        let mut s = Store::open_in_memory()?;
+        three_days(&mut s)?;
+        for bucket in [HOUR, 2 * HOUR, 6 * HOUR, 24 * HOUR] {
+            assert_same(s.conn(), bucket, 0, 3 * 24 * HOUR)?;
+        }
+        // Single inserts keep it current too, also replacing a reading.
+        s.insert(&reading(3 * 24 * HOUR + 60_000, 50.0))?;
+        s.insert(&reading(3 * 24 * HOUR + 120_000, 10.0))?;
+        s.insert(&reading(3 * 24 * HOUR + 60_000, 30.0))?;
+        assert_same(s.conn(), HOUR, 0, 4 * 24 * HOUR)?;
+        let last = rows(s.conn(), HOUR, 3 * 24 * HOUR, 4 * 24 * HOUR, true)?;
+        assert_eq!(last[0].values[0], [Some(20.0), Some(10.0), Some(30.0)]);
+        // A retention cutoff in the middle of an hour.
+        s.purge_older_than(25 * HOUR + 20 * MINUTE)?;
+        assert_same(s.conn(), HOUR, 0, 4 * 24 * HOUR)?;
+        let first = rows(s.conn(), HOUR, 0, 4 * 24 * HOUR, true)?;
+        assert_eq!(first[0].bucket, 25 * HOUR);
+        Ok(())
+    }
+
+    #[test]
+    fn long_spans_read_the_hourly_summary() -> crate::store::Result<()> {
+        let mut s = Store::open_in_memory()?;
+        three_days(&mut s)?;
+        // Readings the summary does not know about show which source was read.
+        s.conn().execute(
+            "INSERT INTO readings (ts, device_id, channel, temperature) VALUES (60000, 1, 0, -100.0)",
+            [],
+        )?;
+        let q = |to: i64| HistoryQuery {
+            from: 0,
+            to,
+            max_points: 40,
+            sample_interval_ms: 20_000,
+        };
+        let long = query(s.conn(), &q(3 * 24 * HOUR))?;
+        assert_eq!(long.bucket_ms, 2 * HOUR);
+        assert_ne!(long.temperature[0].min[0], Some(-100.0), "from the summary");
+        let short = query(s.conn(), &q(HOUR))?;
+        assert_eq!(short.bucket_ms, 2 * MINUTE);
+        assert_eq!(
+            short.temperature[0].min[0],
+            Some(-100.0),
+            "from the readings"
         );
         Ok(())
     }

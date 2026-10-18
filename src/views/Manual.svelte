@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { api } from "../lib/api";
   import Icon from "../lib/components/Icon.svelte";
   import { i18n, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
-  import { renderManual } from "../lib/manual";
+  import { loadNotices, NOTICES, renderManual } from "../lib/manual";
   import { theme } from "../lib/theme.svelte";
 
   /** Pages outside the app that the manual may link to, by their key for `open_link`. */
@@ -30,6 +31,8 @@
   let active = $state("");
   /** Screenshot shown enlarged over the page. */
   let zoomed = $state<{ src: string; alt: string } | null>(null);
+  /** The third-party notices, shown instead of the manual (from the About chapter). */
+  let notices = $state<{ html: string } | null>(null);
 
   let headings: HTMLElement[] = [];
   let root: HTMLElement | null = null;
@@ -81,8 +84,28 @@
     if (!link) return;
     e.preventDefault();
     const href = link.getAttribute("href") ?? "";
-    if (href.startsWith("#")) show(href.slice(1));
+    if (href === `#${NOTICES}`) openNotices();
+    else if (href.startsWith("#")) show(href.slice(1));
     else if (LINKS[href]) api.openLink(LINKS[href]);
+  }
+
+  async function openNotices() {
+    root?.scrollTo({ top: 0 });
+    notices = { html: "" };
+    try {
+      notices = { html: await loadNotices() };
+    } catch (e) {
+      // A chunk of the app itself; it cannot really fail. Stay on the manual.
+      console.error(e);
+      notices = null;
+    }
+  }
+
+  /** Back where the reader came from. */
+  async function closeNotices() {
+    notices = null;
+    await tick();
+    article?.querySelector(`#about`)?.scrollIntoView({ block: "start" });
   }
 
   $effect(() => {
@@ -97,6 +120,25 @@
   });
 </script>
 
+{#if notices}
+  <div class="view manual">
+    <div class="page-head">
+      <h1>{t().manual.notices}</h1>
+      <button class="btn" type="button" onclick={closeNotices}>
+        <Icon name="chevron-left" size={14} />
+        {t().manual.back}
+      </button>
+    </div>
+    <!-- Generated from the packages' own license files, in English as they are written. -->
+    <article class="card prose notices" lang="en">
+      {#if !notices.html}
+        <p class="muted">{t().common.loading}</p>
+      {:else}
+        {@html notices.html}
+      {/if}
+    </article>
+  </div>
+{:else}
 <div class="view manual">
   <div class="page-head">
     <h1>{manual.title}</h1>
@@ -127,6 +169,7 @@
     </article>
   </div>
 </div>
+{/if}
 
 {#if zoomed}
   <button class="lightbox" aria-label={t().manual.close} onclick={() => (zoomed = null)}>
@@ -320,6 +363,49 @@
   }
   .prose :global(a:hover) {
     text-decoration: underline;
+  }
+  /* The notices: package lists, then the license texts folded under their packages. */
+  .notices {
+    padding-top: 18px;
+  }
+  .notices :global(ul) {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .notices :global(details) {
+    border-top: 1px solid var(--border);
+  }
+  .notices :global(details:last-of-type) {
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 10px;
+  }
+  .notices :global(summary) {
+    padding: 7px 2px;
+    font-size: 13px;
+    color: var(--text-2);
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+  .notices :global(summary:hover) {
+    color: var(--text);
+  }
+  .notices :global(pre) {
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    max-height: 360px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    font-size: 11.5px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+  }
+  .notices :global(pre code) {
+    padding: 0;
+    border: none;
+    background: none;
+    font-size: inherit;
   }
   .lightbox .close {
     position: absolute;

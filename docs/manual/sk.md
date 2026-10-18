@@ -68,7 +68,7 @@ Nástenka ukazuje Relay Module, poslednú hodnotu každej veličiny s grafom, ka
 | Priblíženie úseku | <kbd>Shift</kbd> + ťahanie |
 | Návrat na časové obdobie | Ikona obnovenia (4) |
 
-Červený okraj hore na paneli znamená, že hodnota je mimo limitov upozornenia; prerušovaná červená čiara v grafe ukazuje limit.
+Červený okraj hore na paneli znamená, že hodnota je mimo limitov upozornenia; v grafe svetločervený pás pokrýva hodnoty za limitom.
 
 Keď sa rovnaká veličina meria na oboch kanáloch, napríklad teplotu meria Climate Module aj Humidity Tag, panel ukazuje obe hodnoty, pre každý kanál čiaru vo vlastnej farbe a pod grafom pre každý z nich riadok s min, priemerom a max. Farebná bodka na začiatku riadku vyberá farbu jeho čiary a záhlavia stĺpcov zapínajú a vypínajú čiary min, priemeru a max. Kliknutím na názov riadku, napríklad *Humidity Tag*, jeho čiaru v grafe skryjete; riadok zošedne a ďalšie kliknutie čiaru vráti. Jedna čiara zostáva vždy.
 
@@ -164,3 +164,5 @@ Voliteľný miestny server ponúka REST API, metriky pre Prometheus a server MCP
 ## O aplikácii {#about}
 
 TOWER Bridge je otvorený softvér pod licenciou MIT, © HARDWARIO a.s. Dokumentácia platformy TOWER je na [docs.hardwario.com/tower](https://docs.hardwario.com/tower/); hardvér kúpite v [online obchode HARDWARIO](https://www.hardwario.store/).
+
+TOWER Bridge obsahuje softvér, písma, ikony a mapové údaje iných autorov; ich licencie nájdete v časti [Licencie tretích strán](#notices).

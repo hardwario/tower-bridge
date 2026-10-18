@@ -38,11 +38,11 @@ fn apply_locked(app: &AppHandle, new: Settings) -> std::io::Result<Arc<Settings>
     let new = Arc::new(new.validated());
     new.save(&state.paths.settings_file())?;
     let old = std::mem::replace(&mut *state.settings.write(), new.clone());
-    if old.sample_interval_s != new.sample_interval_s {
+    if old.sample_interval_ms != new.sample_interval_ms {
         let _ = state
             .acq_tx
-            .send(AcqCommand::SetInterval(Duration::from_secs(
-                new.sample_interval_s,
+            .send(AcqCommand::SetInterval(Duration::from_millis(
+                new.sample_interval_ms,
             )));
     }
     if old.theme != new.theme {

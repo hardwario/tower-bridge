@@ -38,6 +38,7 @@ export interface ChartTheme {
   text: string;
   surface: string;
   critical: string;
+  criticalWeak: string;
 }
 
 export function chartTheme(): ChartTheme {
@@ -52,5 +53,6 @@ export function chartTheme(): ChartTheme {
     text: v("--text"),
     surface: v("--surface"),
     critical: v("--critical"),
+    criticalWeak: v("--critical-weak"),
   };
 }

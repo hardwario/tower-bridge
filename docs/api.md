@@ -38,9 +38,8 @@ The server serves up to 64 connections at once and closes a connection after
 ## REST API
 
 Values are SI units: temperature °C, relative humidity %, illuminance lx,
-pressure **Pa**, altitude m; CO₂ in ppm and TVOC in ppb. Timestamps are Unix
-milliseconds; durations too, except `cooldown_s` in the alert rules and
-`sample_interval_s` in the status, which are seconds.
+pressure **Pa**, altitude m; CO₂ in ppm and TVOC in ppb. Timestamps and
+durations are milliseconds (`_ms`).
 JSON keys are lowercase with underscores (`bucket_ms`, `pulse_until`, …). Time parameters
 accept Unix milliseconds or RFC 3339. The OpenAPI description is at
 `/api/v1/openapi.json`.
@@ -51,14 +50,14 @@ alerts carry their `channel`.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/v1/status` | App version, device state (with the channel, module, sensor and I²C address behind each value), the relay, `sample_interval_s`, last reading time, active alerts, whether `mcp` and `allow_control` are on |
+| GET | `/api/v1/status` | App version, device state (with the channel, module, sensor and I²C address behind each value), the relay, `sample_interval_ms`, last reading time, active alerts, whether `mcp` and `allow_control` are on |
 | GET | `/api/v1/readings/latest` | Latest reading of each channel (`stale: true` while the bridge is disconnected); 404 `no_data` before the first measurement |
 | GET | `/api/v1/readings?hours=24&max_points=500` | Averaged history (`from`, `to` also accepted), columnar like the dashboard charts |
 | GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV, one row per measurement and channel |
 | GET | `/api/v1/alerts` | Alert rules and active alerts |
 | GET | `/api/v1/alerts/log?limit=50` | Recent alert events |
 | GET | `/api/v1/alerts/{metric}` | One rule (`temperature`, `humidity`, `illuminance`, `pressure`, `co2`, `voc`) |
-| PATCH / PUT | `/api/v1/alerts/{metric}` | Update fields of a rule: `enabled`, `min`, `max`, `hysteresis`, `cooldown_s`, `notify_recovery`, in SI units (pressure in Pa), e.g. `{"enabled": true, "max": 26}` *(changes)* |
+| PATCH / PUT | `/api/v1/alerts/{metric}` | Update fields of a rule: `enabled`, `min`, `max`, `hysteresis`, `cooldown_ms`, `notify_recovery`, in SI units (pressure in Pa), e.g. `{"enabled": true, "max": 26}` *(changes)* |
 | POST | `/api/v1/device/identify` | Blink the bridge LED *(changes)* |
 | POST | `/api/v1/device/rescan` | Look for the sensors again *(changes)* |
 | GET | `/api/v1/relay` | Relay Module state: `{"state": true, "channel": 0, "address": 59, "pulse_until": null}`; `state` is `true`, `false` or `null` (unknown); 404 without a relay |

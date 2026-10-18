@@ -196,8 +196,8 @@ limit.",
                     "above": { "type": ["number", "null"], "description": "Alert when the value rises above this." },
                     "hysteresis": { "type": "number", "minimum": 0,
                         "description": "How far the value must return inside the limit to clear the alert." },
-                    "repeat_after_minutes": { "type": "number", "minimum": 1,
-                        "description": "Minimum time between two notifications for the same limit." },
+                    "repeat_after_ms": { "type": "integer", "minimum": 1000,
+                        "description": "Minimum time between two notifications for the same limit, in milliseconds." },
                     "notify_recovery": { "type": "boolean", "description": "Notify when the value is back to normal." }
                 },
                 "required": ["metric"],
@@ -732,7 +732,7 @@ impl McpServer {
             "above": r.max.map(|v| friendly(m, v)),
             "hysteresis": friendly(m, r.hysteresis),
             "unit": friendly_unit(m),
-            "repeat_after_minutes": round(r.cooldown_s as f64 / 60.0, 1),
+            "repeat_after_ms": r.cooldown_ms,
             "notify_recovery": r.notify_recovery,
         })
     }
@@ -772,7 +772,7 @@ impl McpServer {
         let info = self.backend.info();
         let mut out = json!({
             "status": status,
-            "sample_interval_s": self.backend.sample_interval_s(),
+            "sample_interval_ms": self.backend.sample_interval_ms(),
             "app": { "name": info.name, "version": info.version },
         });
         if let Some(m) = message {
@@ -869,9 +869,9 @@ impl McpServer {
             }
             rule.hysteresis = from_friendly(metric, v);
         }
-        if let Some(v) = number("repeat_after_minutes")? {
-            let v = v.ok_or("'repeat_after_minutes' cannot be null")?;
-            rule.cooldown_s = (v.max(1.0) * 60.0).round() as u64;
+        if let Some(v) = number("repeat_after_ms")? {
+            let v = v.ok_or("'repeat_after_ms' cannot be null")?;
+            rule.cooldown_ms = v.max(1000.0).round() as u64;
         }
         if let Some(v) = args.get("enabled") {
             rule.enabled = v.as_bool().ok_or("'enabled' must be a boolean")?;

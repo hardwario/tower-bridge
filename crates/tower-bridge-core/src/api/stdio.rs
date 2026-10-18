@@ -61,7 +61,7 @@ impl ApiBackend for OfflineBackend {
     fn latest(&self) -> Vec<Reading> {
         Vec::new()
     }
-    fn sample_interval_s(&self) -> u64 {
+    fn sample_interval_ms(&self) -> u64 {
         0
     }
     fn history(&self, _: i64, _: i64, _: usize) -> Result<History, ApiError> {

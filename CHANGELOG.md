@@ -35,8 +35,9 @@ hardwario/enmon.
   that toggle their lines, value and time under the pointer, time spans from
   1 hour to 365 days, drag to pan through all stored data, Ctrl/⌘+scroll,
   pinch or Shift+drag to zoom, line colours from a palette that works in light
-  and dark mode, lines hidden from the legend, panels rearranged by dragging
-  and maximized. The measurement interval (5 s to 3 min, 20 s by default) is
+  and dark mode, alert limits as a light red band, lines hidden from the
+  legend, panels rearranged by dragging and maximized. Spans of weeks to a
+  year load at once from an hourly summary. The measurement interval (5 s to 3 min, 20 s by default) is
   set in its header.
 - Every chart and card names its data source: module, I²C channel, address
   and part.
@@ -55,7 +56,8 @@ hardwario/enmon.
   tray value, open at login, the sea-level pressure for the altitude
   estimate, the I²C channels, data retention.
 - A user manual in all five languages inside the app, with screenshots and
-  diagrams that follow the theme.
+  diagrams that follow the theme, and the third-party notices (every library,
+  font, icon set and map source with its license).
 - One file per platform: a portable Windows exe, a macOS dmg, a Linux
   AppImage.
 
@@ -73,7 +75,7 @@ hardwario/enmon.
   protocol 2026-07-28 and earlier, and a `--mcp-stdio` bridge). Read-only
   unless "Allow changes" is on; network access needs a token.
 - JSON keys are lowercase with underscores everywhere; durations are integer
-  milliseconds (`_ms`), except `cooldown_s` and `sample_interval_s`.
+  milliseconds (`_ms`).
 
 ### Command line
 

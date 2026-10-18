@@ -10,7 +10,7 @@ use tower_bridge_core::model::{Metric, STANDARD_SEA_LEVEL_PA};
 use tracing::warn;
 
 /// 2: chart colours differ per metric by default.
-pub const SETTINGS_VERSION: u32 = 5;
+pub const SETTINGS_VERSION: u32 = 6;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -355,7 +355,7 @@ pub struct Settings {
     pub time_format: TimeFormat,
     pub decimal_separator: DecimalSeparator,
     pub temperature_unit: TemperatureUnit,
-    pub sample_interval_s: u64,
+    pub sample_interval_ms: u64,
     /// Value shown next to the tray icon; `None` shows the icon only.
     pub tray_metric: Option<Metric>,
     pub retention_days: u32,
@@ -380,7 +380,7 @@ impl Default for Settings {
             time_format: TimeFormat::Auto,
             decimal_separator: DecimalSeparator::Auto,
             temperature_unit: TemperatureUnit::Celsius,
-            sample_interval_s: 20,
+            sample_interval_ms: 20_000,
             tray_metric: Some(Metric::Temperature),
             retention_days: 90,
             sea_level_pressure_pa: STANDARD_SEA_LEVEL_PA,
@@ -410,7 +410,7 @@ impl Settings {
 
     pub fn validated(mut self) -> Self {
         self.version = SETTINGS_VERSION;
-        self.sample_interval_s = self.sample_interval_s.clamp(2, 3600);
+        self.sample_interval_ms = self.sample_interval_ms.clamp(2_000, 3_600_000);
         self.retention_days = self.retention_days.clamp(1, 3650);
         if !(80_000.0..=110_000.0).contains(&self.sea_level_pressure_pa) {
             self.sea_level_pressure_pa = STANDARD_SEA_LEVEL_PA;
@@ -507,6 +507,9 @@ impl Settings {
         if v["version"].as_u64().is_some_and(|n| n < 4) {
             upgrade_mqtt_v3(&mut v);
         }
+        if v["version"].as_u64().is_some_and(|n| n < 6) {
+            upgrade_ms_v5(&mut v);
+        }
         let (mut s, problem) = match serde_json::from_value::<Settings>(v.clone()) {
             Ok(s) => (s, None),
             Err(e) => (lenient(&v), Some(e.to_string())),
@@ -515,8 +518,8 @@ impl Settings {
             s.charts.upgrade(s.version);
         }
         // The default went from 10 s to 20 s; a chosen interval stays.
-        if s.version < 5 && s.sample_interval_s == 10 {
-            s.sample_interval_s = 20;
+        if s.version < 5 && s.sample_interval_ms == 10_000 {
+            s.sample_interval_ms = 20_000;
         }
         match problem {
             None => Parsed::Complete(s.validated()),
@@ -557,6 +560,39 @@ enum Parsed {
     /// Some values did not fit and are defaults now (the error says why).
     Partial(Settings, String),
     NotJson(String),
+}
+
+/// Version 5 and older kept durations in seconds (`sample_interval_s`,
+/// `alerts.<metric>.cooldown_s`); every duration in JSON is milliseconds now
+/// (`_ms`).
+fn upgrade_ms_v5(v: &mut serde_json::Value) {
+    let Some(map) = v.as_object_mut() else {
+        return;
+    };
+    let ms = |s: &serde_json::Value| {
+        s.as_u64()
+            .map(|s| serde_json::json!(s.saturating_mul(1000)))
+    };
+    if let Some(s) = map.remove("sample_interval_s")
+        && let Some(ms) = ms(&s)
+    {
+        map.insert("sample_interval_ms".into(), ms);
+    }
+    if let Some(alerts) = map
+        .get_mut("alerts")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for rule in alerts
+            .values_mut()
+            .filter_map(serde_json::Value::as_object_mut)
+        {
+            if let Some(s) = rule.remove("cooldown_s")
+                && let Some(ms) = ms(&s)
+            {
+                rule.insert("cooldown_ms".into(), ms);
+            }
+        }
+    }
 }
 
 /// Version 3 and older could run a built-in MQTT broker (`port`,
@@ -674,8 +710,8 @@ mod tests {
     #[test]
     fn partial_json_uses_defaults() -> Result<(), serde_json::Error> {
         let s: Settings =
-            serde_json::from_str(r#"{"sample_interval_s": 30, "mqtt": {"enabled": true}}"#)?;
-        assert_eq!(s.sample_interval_s, 30);
+            serde_json::from_str(r#"{"sample_interval_ms": 30000, "mqtt": {"enabled": true}}"#)?;
+        assert_eq!(s.sample_interval_ms, 30_000);
         assert!(s.mqtt.enabled);
         assert_eq!(s.mqtt.port, 1883);
         assert_eq!(s.retention_days, 90);
@@ -696,12 +732,12 @@ mod tests {
         let (s, first_run) = Settings::load(&path);
         let _ = std::fs::remove_dir_all(&dir);
         assert!(!first_run);
-        assert_eq!(s.sample_interval_s, 30);
+        assert_eq!(s.sample_interval_ms, 30_000);
         assert_eq!(s.date_format, DateFormat::DmySlash);
         assert_eq!(s.backend, BackendPref::I2cDev);
         assert_eq!(s.mqtt.topic_prefix, "home/tower");
         assert!(!s.mqtt.enabled, "it used the removed built-in broker");
-        assert_eq!(s.alerts.temperature.cooldown_s, 600);
+        assert_eq!(s.alerts.temperature.cooldown_ms, 600_000);
         Ok(())
     }
 
@@ -976,13 +1012,28 @@ mod tests {
     fn the_old_default_interval_becomes_the_new_one() -> std::io::Result<()> {
         let (s, dir) = load_json("v4interval", r#"{"version": 4, "sample_interval_s": 10}"#)?;
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(s.sample_interval_s, 20);
+        assert_eq!(s.sample_interval_ms, 20_000);
         let (s, dir) = load_json("v4interval30", r#"{"version": 4, "sample_interval_s": 30}"#)?;
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(s.sample_interval_s, 30, "chosen by the user");
+        assert_eq!(s.sample_interval_ms, 30_000, "chosen by the user");
         let (s, dir) = load_json("v5interval", r#"{"version": 5, "sample_interval_s": 10}"#)?;
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(s.sample_interval_s, 10, "chosen after the change");
+        assert_eq!(s.sample_interval_ms, 10_000, "chosen after the change");
+        Ok(())
+    }
+
+    #[test]
+    fn version_5_durations_become_milliseconds() -> std::io::Result<()> {
+        let (s, dir) = load_json(
+            "v5ms",
+            r#"{"version": 5, "sample_interval_s": 60,
+                "alerts": {"co2": {"enabled": true, "max": 1000, "cooldown_s": 1800}}}"#,
+        )?;
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(s.sample_interval_ms, 60_000);
+        assert_eq!(s.alerts.co2.cooldown_ms, 1_800_000);
+        assert_eq!(s.alerts.co2.max, Some(1000.0), "the rest of the rule stays");
+        assert_eq!(s.version, SETTINGS_VERSION);
         Ok(())
     }
 
@@ -1030,13 +1081,13 @@ mod tests {
     #[test]
     fn validation_clamps() {
         let mut s = Settings {
-            sample_interval_s: 0,
+            sample_interval_ms: 0,
             ..Settings::default()
         };
         s.alerts.temperature.min = Some(30.0);
         s.alerts.temperature.max = Some(10.0);
         let s = s.validated();
-        assert_eq!(s.sample_interval_s, 2);
+        assert_eq!(s.sample_interval_ms, 2_000);
         assert_eq!(s.alerts.temperature.min, Some(10.0));
     }
 
@@ -1063,8 +1114,8 @@ mod tests {
         let (loaded, _) = Settings::load(&path);
         assert_eq!(loaded.api.port, 8180);
         assert_eq!(
-            loaded.sample_interval_s,
-            Settings::default().sample_interval_s
+            loaded.sample_interval_ms,
+            Settings::default().sample_interval_ms
         );
         let _ = std::fs::remove_dir_all(dir);
         Ok(())

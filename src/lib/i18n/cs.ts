@@ -32,7 +32,7 @@ export const cs: Messages = {
     co2: "CO₂",
     voc: "VOC",
   },
-  manual: { contents: "Obsah", close: "Zavřít" },
+  manual: { contents: "Obsah", close: "Zavřít", notices: "Licence třetích stran", back: "Zpět na návod" },
   nav: {
     overview: "Nástěnka",
     data: "Data",

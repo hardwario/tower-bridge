@@ -193,7 +193,7 @@ async fn status(State(ctx): State<Ctx>) -> Json<Value> {
         "device": ctx.backend.device(),
         "relay": ctx.backend.relay(),
         "latest_ts": ctx.backend.latest().iter().map(|r| r.ts).max(),
-        "sample_interval_s": ctx.backend.sample_interval_s(),
+        "sample_interval_ms": ctx.backend.sample_interval_ms(),
         "active_alerts": ctx.backend.active_alerts(),
         "mcp": policy.mcp,
         "allow_control": policy.allow_control,
@@ -421,7 +421,7 @@ async fn update_alert_rule(
     for (k, v) in fields {
         if !matches!(
             k.as_str(),
-            "enabled" | "min" | "max" | "hysteresis" | "cooldown_s" | "notify_recovery"
+            "enabled" | "min" | "max" | "hysteresis" | "cooldown_ms" | "notify_recovery"
         ) {
             return Err(HttpError::bad_request(format!("unknown field: {k}")));
         }

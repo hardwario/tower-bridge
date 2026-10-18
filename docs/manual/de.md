@@ -68,7 +68,7 @@ Wählen Sie den Zeitraum über den Diagrammen, von 1 Stunde bis 365 Tage. Alle D
 | Bereich vergrößern | <kbd>Umschalt</kbd> + Ziehen |
 | Zurück zum Zeitraum | Zurücksetzen-Symbol (4) |
 
-Ein roter Rand oben an einem Panel bedeutet, dass der Wert außerhalb seiner Alarmgrenzen liegt; die gestrichelte rote Linie im Diagramm zeigt die Grenze.
+Ein roter Rand oben an einem Panel bedeutet, dass der Wert außerhalb seiner Alarmgrenzen liegt; im Diagramm deckt ein hellroter Streifen die Werte jenseits der Grenze ab.
 
 Wird dieselbe Messgröße auf beiden Kanälen gemessen, etwa die Temperatur vom Climate Module und vom Humidity Tag, zeigt ihr Panel beide Werte, für jeden Kanal eine Linie in eigener Farbe und unter dem Diagramm je eine Zeile mit Min, Mittel und Max. Der farbige Punkt am Anfang einer Zeile wählt die Farbe ihrer Linie; die Spaltenköpfe blenden die Min-, Mittel- und Max-Linien ein oder aus. Ein Klick auf den Namen einer Zeile, etwa *Humidity Tag*, blendet ihre Linie im Diagramm aus; die Zeile wird grau, und ein weiterer Klick holt die Linie zurück. Eine Linie bleibt immer.
 
@@ -164,3 +164,5 @@ Der optionale lokale Server bietet eine REST-API, Prometheus-Metriken und einen 
 ## Über {#about}
 
 TOWER Bridge ist Open Source unter der MIT-Lizenz, © HARDWARIO a.s. Die Dokumentation der TOWER-Plattform finden Sie unter [docs.hardwario.com/tower](https://docs.hardwario.com/tower/); die Hardware gibt es im [HARDWARIO Onlineshop](https://www.hardwario.store/).
+
+TOWER Bridge enthält Software, Schriften, Symbole und Kartendaten anderer Urheber; ihre Lizenzen stehen unter [Lizenzen von Drittanbietern](#notices).
