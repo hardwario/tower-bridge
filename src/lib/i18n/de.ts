@@ -285,7 +285,7 @@ export const de: Messages = {
       mcp: "MCP-Server",
       mcpHint: "Werkzeuge für KI-Assistenten (Claude, Cursor, VS Code…) unter /mcp.",
       allowControl: "Änderungen erlauben",
-      allowControlHint: "API-Clients und KI-Assistenten dürfen Grenzwerte ändern, das Relais schalten und die LED blinken lassen.",
+      allowControlHint: "API-Clients und KI-Assistenten dürfen Grenzwerte ändern, das Relais schalten, den NFC Tag beschreiben und die LED blinken lassen.",
       token: "Zugriffstoken",
       tokenHint: "Wird als „Authorization: Bearer …“ gesendet. Für Netzwerkzugriff erforderlich.",
       newToken: "Neu",

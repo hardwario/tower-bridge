@@ -68,7 +68,7 @@ Choose the time span above the charts, from 1 hour to 365 days. All charts on a 
 | Zoom into a range | <kbd>Shift</kbd> + drag |
 | Return to the time span | Reset icon (4) |
 
-A red edge at the top of a panel means the value is outside its alert limits; in the chart, a light red band covers the values beyond the limit.
+A red edge at the top of a panel means the value is outside its alert limits; in the chart, the area beyond the limit is shaded light red.
 
 When the same quantity is measured on both channels, for example temperature by the Climate Module and by the Humidity Tag, its panel shows both values, a line for each channel in its own color, and a row with min, avg and max for each below the chart. The colored dot at the start of a row picks that line's color, and the column heads switch the min, avg and max lines on or off. Click a row's name, for example *Humidity Tag*, to hide its line from the chart; the row turns gray, and another click brings the line back. One line always stays.
 
@@ -151,7 +151,7 @@ With **Allow relay control** switched on, the relay accepts `true` or `false` on
 
 ### API and MCP {#api}
 
-The optional local server offers a REST API, Prometheus metrics and an MCP server for AI assistants; it is off by default. Changes such as alert limits or switching the relay need **Allow changes**. Other computers must send the access token shown in the settings.
+The optional local server offers a REST API, Prometheus metrics and an MCP server for AI assistants; it is off by default. Changes such as alert limits, switching the relay or writing the NFC Tag need **Allow changes**. Other computers must send the access token shown in the settings.
 
 ## Command line {#cli}
 

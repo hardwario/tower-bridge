@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use tower_bridge_core::model::DeviceState;
 use tower_bridge_core::nfc::{MAX_URL, NfcInfo, with_scheme};
 use tower_bridge_core::relay::RelayInfo;
 
@@ -57,11 +58,19 @@ pub fn relay(ctx: &Ctx, out: Out, action: Option<RelayAction>) -> Result<()> {
                 let info = access.pulse_relay(state.map(|s| s == RelayState::True), ms)?;
                 print_relay(out, &info)?;
                 // The service here switches the relay back: it must run
-                // until the pulse ends.
+                // until the pulse ends. Ctrl+C ends the pulse now, so the
+                // relay is never left switched over.
                 if let (Access::Local(_), Some(until)) = (&access, info.pulse_until) {
                     let left = until - tower_bridge_core::acquisition::unix_ms();
                     if left > 0 {
-                        std::thread::sleep(Duration::from_millis(left as u64 + 400));
+                        eprintln!("Waiting for the pulse to end; Ctrl+C ends it now.");
+                        let stop = super::watch::stop_signal();
+                        let wait = Duration::from_millis(left.unsigned_abs() + 400);
+                        if stop.recv_timeout(wait).is_ok()
+                            && let Some(back) = info.state.map(|s| !s)
+                        {
+                            print_relay(out, &access.set_relay(back)?)?;
+                        }
                     }
                 }
                 return Ok(());
@@ -80,7 +89,11 @@ pub fn gps(ctx: &Ctx, out: Out) -> Result<()> {
     let (access, mut snap) = session(ctx)?;
     // A receiver is announced with its first report, a few seconds after the
     // module was found.
-    if matches!(access, Access::Local(_)) && snap.device.is_ready() {
+    let found = matches!(
+        snap.device,
+        DeviceState::Ready { .. } | DeviceState::NoModule { .. }
+    );
+    if matches!(access, Access::Local(_)) && found {
         let until = std::time::Instant::now() + Duration::from_secs(12);
         while snap.gps.is_none() && std::time::Instant::now() < until {
             std::thread::sleep(Duration::from_millis(200));
@@ -161,6 +174,13 @@ pub fn nfc(ctx: &Ctx, out: Out, action: Option<NfcAction>) -> Result<()> {
                 None,
             ));
         };
+        if url.is_some() && !tag.formatted {
+            return Err(crate::failure(
+                exit::ERROR,
+                "the TOWER NFC Tag is not NDEF formatted",
+                Some("format it with a phone app (for example NXP TagWriter), then write the URL"),
+            ));
+        }
         match &url {
             Some(url) => print_nfc(out, &access.write_nfc(url)?),
             None => print_nfc(out, tag),

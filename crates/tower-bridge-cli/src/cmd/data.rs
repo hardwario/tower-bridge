@@ -105,8 +105,10 @@ pub fn export(ctx: &Ctx, args: &ExportArgs) -> Result<()> {
             opts,
             &labels(settings.temperature_unit),
             |_, _| true,
-        )?,
-        Some(path) => store::export_to_file(&conn, path, from, to, opts, |_, _| true)?,
+        )
+        .with_context(|| format!("writing {}", path.display()))?,
+        Some(path) => store::export_to_file(&conn, path, from, to, opts, |_, _| true)
+            .with_context(|| format!("writing {}", path.display()))?,
     };
     let to_where = args
         .output
@@ -159,12 +161,18 @@ pub fn alerts(ctx: &Ctx, out: Out, log_len: usize) -> Result<()> {
     let settings = Settings::read(&paths.settings_file());
     let unit = settings.temperature_unit;
     // Active alerts live in the running service.
+    // Active alerts live in the running service; without an answer from it
+    // they are not known, and the rest is still shown.
     let active = match InstanceLock::holder(&paths.lock_file()) {
-        Some(holder) if settings.api.enabled => Some(
-            Remote::new(&settings, holder, paths.settings_file())
-                .status()?
-                .active_alerts,
-        ),
+        Some(holder) if settings.api.enabled => {
+            match Remote::new(&settings, holder, paths.settings_file()).status() {
+                Ok(status) => Some(status.active_alerts),
+                Err(e) => {
+                    tracing::warn!("active alerts not known: {e:#}");
+                    None
+                }
+            }
+        }
         _ => None,
     };
     let log = match reader(ctx) {

@@ -147,6 +147,8 @@ pub struct Tr {
     pub cannot_start: &'static str,
     /// Another instance (the CLI's service) holds the data folder.
     pub already_running: &'static str,
+    /// The same, when the holder cannot be told (Windows).
+    pub already_running_other: &'static str,
 }
 
 impl Tr {
@@ -228,6 +230,7 @@ The tray icon keeps working. Download WebView2 now?",
     cannot_save_settings: "Cannot save settings: {error}",
     cannot_start: "TOWER Bridge cannot start.\n\n{error}",
     already_running: "Another TOWER Bridge is already running: {holder}. Stop it and start the app again.",
+    already_running_other: "Another TOWER Bridge is already running with the same data. Stop it and start the app again.",
 };
 
 static CS: Tr = Tr {
@@ -288,6 +291,7 @@ Ikona v oznamovací oblasti funguje dál. Stáhnout WebView2 nyní?",
     cannot_save_settings: "Nastavení nelze uložit: {error}",
     cannot_start: "TOWER Bridge nelze spustit.\n\n{error}",
     already_running: "Už běží jiný TOWER Bridge: {holder}. Ukončete ho a spusťte aplikaci znovu.",
+    already_running_other: "Už běží jiný TOWER Bridge se stejnými daty. Ukončete ho a spusťte aplikaci znovu.",
 };
 
 static SK: Tr = Tr {
@@ -348,6 +352,7 @@ Ikona v oblasti oznámení funguje ďalej. Stiahnuť WebView2 teraz?",
     cannot_save_settings: "Nastavenia nie je možné uložiť: {error}",
     cannot_start: "TOWER Bridge sa nedá spustiť.\n\n{error}",
     already_running: "Už beží iný TOWER Bridge: {holder}. Ukončite ho a spustite aplikáciu znova.",
+    already_running_other: "Už beží iný TOWER Bridge s rovnakými údajmi. Ukončite ho a spustite aplikáciu znova.",
 };
 
 static DE: Tr = Tr {
@@ -414,7 +419,8 @@ Das Symbol im Infobereich funktioniert weiterhin. WebView2 jetzt herunterladen?"
     login_in_dev_instance: "Eine Entwicklungsinstanz (simuliert oder mit anderem Datenordner) kann nicht bei der Anmeldung starten.",
     cannot_save_settings: "Einstellungen können nicht gespeichert werden: {error}",
     cannot_start: "TOWER Bridge kann nicht starten.\n\n{error}",
-    already_running: "Es läuft bereits ein anderes TOWER Bridge: {holder}. Beenden Sie es und starten Sie die App erneut.",
+    already_running: "Es läuft bereits eine andere Instanz von TOWER Bridge: {holder}. Beenden Sie sie und starten Sie die App erneut.",
+    already_running_other: "Es läuft bereits eine andere Instanz von TOWER Bridge mit denselben Daten. Beenden Sie sie und starten Sie die App erneut.",
 };
 
 static PL: Tr = Tr {
@@ -482,6 +488,7 @@ Ikona w zasobniku działa dalej. Pobrać WebView2 teraz?",
     cannot_save_settings: "Nie można zapisać ustawień: {error}",
     cannot_start: "Nie można uruchomić TOWER Bridge.\n\n{error}",
     already_running: "Działa już inny TOWER Bridge: {holder}. Zakończ go i uruchom aplikację ponownie.",
+    already_running_other: "Działa już inny TOWER Bridge z tymi samymi danymi. Zakończ go i uruchom aplikację ponownie.",
 };
 
 #[cfg(test)]

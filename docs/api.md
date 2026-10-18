@@ -18,7 +18,7 @@ needed.
 | *Allow network access* off (default) | Listens on `127.0.0.1` only. Local clients need no token. |
 | *Allow network access* on | Listens on all interfaces. Every request must carry the token. |
 | *Allow changes* off (default) | Read-only. |
-| *Allow changes* on | Clients may change alert limits, blink the bridge LED, look for the sensors again and switch the relay. |
+| *Allow changes* on | Clients may change alert limits, blink the bridge LED, look for the sensors again, switch the relay and write the URL on the NFC Tag (which phones then open). |
 
 Send the token from the settings page as `Authorization: Bearer <token>`. A
 request with a valid token is always accepted.
@@ -30,7 +30,8 @@ from reaching the API through DNS rebinding or cross-site requests.
 
 With network access on, the traffic is plain HTTP: anyone who can watch the
 network sees the token and the readings, and with *Allow changes* on can
-switch the relay with that token. Use it on a network you trust.
+switch the relay or rewrite the NFC Tag with that token. Use it on a network
+you trust.
 
 The server serves up to 64 connections at once and closes a connection after
 30 seconds without traffic.
@@ -65,7 +66,7 @@ alerts carry their `channel`.
 | POST | `/api/v1/relay/pulse` | Switch to a state for a while, then back. Body optional: `{"state": false, "duration_ms": 2000}`; defaults are the opposite state (or, while a pulse runs, extending it) and the configured length *(changes)* |
 | GET | `/api/v1/gps` | GPS Module: `{"channel": 0, "fix": true, "satellites": 9, "latitude": 50.771168, "longitude": 15.056328, "altitude": 374.2, "accuracy": 3.1, "time": 1792245600000}`; position, altitude (m above sea level) and accuracy (m) are `null` without a fix; 404 without a GPS Module |
 | GET | `/api/v1/nfc` | TOWER NFC Tag: `{"channel": 0, "address": 8, "part": "NT3H2111", "url": "https://www.hardwario.com", "formatted": true}`; `url` is `null` when the tag holds none; 404 `no_nfc` without a tag |
-| PUT | `/api/v1/nfc` | `{"url": "https://example.com"}`: write a URL that phones open when they touch the tag, at most 240 bytes; `https://` is added when the address has no scheme. Returns what the tag holds afterwards *(changes)* |
+| PUT | `/api/v1/nfc` | `{"url": "https://example.com"}`: write a URL that phones open when they touch the tag, at most 240 bytes; `https://` is added when the address has no scheme. Returns what the tag holds afterwards; 409 `not_formatted` when the tag is not NDEF formatted (format it with a phone app, for example NXP TagWriter) *(changes)* |
 | GET | `/metrics` | Prometheus text format |
 
 Errors are JSON: `{"error": {"code": "…", "message": "…"}}`.

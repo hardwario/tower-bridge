@@ -13,16 +13,42 @@ use crate::{exit, output};
 /// Keys whose values are secrets: shown as "(set)" by `show`.
 const SECRETS: &[&str] = &["mqtt.password", "api.token"];
 
+/// Values made up while there is no settings file (a new token on every
+/// read): shown as such until the service first starts and stores them.
+const GENERATED: &[&str] = &["api.token", "mqtt.client_id"];
+
+/// The settings as JSON, with a warning on stderr when the file has problems.
+fn current(file: &std::path::Path) -> Result<(Value, Option<String>)> {
+    let (settings, problem) = Settings::read_checked(file);
+    if let Some(problem) = &problem {
+        eprintln!(
+            "warning: {} has problems, some values are defaults: {problem}",
+            file.display()
+        );
+    }
+    let mut v = serde_json::to_value(settings)?;
+    if !file.exists() {
+        for key in GENERATED {
+            if let Some(slot) = lookup_mut(&mut v, key) {
+                *slot = Value::String("(made at the first start)".into());
+            }
+        }
+    }
+    Ok((v, problem))
+}
+
 pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
     let paths = ctx.paths()?;
     let file = paths.settings_file();
     match action.unwrap_or(ConfigAction::Show) {
         ConfigAction::Path => println!("{}", file.display()),
         ConfigAction::Show => {
-            let mut v = serde_json::to_value(Settings::read(&file))?;
+            let (mut v, _) = current(&file)?;
             for key in SECRETS {
                 if let Some(secret) = lookup_mut(&mut v, key)
-                    && secret.as_str().is_some_and(|s| !s.is_empty())
+                    && secret
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty() && !s.starts_with('('))
                 {
                     *secret = Value::String("(set)".into());
                 }
@@ -34,7 +60,7 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
             }
         }
         ConfigAction::Get { key } => {
-            let v = serde_json::to_value(Settings::read(&file))?;
+            let (v, _) = current(&file)?;
             let value = lookup(&v, &key).ok_or_else(|| unknown(&v, &key))?;
             match value {
                 Value::String(s) if !out.json => println!("{s}"),
@@ -46,15 +72,41 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
                 return Err(crate::failure(
                     exit::BUSY,
                     format!("{holder} is running and would overwrite the change"),
-                    Some("change it there (the app's Settings), or stop it first"),
+                    Some("change it there (in the app: Settings), or stop it first"),
                 ));
             }
-            let settings = Settings::read(&file);
+            let (settings, problem) = Settings::read_checked(&file);
+            // Saving would write the defaults over what could not be read.
+            if let Some(problem) = problem {
+                return Err(crate::failure(
+                    exit::ERROR,
+                    format!("{} has problems: {problem}", file.display()),
+                    Some(
+                        "fix the file, or start the app or `tower-bridge-cli run` once: it keeps a backup and starts from defaults",
+                    ),
+                ));
+            }
             let mut v = serde_json::to_value(&settings)?;
             let unknown_key = unknown(&v, &key);
             let slot = lookup_mut(&mut v, &key).ok_or(unknown_key)?;
-            // JSON where it parses (true, 20000, null, "x"), else the text.
-            *slot = serde_json::from_str(&value).unwrap_or(Value::String(value));
+            *slot = match slot {
+                Value::Object(group) => {
+                    let keys: Vec<String> = group.keys().map(|k| format!("{key}.{k}")).collect();
+                    return Err(crate::failure(
+                        exit::USAGE,
+                        format!("{key} is a group of settings"),
+                        Some(&format!("set them one by one: {}", keys.join(", "))),
+                    ));
+                }
+                // Text stays text: a password of digits is no number.
+                Value::String(_) => match serde_json::from_str::<Value>(&value) {
+                    Ok(Value::String(s)) => Value::String(s),
+                    _ => Value::String(value),
+                },
+                // Elsewhere JSON (true, 20000, null), else the text, which
+                // the type check below then explains.
+                _ => serde_json::from_str(&value).unwrap_or(Value::String(value)),
+            };
             let new: Settings = serde_json::from_value(v).map_err(|e| {
                 crate::failure(
                     exit::USAGE,
@@ -65,7 +117,11 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
             let new = new.validated();
             new.save(&file)?;
             let stored = serde_json::to_value(&new)?;
-            let shown = lookup(&stored, &key).cloned().unwrap_or(Value::Null);
+            let shown = if SECRETS.contains(&key.as_str()) {
+                Value::String("(set)".into())
+            } else {
+                lookup(&stored, &key).cloned().unwrap_or(Value::Null)
+            };
             if out.json {
                 output::json(&shown)?;
             } else {

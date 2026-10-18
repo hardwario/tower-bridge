@@ -1,0 +1,41 @@
+name: Cross
+
+# The Linux release builds of tower-bridge-cli run in the old `cross`
+# images (Ubuntu 16.04) for a low glibc floor. They compile C and assembly
+# (aws-lc, ring, SQLite, hidapi), so try them whenever what they build from
+# changes, not first on release day.
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.lock, Cross.toml, "**/Cargo.toml", .github/workflows/cross.yml, .github/workflows/release.yml]
+  pull_request:
+    paths: [Cargo.lock, Cross.toml, "**/Cargo.toml", .github/workflows/cross.yml, .github/workflows/release.yml]
+  workflow_dispatch:
+
+concurrency:
+  group: cross-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cli:
+    name: CLI (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - run: cargo install cross --version 0.2.5 --locked
+      - run: cross build --release --locked -p tower-bridge-cli --target ${{ matrix.target }}

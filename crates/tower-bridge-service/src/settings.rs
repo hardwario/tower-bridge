@@ -475,6 +475,26 @@ impl Settings {
         }
     }
 
+    /// The settings in the file and what is wrong with it, if anything: a
+    /// file that is not JSON, or values that did not fit and read as
+    /// defaults. A missing file is not wrong. The file is not touched.
+    pub fn read_checked(path: &Path) -> (Self, Option<String>) {
+        match std::fs::read_to_string(path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                (Self::default().validated(), None)
+            }
+            Err(e) => (Self::default().validated(), Some(e.to_string())),
+            Ok(text) => match Self::parse(&text) {
+                Parsed::Complete(s) => (s, None),
+                Parsed::Partial(s, why) => (s, Some(why)),
+                Parsed::NotJson(why) => (
+                    Self::default().validated(),
+                    Some(format!("not JSON: {why}")),
+                ),
+            },
+        }
+    }
+
     /// The settings in the file, without touching it: for another process
     /// (the `--mcp-stdio` bridge) next to the running app.
     pub fn read(path: &Path) -> Self {

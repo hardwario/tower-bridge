@@ -92,13 +92,8 @@ fn snapshot() -> Snapshot {
 fn render(app: &App, w: u16, h: u16) -> String {
     // The test backend cannot fail.
     let Ok(mut terminal) = Terminal::new(TestBackend::new(w, h));
-    let _ = terminal.draw(|f| {
-        ui::draw(
-            f,
-            app,
-            &["12:00:00  INFO MQTT connected to broker:1883".into()],
-        )
-    });
+    let _ =
+        terminal.draw(|f| ui::draw(f, app, &["12:00:00  INFO bridge connected over USB".into()]));
     let buf = terminal.backend().buffer().clone();
     (0..h)
         .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect::<String>())
@@ -126,9 +121,10 @@ fn shows_values_devices_and_keys() {
             "23.4 °C",
             "41.2 %",
             "19.9 °C",
-            "TRUE",
+            "● TRUE",
             "hardwario.com",
-            "MQTT connected",
+            "MQTT ● broker:1883",
+            "bridge connected over USB",
             "quit",
         ] {
             assert!(screen.contains(text), "{w}x{h} lacks {text:?}:\n{screen}");
@@ -201,5 +197,85 @@ fn keys() {
     assert_eq!(
         app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
         Action::Quit
+    );
+}
+
+/// An hour of history every 2 minutes on both channels, with a gap of
+/// 20 minutes on channel 0.
+fn history() -> tower_bridge_core::store::History {
+    use tower_bridge_core::store::{History, Series};
+    let now = tower_bridge_core::acquisition::unix_ms();
+    let t: Vec<f64> = (0..30)
+        .map(|i| (now - 3_600_000 + i * 120_000) as f64 / 1000.0)
+        .collect();
+    let series = |base: f64, gap: bool| Series {
+        avg: (0..30)
+            .map(|i| (!(gap && (10..20).contains(&i))).then_some(base + f64::from(i % 7)))
+            .collect(),
+        min: vec![None; 30],
+        max: vec![None; 30],
+    };
+    History {
+        from: now - 3_600_000,
+        to: now,
+        bucket_ms: 120_000,
+        t,
+        channels: vec![0, 1],
+        temperature: vec![series(20.0, true), series(15.0, false)],
+        humidity: vec![series(40.0, false), Series::default()],
+        ..History::default()
+    }
+}
+
+#[test]
+fn the_chart_breaks_at_gaps_and_sparklines_show() {
+    let mut app = App::new("this terminal".into(), TemperatureUnit::Celsius);
+    app.set_snapshot(snapshot());
+    app.history = Some(history());
+    let now = tower_bridge_core::acquisition::unix_ms() as f64 / 1000.0;
+    let lines = ui::segments(&app, Metric::Temperature, now - 3600.0);
+    let runs: Vec<usize> = lines.iter().map(|(_, runs)| runs.len()).collect();
+    assert_eq!(runs, vec![2, 1], "channel 0 has a gap, channel 1 none");
+    let screen = render(&app, 100, 30);
+    assert!(screen.contains("Temperature (°C) · last hour"), "{screen}");
+    assert!(screen.contains("-60 min") && screen.contains("now"));
+    assert!(
+        screen
+            .chars()
+            .any(|c| ('\u{2801}'..='\u{28FF}').contains(&c)),
+        "braille lines"
+    );
+    assert!(screen.contains('▁') || screen.contains('█'), "sparklines");
+}
+
+#[test]
+fn a_small_terminal_keeps_the_keys_and_a_false_relay_shows() {
+    let mut app = App::new("this terminal".into(), TemperatureUnit::Celsius);
+    let mut snap = snapshot();
+    if let Some(r) = &mut snap.relay {
+        r.state = Some(false);
+    }
+    app.set_snapshot(snap);
+    let screen = render(&app, 60, 16);
+    assert!(screen.contains("quit"), "{screen}");
+    assert!(screen.contains("● FALSE"));
+}
+
+#[test]
+fn the_url_input_edits_and_cancels() {
+    let mut app = App::new("x".into(), TemperatureUnit::Celsius);
+    app.set_snapshot(snapshot());
+    app.handle_key(key(KeyCode::Char('n')));
+    for c in "abc".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Backspace));
+    assert_eq!(app.input.as_deref(), Some("ab"));
+    assert_eq!(app.handle_key(key(KeyCode::Esc)), Action::None);
+    assert_eq!(app.input, None, "cancelled");
+    assert_eq!(
+        app.handle_key(key(KeyCode::Esc)),
+        Action::Quit,
+        "Esc quits outside the input"
     );
 }

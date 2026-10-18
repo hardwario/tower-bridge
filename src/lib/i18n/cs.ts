@@ -291,7 +291,7 @@ export const cs: Messages = {
       mcp: "MCP server",
       mcpHint: "Nástroje pro AI asistenty (Claude, Cursor, VS Code…) na adrese /mcp.",
       allowControl: "Povolit změny",
-      allowControlHint: "Klienti API a AI asistenti mohou měnit limity upozornění, přepínat relé a blikat LED.",
+      allowControlHint: "Klienti API a AI asistenti mohou měnit limity upozornění, přepínat relé, zapisovat do NFC Tagu a blikat LED.",
       token: "Přístupový token",
       tokenHint: "Posílá se jako „Authorization: Bearer …“. Vyžadován pro přístup ze sítě.",
       newToken: "Nový",

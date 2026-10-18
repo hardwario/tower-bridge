@@ -292,7 +292,7 @@ export const pl: Messages = {
       mcp: "Serwer MCP",
       mcpHint: "Narzędzia dla asystentów AI (Claude, Cursor, VS Code…) pod adresem /mcp.",
       allowControl: "Zezwalaj na zmiany",
-      allowControlHint: "Klienci API i asystenci AI mogą zmieniać limity alarmów, przełączać przekaźnik i migać diodą LED.",
+      allowControlHint: "Klienci API i asystenci AI mogą zmieniać limity alarmów, przełączać przekaźnik, zapisywać NFC Tag i migać diodą LED.",
       token: "Token dostępu",
       tokenHint: "Wysyłany jako „Authorization: Bearer …”. Wymagany przy dostępie z sieci.",
       newToken: "Nowy",

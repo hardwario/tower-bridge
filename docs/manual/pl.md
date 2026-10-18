@@ -68,7 +68,7 @@ Zakres czasu wybierz nad wykresami, od 1 godziny do 365 dni. Wszystkie wykresy n
 | Powiększenie zakresu | <kbd>Shift</kbd> + przeciągnięcie |
 | Powrót do zakresu czasu | Ikona resetu (4) |
 
-Czerwona krawędź u góry panelu oznacza, że wartość jest poza limitami alarmu; na wykresie jasnoczerwony pas pokrywa wartości poza limitem.
+Czerwona krawędź u góry panelu oznacza, że wartość jest poza limitami alarmu; na wykresie obszar poza limitem ma jasnoczerwone tło.
 
 Gdy ta sama wielkość jest mierzona na obu kanałach, na przykład temperaturę mierzą Climate Module i Humidity Tag, jej panel pokazuje obie wartości, dla każdego kanału linię we własnym kolorze, a pod wykresem dla każdego z nich wiersz z min, średnią i max. Kolorowa kropka na początku wiersza wybiera kolor jego linii, a nagłówki kolumn włączają i wyłączają linie min, średniej i max. Kliknięcie nazwy wiersza, na przykład *Humidity Tag*, ukrywa jego linię na wykresie; wiersz robi się szary, a kolejne kliknięcie przywraca linię. Jedna linia zawsze zostaje.
 
@@ -151,22 +151,22 @@ Po włączeniu **Zezwalaj na sterowanie przekaźnikiem** przekaźnik przyjmuje `
 
 ### API i MCP {#api}
 
-Opcjonalny lokalny serwer udostępnia REST API, metryki Prometheus i serwer MCP dla asystentów AI; domyślnie jest wyłączony. Zmiany, takie jak limity alarmów lub przełączanie przekaźnika, wymagają **Zezwalaj na zmiany**. Inne komputery muszą wysyłać token dostępu pokazany w ustawieniach.
+Opcjonalny lokalny serwer udostępnia REST API, metryki Prometheus i serwer MCP dla asystentów AI; domyślnie jest wyłączony. Zmiany, takie jak limity alarmów, przełączanie przekaźnika lub zapis NFC Tagu, wymagają **Zezwalaj na zmiany**. Inne komputery muszą wysyłać token dostępu pokazany w ustawieniach.
 
 ## Wiersz poleceń {#cli}
 
-`tower-bridge-cli` to rodzeństwo tej aplikacji bez okna, dla terminala lub komputera bez pulpitu, na przykład Raspberry Pi obok bridge. Dzieli ustawienia i historię tej aplikacji:
+`tower-bridge-cli` to wersja tej aplikacji bez okna, do terminala lub na komputer bez środowiska graficznego, na przykład Raspberry Pi obok Bridge Module. Korzysta z tych samych ustawień i historii co ta aplikacja:
 
 - samo `tower-bridge-cli` otwiera pulpit w terminalu: wartości z wykresami, przekaźnik, GPS, NFC, alarmy i dziennik;
 - `status`, `watch`, `relay`, `gps`, `nfc` i `export` wypisują to, co pokazuje aplikacja, jako tekst albo jako JSON dla skryptów;
 - `tower-bridge-cli run` robi to samo co ta aplikacja, tylko bez okna: zapisuje historię, pilnuje limitów alarmów, publikuje do MQTT i udostępnia [API](#api).
 
-Działa zawsze tylko jedno z nich, bo z bridge może korzystać tylko jeden program. Gdy działa ta aplikacja, polecenia przechodzą przez jej serwer API, więc włącz go w części [API i MCP](#api); przełączanie przekaźnika z wiersza poleceń wymaga **Zezwalaj na zmiany**. Pełny opis jest w pliku docs/cli.md w kodzie źródłowym.
+Działa zawsze tylko jedno z nich, bo z Bridge Module może korzystać tylko jeden program. Gdy działa ta aplikacja, polecenia przechodzą przez jej serwer API, więc włącz go w części [API i MCP](#api); przełączanie przekaźnika z wiersza poleceń wymaga **Zezwalaj na zmiany**. Pełny opis jest w pliku docs/cli.md w kodzie źródłowym.
 
 ## Rozwiązywanie problemów {#troubleshooting}
 
 - **Urządzenie niepodłączone:** sprawdź kabel USB. Z urządzenia może jednocześnie korzystać tylko jeden program, więc zamknij inne narzędzia, które mogą go używać.
-- **Działa już inny TOWER Bridge:** bridge i dane tej aplikacji trzyma `tower-bridge-cli run` albo jego pulpit. Zakończ go i uruchom aplikację ponownie.
+- **Działa już inny TOWER Bridge:** Bridge Module i dane tej aplikacji zajmuje `tower-bridge-cli run` albo jego pulpit. Zakończ go i uruchom aplikację ponownie.
 - **Brak uprawnień (Linux):** zainstaluj [regułę udev](#install) i podłącz urządzenie ponownie.
 - **Nie znaleziono czujników:** sprawdź, czy moduły i tagi są dobrze osadzone, i naciśnij **Wyszukaj ponownie**. Pozostaw kanały I²C na „Automatycznie” lub ustaw kanał, do którego są podłączone.
 - **Stan przekaźnika nieznany:** przełącz przekaźnik raz przyciskiem Aktywuj TRUE lub Aktywuj FALSE.

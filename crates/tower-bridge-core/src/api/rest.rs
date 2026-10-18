@@ -502,8 +502,18 @@ async fn write_nfc(
         .filter(|u| !u.is_empty())
         .map(crate::nfc::with_scheme)
         .ok_or_else(|| HttpError::bad_request("'url' (a web address) is required"))?;
-    if ctx.backend.nfc().is_none() {
-        return Err(no_nfc());
+    match ctx.backend.nfc() {
+        None => return Err(no_nfc()),
+        // The app does not format tags: that writes block 0, where a wrong
+        // byte moves or locks the chip for good.
+        Some(tag) if !tag.formatted => {
+            return Err(HttpError::new(
+                StatusCode::CONFLICT,
+                "not_formatted",
+                "the NFC Tag is not NDEF formatted; format it with a phone app (for example NXP TagWriter) first",
+            ));
+        }
+        Some(_) => {}
     }
     let backend = ctx.backend.clone();
     Ok(Json(blocking(move || backend.write_nfc(url)).await?))

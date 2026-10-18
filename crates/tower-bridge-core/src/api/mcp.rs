@@ -580,7 +580,7 @@ impl McpServer {
         match latest.iter().map(|r| r.ts).max() {
             Some(ts) => {
                 out.insert("timestamp".into(), json!(format_time(ts)));
-                out.insert("age_seconds".into(), json!((now_ms() - ts).max(0) / 1000));
+                out.insert("age_ms".into(), json!((now_ms() - ts).max(0)));
                 out.insert("stale".into(), json!(!device.is_ready()));
                 let readings: Vec<Value> = latest
                     .iter()
@@ -719,9 +719,9 @@ impl McpServer {
         Ok(json!({
             "from": format_time(from),
             "to": format_time(to),
-            "bucket_minutes": round(h.bucket_ms as f64 / 60_000.0, 2),
+            "bucket_ms": h.bucket_ms,
             "channels": channels,
-            "note": if channels.is_empty() { "No readings in this range." } else { "Each point is the average over bucket_minutes starting at 'time'." },
+            "note": if channels.is_empty() { "No readings in this range." } else { "Each point is the average over bucket_ms milliseconds starting at 'time'." },
         }))
     }
 

@@ -117,6 +117,7 @@ jobs:
         run: |
           set -euo pipefail
           v="${GITHUB_REF_NAME#v}"
+          v="${v//\//-}"  # a dry run on feature/x
           mkdir -p out
           case "${{ matrix.name }}" in
             macos)   cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/TOWER-Bridge-$v-macos-universal.dmg" ;;
@@ -209,7 +210,8 @@ jobs:
         run: |
           set -euo pipefail
           target="${{ matrix.target }}"
-          name="tower-bridge-cli-${GITHUB_REF_NAME#v}-$target"
+          v="${GITHUB_REF_NAME#v}"
+          name="tower-bridge-cli-${v//\//-}-$target"
           mkdir -p "out/$name"
           cp docs/cli.md "out/$name/README.md"
           cp LICENSE THIRD-PARTY-NOTICES.md "out/$name/"
@@ -235,7 +237,9 @@ jobs:
   publish:
     name: Draft release
     needs: [build, cli]
-    if: github.ref_type == 'tag'
+    # Only a pushed tag: a dry run started on a tag must not replace the
+    # assets of its release.
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write

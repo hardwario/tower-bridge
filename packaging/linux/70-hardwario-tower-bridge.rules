@@ -1,14 +1,17 @@
 # HARDWARIO TOWER Bridge Module (FTDI FT260, 0403:6030)
 #
-# Gives the logged-in user access to the bridge without sudo.
+# Gives access to the bridge without sudo: to the user logged in at the
+# computer (uaccess), and to members of the plugdev group, for services and
+# SSH sessions on a computer without a desktop (a Raspberry Pi).
 # Install:
 #   sudo cp 70-hardwario-tower-bridge.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload && sudo udevadm trigger
+#   sudo usermod -aG plugdev $USER     # then log in again
 #
 # The 70- prefix matters: TAG+="uaccess" must be applied before 73-seat-late.rules.
 
 # Direct USB HID access (used by default).
-KERNEL=="hidraw*", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6030", MODE="0660", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6030", MODE="0660", GROUP="plugdev", TAG+="uaccess"
 
 # Kernel hid-ft260 driver exposing the bridge as /dev/i2c-N (fallback).
-SUBSYSTEM=="i2c-dev", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6030", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="i2c-dev", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6030", MODE="0660", GROUP="plugdev", TAG+="uaccess"

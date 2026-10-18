@@ -13,7 +13,7 @@ mod output;
 mod remote;
 mod tui;
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -64,28 +64,17 @@ fn main() -> ExitCode {
         Err(e) => {
             let (code, hint) = match e.downcast_ref::<Failure>() {
                 Some(f) => (f.code, f.hint.clone()),
-                None => (exit::ERROR, permission_hint(&e)),
+                None => (exit::ERROR, None),
             };
-            eprintln!("error: {e:#}");
+            // Not `eprintln!`: it panics when stderr is a terminal that is gone.
+            let mut stderr = std::io::stderr();
+            let _ = writeln!(stderr, "error: {e:#}");
             if let Some(hint) = hint {
-                eprintln!("hint: {hint}");
+                let _ = writeln!(stderr, "hint: {hint}");
             }
             ExitCode::from(code)
         }
     }
-}
-
-/// On Linux, a bridge that cannot be opened usually lacks the udev rule.
-fn permission_hint(e: &anyhow::Error) -> Option<String> {
-    let denied = e.chain().any(|c| {
-        c.downcast_ref::<std::io::Error>()
-            .is_some_and(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
-            || c.to_string().to_lowercase().contains("permission denied")
-    });
-    (denied && cfg!(target_os = "linux")).then(|| {
-        "install the udev rule (packaging/linux/70-hardwario-tower-bridge.rules, see docs/cli.md) and plug the bridge in again"
-            .to_string()
-    })
 }
 
 /// Rust ignores SIGPIPE, which turns a closed pipe (`tower-bridge-cli watch |

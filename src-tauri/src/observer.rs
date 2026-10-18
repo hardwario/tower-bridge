@@ -1,6 +1,8 @@
 //! The service's events for the desktop: webview events for the dashboard,
 //! the tray, and native notifications.
 
+use std::sync::OnceLock;
+
 use tauri::{AppHandle, Emitter};
 use tower_bridge_core::alerts::{ActiveAlert, AlertEvent, AlertKind, Bound};
 use tower_bridge_core::gps::GpsInfo;
@@ -15,19 +17,35 @@ use crate::notify;
 use crate::tray::TrayController;
 
 pub struct AppObserver {
-    pub app: AppHandle,
-    pub tray: TrayController,
+    app: AppHandle,
+    /// Built once the service started (and took the data folder's lock).
+    tray: OnceLock<TrayController>,
+}
+
+impl AppObserver {
+    pub fn new(app: AppHandle) -> Self {
+        Self {
+            app,
+            tray: OnceLock::new(),
+        }
+    }
+
+    pub fn set_tray(&self, tray: TrayController) {
+        let _ = self.tray.set(tray);
+    }
 }
 
 impl Observer for AppObserver {
     fn refresh(&self, state: &ServiceState) {
+        let Some(tray) = self.tray.get() else {
+            return;
+        };
         let settings = state.settings();
         let device = state.device.read().clone();
         let latest = state.latest.read().clone();
         let alerts = state.alerts.read().clone();
         let mqtt = state.mqtt.read().clone();
-        self.tray
-            .update(&device, &latest, &settings, &alerts, &mqtt);
+        tray.update(&device, &latest, &settings, &alerts, &mqtt);
     }
 
     fn reading(&self, _: &ServiceState, reading: &Reading) {

@@ -101,8 +101,11 @@ impl Store {
         Self::from_connection(Connection::open_in_memory()?)
     }
 
-    fn from_connection(conn: Connection) -> Result<Self> {
+    fn from_connection(mut conn: Connection) -> Result<Self> {
         schema::migrate(&conn)?;
+        let tx = conn.transaction()?;
+        hourly::catch_up(&tx)?;
+        tx.commit()?;
         Ok(Self {
             conn,
             device_ids: HashMap::new(),

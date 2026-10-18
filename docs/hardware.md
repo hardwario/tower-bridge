@@ -310,25 +310,26 @@ it puts the expander back to all inputs.
 
 ## Diagnostics CLI
 
-`tower-bridge-cli` validates hardware support without the desktop app:
+`tower-bridge-cli toolbox` validates hardware support without the desktop app
+or the service; the everyday commands are described in [cli.md](cli.md).
+`--channel`, `--backend` and `--trace` go before the tool:
 
 ```sh
-cargo run -p tower-bridge-cli -- scan            # list bridges and interfaces
-cargo run -p tower-bridge-cli -- probe --trace   # find the sensors, one cycle per channel, hex dump of every report
-cargo run -p tower-bridge-cli -- watch           # continuous, with reconnect
-cargo run -p tower-bridge-cli -- i2c-scan        # addresses per channel and in front of the switch
-cargo run -p tower-bridge-cli -- i2c-identify    # name the sensor chips on each channel
-cargo run -p tower-bridge-cli -- led on
-cargo run -p tower-bridge-cli -- relay [true|false]  # find the Relay Module, show or switch it
-cargo run -p tower-bridge-cli -- nfc [URL]       # find the TOWER NFC Tag, show its URL or write a new one
-cargo run -p tower-bridge-cli -- nfc --scan      # look for a TOWER NFC Tag at every address
-cargo run -p tower-bridge-cli -- co2             # find the TOWER CO2 Module, charge for a minute, measure 3 times
-cargo run -p tower-bridge-cli -- co2 --charge 5 --pressure 990 --state lp8.txt  # shorter charge, a pressure, a kept state
-cargo run -p tower-bridge-cli -- voc             # find the VOC-LP Tag and measure every 30 s
-cargo run -p tower-bridge-cli -- gps             # find the TOWER GPS Module and show the position every 5 s
-cargo run -p tower-bridge-cli -- i2c-read 0x38 0x03 --len 1   # write a register, STOP, read
-cargo run -p tower-bridge-cli -- i2c-write 0x38 0x03 0xff     # write bytes on --channel (default 0)
+cargo run -p tower-bridge-cli -- toolbox scan              # list bridges and interfaces
+cargo run -p tower-bridge-cli -- toolbox --trace probe     # find the sensors, one cycle per channel, hex dump of every report
+cargo run -p tower-bridge-cli -- toolbox i2c-scan          # addresses per channel and in front of the switch
+cargo run -p tower-bridge-cli -- toolbox i2c-identify      # name the sensor chips on each channel
+cargo run -p tower-bridge-cli -- toolbox led on
+cargo run -p tower-bridge-cli -- toolbox nfc-scan          # look for a TOWER NFC Tag at every address
+cargo run -p tower-bridge-cli -- toolbox co2               # find the TOWER CO2 Module, charge for a minute, measure 3 times
+cargo run -p tower-bridge-cli -- toolbox co2 --charge 5 --pressure 990 --state lp8.txt  # shorter charge, a pressure, a kept state
+cargo run -p tower-bridge-cli -- toolbox voc               # find the VOC-LP Tag and measure every 30 s
+cargo run -p tower-bridge-cli -- toolbox gps               # find the TOWER GPS Module and print every report for 30 s
+cargo run -p tower-bridge-cli -- toolbox i2c-read 0x38 0x03 --len 1   # write a register, STOP, read
+cargo run -p tower-bridge-cli -- toolbox --channel 1 i2c-write 0x38 0x03 0xff   # write bytes (channel 0 by default)
+cargo run -p tower-bridge-cli -- relay true                # the Relay Module, through the service (see cli.md)
+cargo run -p tower-bridge-cli -- nfc write hardwario.com   # a URL on the TOWER NFC Tag
 ```
 
-`probe` prints the same lines as enmon (`@SENSOR: "Temperature",27.20`).
-Add `--simulate` to any command to use the simulated bridge.
+`toolbox probe` prints the same lines as enmon (`@SENSOR: "Temperature",27.20`).
+Add `--simulate` to use the simulated bridge.

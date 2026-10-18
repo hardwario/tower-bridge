@@ -130,9 +130,10 @@ const FROM_READINGS: &str = "SELECT (ts / ?1) * ?1 AS b, channel,
     FROM readings WHERE ts >= ?2 AND ts < ?3
     GROUP BY b, channel ORDER BY b, channel";
 
-/// Buckets of whole hours from the hourly summary. The first bucket takes
-/// the whole hour `from` falls in, as a bucket of the readings would start
-/// at a bucket boundary too.
+/// Buckets of hours: the whole hours inside the range from the hourly
+/// summary, the parts of the first and last hour from the readings, so a
+/// bucket holds exactly the readings of `[from, to)` as with
+/// `FROM_READINGS`. `?4` is the first whole hour, `?5` the end of the last.
 const FROM_HOURS: &str = "SELECT (hour / ?1) * ?1 AS b, channel,
         SUM(temperature_sum) / SUM(temperature_n), MIN(temperature_min), MAX(temperature_max),
         SUM(humidity_sum) / SUM(humidity_n), MIN(humidity_min), MAX(humidity_max),
@@ -140,27 +141,51 @@ const FROM_HOURS: &str = "SELECT (hour / ?1) * ?1 AS b, channel,
         SUM(pressure_sum) / SUM(pressure_n), MIN(pressure_min), MAX(pressure_max),
         SUM(co2_sum) / SUM(co2_n), MIN(co2_min), MAX(co2_max),
         SUM(voc_sum) / SUM(voc_n), MIN(voc_min), MAX(voc_max)
-    FROM readings_hourly WHERE hour >= (?2 / 3600000) * 3600000 AND hour < ?3
+    FROM (
+        SELECT hour, channel, temperature_sum, temperature_n, temperature_min, temperature_max, humidity_sum, humidity_n, humidity_min, humidity_max, illuminance_sum, illuminance_n, illuminance_min, illuminance_max, pressure_sum, pressure_n, pressure_min, pressure_max, co2_sum, co2_n, co2_min, co2_max, voc_sum, voc_n, voc_min, voc_max
+            FROM readings_hourly WHERE hour >= ?4 AND hour < ?5
+        UNION ALL
+        SELECT (ts / 3600000) * 3600000, channel,
+                temperature, temperature IS NOT NULL, temperature, temperature,
+                humidity, humidity IS NOT NULL, humidity, humidity,
+                illuminance, illuminance IS NOT NULL, illuminance, illuminance,
+                pressure, pressure IS NOT NULL, pressure, pressure,
+                co2, co2 IS NOT NULL, co2, co2,
+                voc, voc IS NOT NULL, voc, voc
+            FROM readings WHERE ts >= ?2 AND ts < ?3 AND (ts < ?4 OR ts >= ?5)
+    )
     GROUP BY b, channel ORDER BY b, channel";
 
 /// The aggregated rows of `[from, to)` in buckets of `bucket` ms.
 fn rows(conn: &Connection, bucket: i64, from: i64, to: i64, hours: bool) -> Result<Vec<Row>> {
     let mut stmt = conn.prepare_cached(if hours { FROM_HOURS } else { FROM_READINGS })?;
-    let rows = stmt
-        .query_map(params![bucket, from, to], |r| {
-            let mut values = [[None; 3]; METRICS];
-            for (m, v) in values.iter_mut().enumerate() {
-                for (k, x) in v.iter_mut().enumerate() {
-                    *x = r.get(2 + m * 3 + k)?;
-                }
+    let floor = from.div_euclid(HOUR) * HOUR;
+    let first_whole = if floor == from {
+        from
+    } else {
+        floor.saturating_add(HOUR)
+    };
+    let whole_end = to.div_euclid(HOUR) * HOUR;
+    let map = |r: &rusqlite::Row<'_>| {
+        let mut values = [[None; 3]; METRICS];
+        for (m, v) in values.iter_mut().enumerate() {
+            for (k, x) in v.iter_mut().enumerate() {
+                *x = r.get(2 + m * 3 + k)?;
             }
-            Ok(Row {
-                bucket: r.get(0)?,
-                channel: r.get(1)?,
-                values,
-            })
-        })?
-        .collect::<rusqlite::Result<_>>()?;
+        }
+        Ok(Row {
+            bucket: r.get(0)?,
+            channel: r.get(1)?,
+            values,
+        })
+    };
+    let rows = if hours {
+        stmt.query_map(params![bucket, from, to, first_whole, whole_end], map)?
+            .collect::<rusqlite::Result<_>>()?
+    } else {
+        stmt.query_map(params![bucket, from, to], map)?
+            .collect::<rusqlite::Result<_>>()?
+    };
     Ok(rows)
 }
 
@@ -368,6 +393,16 @@ mod tests {
         for bucket in [HOUR, 2 * HOUR, 6 * HOUR, 24 * HOUR] {
             assert_same(s.conn(), bucket, 0, 3 * 24 * HOUR)?;
         }
+        // Ranges off the hour, as in another time zone or a custom range:
+        // the edges hold only the readings inside.
+        for (from, to) in [
+            (25 * HOUR + 20 * MINUTE, 60 * HOUR + 10 * MINUTE),
+            (30 * MINUTE, 50 * MINUTE),
+        ] {
+            for bucket in [HOUR, 2 * HOUR, 6 * HOUR] {
+                assert_same(s.conn(), bucket, from, to)?;
+            }
+        }
         // Single inserts keep it current too, also replacing a reading.
         s.insert(&reading(3 * 24 * HOUR + 60_000, 50.0))?;
         s.insert(&reading(3 * 24 * HOUR + 120_000, 10.0))?;
@@ -380,6 +415,32 @@ mod tests {
         assert_same(s.conn(), HOUR, 0, 4 * 24 * HOUR)?;
         let first = rows(s.conn(), HOUR, 0, 4 * 24 * HOUR, true)?;
         assert_eq!(first[0].bucket, 25 * HOUR);
+        Ok(())
+    }
+
+    #[test]
+    fn hours_written_by_an_older_build_are_summarized_on_open()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("t.db");
+        {
+            let mut s = Store::open(&path)?;
+            three_days(&mut s)?;
+        }
+        // An older build knows nothing of the summary and writes readings only.
+        {
+            let conn = Connection::open(&path)?;
+            for i in 0..120 {
+                conn.execute(
+                    "INSERT INTO readings (ts, device_id, channel, temperature) VALUES (?1, 1, 0, ?2)",
+                    rusqlite::params![3 * 24 * HOUR + i * MINUTE, 30.0 + i as f64 / 10.0],
+                )?;
+            }
+        }
+        let s = Store::open(&path)?;
+        assert_same(s.conn(), HOUR, 0, 4 * 24 * HOUR)?;
+        let hours = rows(s.conn(), HOUR, 3 * 24 * HOUR, 4 * 24 * HOUR, true)?;
+        assert_eq!(hours.len(), 2, "both hours the older build wrote");
         Ok(())
     }
 

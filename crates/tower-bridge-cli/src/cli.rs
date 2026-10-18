@@ -11,7 +11,7 @@ With no command in a terminal, opens the dashboard.
 
 Settings and history are shared with the TOWER Bridge desktop app. While the app
 or `tower-bridge-cli run` holds the bridge, commands reach it through its API
-server (Settings, API server in the app; `config set api.enabled true` here).
+server (in the app: Settings, API & MCP; here: `config set api.enabled true`).
 
 Exit codes: 0 ok, 1 error, 2 usage, 3 bridge busy, 4 not found.";
 
@@ -27,7 +27,8 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "DIR", env = "TOWER_BRIDGE_DATA_DIR")]
     pub data_dir: Option<PathBuf>,
     /// Use a simulated bridge with every module; its data is kept apart.
-    #[arg(long, global = true, env = "TOWER_BRIDGE_SIMULATE")]
+    // Any value but 0, false, no or off turns it on, as in the app (`=1`).
+    #[arg(long, global = true, env = "TOWER_BRIDGE_SIMULATE", value_parser = clap::builder::FalseyValueParser::new())]
     pub simulate: bool,
     /// Print JSON: one object, or one per line for streams.
     #[arg(long, global = true)]
@@ -60,7 +61,7 @@ pub enum Command {
     /// Print readings as they come; Ctrl+C stops.
     Watch {
         /// Stop after this many readings.
-        #[arg(long, value_name = "N")]
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
         count: Option<u32>,
     },
     /// Show the Relay Module, or switch or pulse it.

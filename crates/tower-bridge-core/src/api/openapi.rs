@@ -162,10 +162,12 @@ pub fn document(info: &ApiInfo) -> Value {
     address has no scheme; at most 240 bytes", "description": control,
                     "requestBody": { "required": true, "content": { "application/json": { "schema": {
                         "type": "object", "required": ["url"],
-                        "properties": { "url": { "type": "string", "maxLength": 240 } } } } } },
+                        "properties": { "url": { "type": "string",
+                            "description": "At most 240 bytes of UTF-8, counted after https:// is added" } } } } } },
                     "responses": guarded(json!({ "200": { "description": "What the tag holds afterwards" },
                         "400": { "description": "No URL given, or longer than 240 bytes", "content": error["content"].clone() },
                         "404": { "description": "No NFC Tag connected (code no_nfc)", "content": error["content"].clone() },
+                        "409": { "description": "The tag is not NDEF formatted (code not_formatted); format it with a phone app first", "content": error["content"].clone() },
                         "500": { "description": "Writing to the tag failed", "content": error["content"].clone() },
                         "503": unavailable.clone() })) }
             },

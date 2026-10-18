@@ -1,0 +1,2 @@
+# Generated files are compared byte for byte in CI (`npm run notices -- --check`).
+THIRD-PARTY-NOTICES.md text eol=lf

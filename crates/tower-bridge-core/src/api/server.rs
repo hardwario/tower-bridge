@@ -470,6 +470,14 @@ mod tests {
         assert_eq!(put(br#"{"url":""}"#)?.status, 400);
         assert_eq!(put(br#"{}"#)?.status, 400);
 
+        if let Ok(mut n) = backend.nfc.lock()
+            && let Some(tag) = n.as_mut()
+        {
+            tag.formatted = false;
+        }
+        let r = put(br#"{"url":"x.io"}"#)?;
+        assert_eq!(r.status, 409);
+        assert_eq!(json_body(&r)["error"]["code"], "not_formatted");
         if let Ok(mut n) = backend.nfc.lock() {
             *n = None;
         }

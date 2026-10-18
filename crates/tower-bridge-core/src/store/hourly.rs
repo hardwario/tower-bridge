@@ -66,3 +66,36 @@ pub fn purge_older_than(conn: &Connection, cutoff_ms: i64) -> Result<()> {
     }
     Ok(())
 }
+
+/// Summarize the hours recorded without the summary: an older build (from
+/// before the table) that wrote to the same database writes readings only.
+/// The newest summarized hour onward is computed again, which is an hour
+/// or two after a normal stop.
+pub fn catch_up(conn: &Connection) -> Result<()> {
+    let newest: Option<i64> = conn.query_row("SELECT MAX(ts) FROM readings", [], |r| r.get(0))?;
+    let Some(newest) = newest else {
+        return Ok(());
+    };
+    let summarized: Option<i64> =
+        conn.query_row("SELECT MAX(hour) FROM readings_hourly", [], |r| r.get(0))?;
+    let from = match summarized {
+        Some(hour) => hour,
+        None => conn.query_row("SELECT MIN(ts) FROM readings", [], |r| r.get::<_, i64>(0))?,
+    };
+    if summarized.is_some_and(|hour| hour >= hour_of(newest)) {
+        // Only the newest hour can be behind: refresh it, it is cheap.
+        let channels: Vec<u8> = conn
+            .prepare("SELECT DISTINCT channel FROM readings WHERE ts >= ?1")?
+            .query_map(params![hour_of(newest)], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for channel in channels {
+            refresh(conn, hour_of(newest), channel)?;
+        }
+        return Ok(());
+    }
+    let hours: BTreeSet<(i64, u8)> = conn
+        .prepare("SELECT DISTINCT (ts / 3600000) * 3600000, channel FROM readings WHERE ts >= ?1")?
+        .query_map(params![hour_of(from)], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    refresh_all(conn, &hours)
+}

@@ -280,7 +280,7 @@ export const en = {
       mcp: "MCP server",
       mcpHint: "Tools for AI assistants (Claude, Cursor, VS Code…) at /mcp.",
       allowControl: "Allow changes",
-      allowControlHint: "Let API clients and AI assistants change alert limits, switch the relay and blink the LED.",
+      allowControlHint: "Let API clients and AI assistants change alert limits, switch the relay, write the NFC Tag and blink the LED.",
       token: "Access token",
       tokenHint: "Send as “Authorization: Bearer …”. Required for network access.",
       newToken: "New",

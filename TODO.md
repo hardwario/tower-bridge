@@ -20,11 +20,13 @@ Steps:
 5. Done: the terminal dashboard (`tui/`), checked in a pseudo-terminal.
 6. Done: tests (unit, TestBackend renders, assert_cmd contract against the simulated bridge); docs/cli.md (with systemd and launchd examples), README, CHANGELOG, AGENTS, a "Command line" chapter and a troubleshooting entry in all five manuals; release archives of the CLI in release.yml (Linux x86_64 and aarch64 through `cross` with a glibc 2.28 floor, macOS universal, Windows with the static CRT check), a `workflow_dispatch` dry run, and the third-party notices covering the CLI.
 
-Not committed yet. Waiting:
+Committed (55c999d). A second review the same day found about 40 issues, fixed after it (see the 2026-10-18 learnings in AGENTS.md). Still open:
 
-- The release workflow's CLI jobs have never run: start a dry run (Actions, Release, Run workflow) once the repository is on GitHub. The `cross` images may need more packages for aws-lc (cmake, clang) if the Linux builds fail.
+- The CLI's Linux builds in the `cross` images (Ubuntu 16.04) are unverified: `.github/workflows/cross.yml` tries them when Cargo.lock, Cross.toml or the workflows change, and the release workflow has a dry run (Actions, Release, Run workflow, on a branch). If aws-lc does not build there, switch rumqttc to `use-rustls-no-provider` with rustls' `ring` provider.
 - A 32-bit Raspberry Pi build (`armv7-unknown-linux-gnueabihf`) is not in the matrix yet.
 - Not tried on real hardware: the CLI against the bridge itself (only the simulated bridge, and the desktop app's refusal on the real data folder).
+- Formatting an unformatted NFC Tag (asked on 2026-10-18): not supported; the app, the CLI and the API (409 `not_formatted`) point to a phone app such as NXP TagWriter. Doing it means writing block 0, which also holds the I²C address and the static lock bytes. Per the NT3H2111 datasheet (to verify): byte 0 written sets the address (as `address << 1`) while a read returns the manufacturer ID 0x04, so a plain read-modify-write moves the chip; the lock bytes must be written back as read (0); the capability container is bytes 12 to 15 (`E1 10 6D 00` on the 1k part), then an empty NDEF TLV `03 00 FE` in block 1. Needs a spare real tag to verify.
+- The Linux AppImage bundles LGPL libraries (WebKitGTK, GTK, GLib); the notices name them and point to the Ubuntu sources. Have someone check that this is enough for LGPL.
 
 Everything is committed on the branch `feature/channels-manual-mqtt` (not merged into `main` yet).
 

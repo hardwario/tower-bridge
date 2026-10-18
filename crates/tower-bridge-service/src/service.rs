@@ -48,7 +48,7 @@ pub enum StartError {
     AlreadyRunning(Holder, std::path::PathBuf),
     #[error("cannot use the data folder {0}: {1}")]
     DataDir(std::path::PathBuf, std::io::Error),
-    #[error("cannot start: {0}")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 
@@ -59,7 +59,9 @@ pub struct Service {
     hub: Mutex<Option<JoinHandle<()>>>,
     /// Settings were created on this start.
     pub first_run: bool,
-    _lock: InstanceLock,
+    /// Held by a full instance; `None` in a session, or where the folder
+    /// cannot hold a lock file.
+    _lock: Option<InstanceLock>,
 }
 
 impl std::ops::Deref for Service {
@@ -76,9 +78,26 @@ impl Service {
         paths
             .create()
             .map_err(|e| StartError::DataDir(paths.data_dir.clone(), e))?;
-        let lock = InstanceLock::acquire(&paths.lock_file(), &config.program)
-            .map_err(|e| StartError::DataDir(paths.data_dir.clone(), e))?
-            .map_err(|holder| StartError::AlreadyRunning(holder, paths.data_dir.clone()))?;
+        let full = config.mode == Mode::Full;
+        // A session takes no lock: an instance starting meanwhile waits for
+        // the bridge instead of refusing to start (the app at login next to
+        // a script calling `status`).
+        if let Some(holder) = InstanceLock::holder(&paths.lock_file()) {
+            return Err(StartError::AlreadyRunning(holder, paths.data_dir.clone()));
+        }
+        let lock = match full.then(|| InstanceLock::acquire(&paths.lock_file(), &config.program)) {
+            None => None,
+            Some(Ok(Ok(lock))) => Some(lock),
+            Some(Ok(Err(holder))) => {
+                return Err(StartError::AlreadyRunning(holder, paths.data_dir.clone()));
+            }
+            // A folder without room for the lock (read-only) still runs, as
+            // before there was a lock.
+            Some(Err(e)) => {
+                warn!("cannot lock the data folder, not checking for another instance: {e}");
+                None
+            }
+        };
         info!(
             "{} {} starting (data: {}{}{})",
             config.program,
@@ -92,8 +111,12 @@ impl Service {
             },
         );
 
-        let full = config.mode == Mode::Full;
-        let (settings, first_run) = Settings::load(&paths.settings_file());
+        // A session only reads: `load` may back the file up or move it aside.
+        let (settings, first_run) = if full {
+            Settings::load(&paths.settings_file())
+        } else {
+            (Settings::read(&paths.settings_file()), false)
+        };
         // Persist defaults added by newer versions (and the generated API token).
         if full && let Err(e) = settings.save(&paths.settings_file()) {
             error!("cannot write settings: {e}");
@@ -261,4 +284,64 @@ fn seed_simulated_history(store: &mut Store, interval_ms: u64) {
     }
     let _ = store.insert_many(&batch);
     info!("seeded {days} days of simulated history");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::observer::Silent;
+
+    fn config(dir: &std::path::Path, mode: Mode) -> ServiceConfig {
+        ServiceConfig {
+            paths: Paths {
+                data_dir: dir.to_path_buf(),
+                portable: false,
+            },
+            mode,
+            simulated: true,
+            program: "test".into(),
+            version: "0".into(),
+            observer: Arc::new(Silent),
+        }
+    }
+
+    #[test]
+    fn a_session_does_not_keep_the_service_out() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        // A short command runs; the app starts at login meanwhile.
+        let session = Service::start(config(dir.path(), Mode::Session))?;
+        let full = Service::start(config(dir.path(), Mode::Full))?;
+        // Next to the service, neither a session nor a second service starts:
+        // commands go through its API instead.
+        assert!(matches!(
+            Service::start(config(dir.path(), Mode::Session)),
+            Err(StartError::AlreadyRunning(..))
+        ));
+        assert!(matches!(
+            Service::start(config(dir.path(), Mode::Full)),
+            Err(StartError::AlreadyRunning(..))
+        ));
+        session.shutdown(Duration::from_secs(2));
+        full.shutdown(Duration::from_secs(2));
+        Ok(())
+    }
+
+    #[test]
+    fn a_session_only_reads_the_settings() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let file = dir.path().join("settings.json");
+        std::fs::write(&file, "not json")?;
+        let session = Service::start(config(dir.path(), Mode::Session))?;
+        session.shutdown(Duration::from_secs(2));
+        assert_eq!(
+            std::fs::read_to_string(&file)?,
+            "not json",
+            "neither moved nor rewritten"
+        );
+        assert!(
+            !dir.path().join("tower-bridge.db").exists(),
+            "nothing recorded"
+        );
+        Ok(())
+    }
 }

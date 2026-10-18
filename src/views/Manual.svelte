@@ -89,23 +89,34 @@
     else if (LINKS[href]) api.openLink(LINKS[href]);
   }
 
+  /** Counts the openings, so a load finishing after Back changes nothing. */
+  let noticesOpened = 0;
+  let back = $state<HTMLButtonElement>();
+
   async function openNotices() {
+    const opened = ++noticesOpened;
     root?.scrollTo({ top: 0 });
     notices = { html: "" };
+    await tick();
+    // The clicked link is gone: keep the keyboard focus on the page.
+    back?.focus();
     try {
-      notices = { html: await loadNotices() };
+      const html = await loadNotices();
+      if (opened === noticesOpened && notices) notices = { html };
     } catch (e) {
       // A chunk of the app itself; it cannot really fail. Stay on the manual.
       console.error(e);
-      notices = null;
+      if (opened === noticesOpened) notices = null;
     }
   }
 
-  /** Back where the reader came from. */
+  /** Back where the reader came from, with the focus on the link. */
   async function closeNotices() {
+    noticesOpened++;
     notices = null;
     await tick();
     article?.querySelector(`#about`)?.scrollIntoView({ block: "start" });
+    article?.querySelector<HTMLElement>(`a[href="#${NOTICES}"]`)?.focus({ preventScroll: true });
   }
 
   $effect(() => {
@@ -124,7 +135,7 @@
   <div class="view manual">
     <div class="page-head">
       <h1>{t().manual.notices}</h1>
-      <button class="btn" type="button" onclick={closeNotices}>
+      <button class="btn" type="button" bind:this={back} onclick={closeNotices}>
         <Icon name="chevron-left" size={14} />
         {t().manual.back}
       </button>

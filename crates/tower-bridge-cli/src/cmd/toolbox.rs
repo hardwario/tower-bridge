@@ -10,7 +10,7 @@ use tower_bridge_core::bus::discovery::{BackendPref, Discovery};
 use tower_bridge_core::bus::mock::SimulatedBridge;
 use tower_bridge_core::bus::{BusError, Clock, I2cBus, SystemClock};
 use tower_bridge_core::climate::{ChannelMode, Sensors, select_channel};
-use tower_bridge_core::model::{STANDARD_SEA_LEVEL_PA, Values, altitude};
+use tower_bridge_core::model::{DeviceState, STANDARD_SEA_LEVEL_PA, Values, altitude};
 use tower_bridge_service::lock::InstanceLock;
 
 use crate::access::Ctx;
@@ -234,7 +234,11 @@ fn co2(
         }
     }
     let Some(ch) = found else {
-        bail!("no TOWER CO2 Module found (expander 0x38 and UART 0x4d)");
+        return Err(crate::failure(
+            exit::NOT_FOUND,
+            "no TOWER CO2 Module found (expander 0x38 and UART 0x4d)",
+            None,
+        ));
     };
     println!("TOWER CO2 Module on channel {ch}; charging the capacitor for {charge} s");
     let mut module = Co2Module::start(bus.as_mut(), &clock, ch, state)?;
@@ -299,7 +303,11 @@ fn voc(cli: &Cli, count: u32) -> Result<()> {
     let mut bus = open(cli)?;
     let clock = SystemClock::new();
     let Some(ch) = find_channel(cli, bus.as_mut(), &mut |b| Ok(sgpc3::probe(b)?.is_some()))? else {
-        bail!("no TOWER VOC-LP Tag found (SGPC3 at 0x58)");
+        return Err(crate::failure(
+            exit::NOT_FOUND,
+            "no TOWER VOC-LP Tag found (SGPC3 at 0x58)",
+            None,
+        ));
     };
     println!("TOWER VOC-LP Tag on channel {ch}; first value in 30 s");
     let mut sensor = Sgpc3::start(bus.as_mut(), &clock, ch, None)?;
@@ -322,7 +330,11 @@ fn gps(cli: &Cli, count: u32) -> Result<()> {
     let mut bus = open(cli)?;
     let clock = SystemClock::new();
     let Some(ch) = find_channel(cli, bus.as_mut(), &mut |b| GpsModule::probe(b))? else {
-        bail!("no TOWER GPS Module found (expander 0x21)");
+        return Err(crate::failure(
+            exit::NOT_FOUND,
+            "no TOWER GPS Module found (expander 0x21)",
+            None,
+        ));
     };
     println!("TOWER GPS Module on channel {ch}");
     let mut module = GpsModule::start(bus.as_mut(), &clock, ch)?;
@@ -433,7 +445,15 @@ fn open(cli: &Cli) -> Result<Box<dyn I2cBus>> {
         return Ok(Box::new(SimulatedBridge::new()));
     }
     let mut discovery = Discovery::new(cli.backend.into());
-    let bus = discovery.open_first()?;
+    // Not found, busy or no permission: the same exit codes and hints as
+    // the everyday commands.
+    let bus = discovery.open_first().map_err(|e| {
+        let state = DeviceState::Error {
+            kind: e.kind,
+            message: e.message.clone(),
+        };
+        crate::access::device_failure(&state).unwrap_or_else(|| anyhow::anyhow!(e.message))
+    })?;
     let info = bus.info();
     eprintln!(
         "Opened {} ({:?}, serial {}, chip {})",
@@ -488,7 +508,11 @@ fn probe(cli: &Cli, cycles: u32) -> Result<()> {
     let mut sensors = Sensors::new(cli.channel.into());
     sensors.detect(bus.as_mut(), &clock)?;
     if sensors.is_empty() {
-        bail!("No sensors found on the bridge");
+        return Err(crate::failure(
+            exit::NOT_FOUND,
+            "no sensors found on the bridge",
+            None,
+        ));
     }
     for s in sensors.sources() {
         eprintln!(

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use tauri::{App, AppHandle, Manager, RunEvent};
 use tower_bridge_core::api::ApiInfo;
-use tower_bridge_service::{Paths, Service, ServiceConfig, StartError, settings};
+use tower_bridge_service::{Observer, Paths, Service, ServiceConfig, StartError, settings};
 use tracing::error;
 
 use crate::state::AppState;
@@ -35,7 +35,8 @@ pub fn run() {
     }
 
     // Development instances (simulated bridge or a custom data folder) may run
-    // next to an installed copy, so they skip the single-instance check.
+    // next to an installed copy, so they skip the single-instance check. The
+    // service's lock still keeps two instances off one data folder.
     let isolated = simulated || std::env::var_os("TOWER_BRIDGE_DATA_DIR").is_some();
     autostart::set_isolated(isolated);
     let mut builder = tauri::Builder::default();
@@ -131,30 +132,31 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
     paths.create()?;
     app.manage(LogGuard(logging::init(&paths.logs_dir())));
 
-    let tray = tray::TrayController::build(&handle)?;
-    let observer = observer::AppObserver {
-        app: handle.clone(),
-        tray: tray.clone(),
-    };
+    // The service first: an instance refused for the lock shows no tray.
+    let observer = Arc::new(observer::AppObserver::new(handle.clone()));
     let service = Service::start(ServiceConfig {
         paths: paths.clone(),
         mode: tower_bridge_service::Mode::Full,
         simulated,
         program: "tower-bridge".into(),
         version: handle.package_info().version.to_string(),
-        observer: Arc::new(observer),
+        observer: observer.clone(),
     })
     .map_err(|e| match e {
-        // The CLI's service runs with the same data folder.
+        // The CLI's service, or another development instance, runs with
+        // the same data folder.
         StartError::AlreadyRunning(holder, _) => {
             let tr = i18n::Lang::effective(settings::LanguagePref::System).tr();
-            anyhow::anyhow!(i18n::fill(
-                tr.already_running,
-                &[("holder", &holder.to_string())]
-            ))
+            anyhow::anyhow!(match holder.program {
+                Some(program) => i18n::fill(tr.already_running, &[("holder", &program)]),
+                None => tr.already_running_other.to_string(),
+            })
         }
         e => e.into(),
     })?;
+    let tray = tray::TrayController::build(&handle)?;
+    observer.set_tray(tray.clone());
+    observer.refresh(service.state());
     let first_run = service.first_run;
     app.manage(AppState {
         service,

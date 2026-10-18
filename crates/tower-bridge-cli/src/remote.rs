@@ -121,7 +121,7 @@ impl Remote {
                 exit::ERROR,
                 format!("{} does not allow changes over its API", self.holder),
                 Some(
-                    "turn on Allow changes (Settings, API server), or `config set api.allow_control true` while it is stopped",
+                    "turn on Allow changes (in the app: Settings, API & MCP), or `config set api.allow_control true` while it is stopped",
                 ),
             )),
             _ => Err(anyhow::anyhow!(

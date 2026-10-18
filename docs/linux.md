@@ -11,6 +11,18 @@ sudo udevadm control --reload && sudo udevadm trigger
 
 Re-plug the Bridge Module afterwards.
 
+The rule gives access to the user logged in at the computer. A service or an
+SSH session on a computer without a desktop (a Raspberry Pi running
+`tower-bridge-cli run`) has no such login: add the user to the `plugdev` group,
+which the rule also gives access, and log in again:
+
+```sh
+sudo usermod -aG plugdev $USER
+```
+
+Distributions without a `plugdev` group (Fedora) ignore that part of the rule;
+create the group or change it in the rule.
+
 ## The kernel `hid-ft260` driver
 
 Kernels 5.13 and newer contain a driver for the FT260. When it binds to the

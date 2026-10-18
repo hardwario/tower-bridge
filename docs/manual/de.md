@@ -68,7 +68,7 @@ Wählen Sie den Zeitraum über den Diagrammen, von 1 Stunde bis 365 Tage. Alle D
 | Bereich vergrößern | <kbd>Umschalt</kbd> + Ziehen |
 | Zurück zum Zeitraum | Zurücksetzen-Symbol (4) |
 
-Ein roter Rand oben an einem Panel bedeutet, dass der Wert außerhalb seiner Alarmgrenzen liegt; im Diagramm deckt ein hellroter Streifen die Werte jenseits der Grenze ab.
+Ein roter Rand oben an einem Panel bedeutet, dass der Wert außerhalb seiner Alarmgrenzen liegt; im Diagramm ist der Bereich jenseits der Grenze hellrot hinterlegt.
 
 Wird dieselbe Messgröße auf beiden Kanälen gemessen, etwa die Temperatur vom Climate Module und vom Humidity Tag, zeigt ihr Panel beide Werte, für jeden Kanal eine Linie in eigener Farbe und unter dem Diagramm je eine Zeile mit Min, Mittel und Max. Der farbige Punkt am Anfang einer Zeile wählt die Farbe ihrer Linie; die Spaltenköpfe blenden die Min-, Mittel- und Max-Linien ein oder aus. Ein Klick auf den Namen einer Zeile, etwa *Humidity Tag*, blendet ihre Linie im Diagramm aus; die Zeile wird grau, und ein weiterer Klick holt die Linie zurück. Eine Linie bleibt immer.
 
@@ -151,22 +151,22 @@ Mit eingeschaltetem **Relaissteuerung erlauben** nimmt das Relais `true` oder `f
 
 ### API und MCP {#api}
 
-Der optionale lokale Server bietet eine REST-API, Prometheus-Metriken und einen MCP-Server für KI-Assistenten; standardmäßig ist er aus. Änderungen wie Alarmgrenzen oder das Schalten des Relais erfordern **Änderungen erlauben**. Andere Computer müssen das in den Einstellungen angezeigte Zugriffstoken senden.
+Der optionale lokale Server bietet eine REST-API, Prometheus-Metriken und einen MCP-Server für KI-Assistenten; standardmäßig ist er aus. Änderungen wie Alarmgrenzen, das Schalten des Relais oder das Beschreiben des NFC Tags erfordern **Änderungen erlauben**. Andere Computer müssen das in den Einstellungen angezeigte Zugriffstoken senden.
 
 ## Kommandozeile {#cli}
 
-`tower-bridge-cli` ist das Geschwister dieser App ohne Fenster, für ein Terminal oder einen Rechner ohne Desktop, etwa einen Raspberry Pi neben der Bridge. Es teilt die Einstellungen und den Verlauf dieser App:
+`tower-bridge-cli` ist die fensterlose Variante dieser App, für ein Terminal oder einen Rechner ohne grafische Oberfläche, etwa einen Raspberry Pi neben der Bridge. Sie teilt die Einstellungen und den Verlauf mit dieser App:
 
 - `tower-bridge-cli` allein öffnet ein Dashboard im Terminal: die Werte mit Diagrammen, das Relais, GPS, NFC, Alarme und das Protokoll;
 - `status`, `watch`, `relay`, `gps`, `nfc` und `export` geben aus, was die App zeigt, als Text oder als JSON für Skripte;
 - `tower-bridge-cli run` tut, was diese App tut, nur ohne Fenster: Es speichert den Verlauf, überwacht die Alarmgrenzen, veröffentlicht per MQTT und bietet die [API](#api).
 
-Es läuft immer nur eines davon, denn nur ein Programm kann die Bridge benutzen. Solange diese App läuft, gehen die Befehle über ihren API-Server; schalten Sie ihn deshalb unter [API und MCP](#api) ein. Das Relais von dort zu schalten erfordert **Änderungen erlauben**. Die vollständige Beschreibung steht in docs/cli.md im Quellcode.
+Es läuft immer nur eines davon, denn nur ein Programm kann die Bridge benutzen. Solange diese App läuft, gehen die Befehle über ihren API-Server; schalten Sie ihn deshalb unter [API und MCP](#api) ein. Um das Relais über die Kommandozeile zu schalten, muss **Änderungen erlauben** eingeschaltet sein. Die vollständige Beschreibung steht in docs/cli.md im Quellcode.
 
 ## Fehlerbehebung {#troubleshooting}
 
 - **Gerät nicht verbunden:** Prüfen Sie das USB-Kabel. Nur ein Programm kann das Gerät gleichzeitig nutzen; beenden Sie daher andere Werkzeuge, die es belegen könnten.
-- **Es läuft bereits ein anderes TOWER Bridge:** `tower-bridge-cli run` oder sein Dashboard hält die Bridge und die Daten dieser App. Beenden Sie es und starten Sie die App erneut.
+- **Es läuft bereits eine andere Instanz von TOWER Bridge:** `tower-bridge-cli run` oder sein Dashboard hält die Bridge und die Daten dieser App. Beenden Sie es und starten Sie die App erneut.
 - **Keine Berechtigung (Linux):** Installieren Sie die [udev-Regel](#install) und schließen Sie das Gerät neu an.
 - **Keine Sensoren gefunden:** Prüfen Sie, ob Module und Tags richtig sitzen, und drücken Sie **Neu suchen**. Lassen Sie die I²C-Kanäle auf „Automatisch“ oder stellen Sie den Kanal ein, an dem sie angeschlossen sind.
 - **Relaiszustand unbekannt:** Schalten Sie das Relais einmal mit TRUE aktivieren oder FALSE aktivieren.

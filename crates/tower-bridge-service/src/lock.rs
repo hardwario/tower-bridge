@@ -1,9 +1,12 @@
 //! One running instance per data folder: the desktop app or the CLI's
 //! service, never both. Both would want the bridge (which only one program
-//! can open) and would overwrite each other's settings.
+//! can open) and would overwrite each other's settings. Short CLI commands
+//! take no lock; they only look whether an instance runs.
 //!
 //! The lock is an OS file lock on `tower-bridge.lock`, so it goes away with
 //! the process, also after a crash. The file names the holder for messages.
+//! Locks work on read-only files too: a lock file created by another user
+//! still guards the folder.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{Read, Seek, Write};
@@ -37,18 +40,40 @@ impl InstanceLock {
     /// Take the lock for `program`, or say who has it.
     pub fn acquire(path: &Path, program: &str) -> std::io::Result<Result<Self, Holder>> {
         // Not truncated before the lock is ours: it names the holder.
-        let mut file = OpenOptions::new()
+        let opened = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .open(path)?;
-        match file.try_lock() {
+            .open(path);
+        let (mut file, writable) = match opened {
+            Ok(file) => (file, true),
+            // Someone else's file: it can still be locked, only not named.
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                (File::open(path)?, false)
+            }
+            Err(e) => return Err(e),
+        };
+        // `holder()` takes the lock for an instant to probe it: try again a
+        // few times before calling the folder taken.
+        let mut tries = 0;
+        let locked = loop {
+            match file.try_lock() {
+                Err(TryLockError::WouldBlock) if tries < 10 => {
+                    tries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                }
+                other => break other,
+            }
+        };
+        match locked {
             Ok(()) => {
-                file.set_len(0)?;
-                file.rewind()?;
-                writeln!(file, "{program} {}", std::process::id())?;
-                file.flush()?;
+                if writable {
+                    file.set_len(0)?;
+                    file.rewind()?;
+                    writeln!(file, "{program} {}", std::process::id())?;
+                    file.flush()?;
+                }
                 Ok(Ok(Self { _file: file }))
             }
             Err(TryLockError::WouldBlock) => Ok(Err(read_holder(&mut file))),
@@ -58,7 +83,7 @@ impl InstanceLock {
 
     /// Who runs now, without taking the lock; `None` when nobody does.
     pub fn holder(path: &Path) -> Option<Holder> {
-        let mut file = OpenOptions::new().read(true).write(true).open(path).ok()?;
+        let mut file = File::open(path).ok()?;
         match file.try_lock() {
             // Free: released again when `file` closes.
             Ok(()) => None,

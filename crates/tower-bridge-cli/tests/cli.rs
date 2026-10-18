@@ -228,3 +228,50 @@ fn a_running_service_holds_the_bridge() {
         .assert()
         .code(3);
 }
+
+#[test]
+fn the_simulation_variable_takes_1_as_the_app_does() {
+    let d = data();
+    cli(&d)
+        .env("TOWER_BRIDGE_SIMULATE", "1")
+        .args(["--json", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ready\""));
+    cli(&d).args(["watch", "--count", "0"]).assert().code(2);
+}
+
+#[test]
+fn config_keeps_text_text_and_refuses_damaged_files() {
+    let d = data();
+    // Digits stay a password, and it is not echoed.
+    cli(&d)
+        .args(["config", "set", "mqtt.password", "123456"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("123456").not());
+    cli(&d)
+        .args(["config", "get", "mqtt.password"])
+        .assert()
+        .success()
+        .stdout("123456\n");
+    cli(&d)
+        .args(["config", "set", "mqtt", "{}"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("mqtt.host"));
+    // A file with an error is not overwritten with defaults.
+    let file = d.path().join("settings.json");
+    std::fs::write(&file, "{ \"mqtt\": { \"host\": \"x\", } }").unwrap_or_else(|e| panic!("{e}"));
+    cli(&d)
+        .args(["config", "set", "mqtt.host", "y"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("problems"));
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap_or_default()
+            .contains("\"x\", }"),
+        "untouched"
+    );
+}

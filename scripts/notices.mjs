@@ -20,7 +20,13 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "THIRD-PARTY-NOTICES.md");
 const STATIC = join(ROOT, "scripts/notices");
-const PLATFORMS = ["x86_64-pc-windows-msvc", "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"];
+const PLATFORMS = [
+  "x86_64-pc-windows-msvc",
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+];
 
 /** The license used when a package offers several, best first. */
 const PREFERENCE = [
@@ -338,6 +344,15 @@ function assets() {
       texts: [read("scripts/notices/world-atlas.txt")],
     },
     {
+      name: "Libraries in the Linux AppImage",
+      what: "WebKitGTK, GTK, GLib and the libraries they need, bundled from Ubuntu 22.04",
+      url: "https://packages.ubuntu.com/jammy/",
+      expression: "LGPL-2.1-or-later and others",
+      texts: [
+        "The Linux AppImage contains shared libraries of Ubuntu 22.04 (jammy), among them WebKitGTK\n(libwebkit2gtk-4.1-0), GTK (libgtk-3-0), GLib (libglib2.0-0), libsoup and librsvg. Each is used\nunder its own license, most under the GNU Lesser General Public License 2.1 or later. Their\nlicense texts and source code are in the Ubuntu packages of the same names, at\nhttps://packages.ubuntu.com/jammy/ and https://launchpad.net/ubuntu/jammy.",
+      ],
+    },
+    {
       name: "Natural Earth 5.1.2",
       what: "the lakes, rivers and towns of the GPS map",
       url: "https://www.naturalearthdata.com",
@@ -361,6 +376,9 @@ function assets() {
 // ---------------------------------------------------------------------------
 // Output
 
+/** By code points: `localeCompare` follows the locale (Czech sorts "ch" after "h"), so the file would differ per machine. */
+const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
 /** A fence longer than any run of backticks in the text. */
 function fenced(text) {
   const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
@@ -376,7 +394,7 @@ const label = (p) => esc(p.licenses.length ? p.licenses.join(" AND ") : p.expres
 /** Packages with the same texts share one block, so each text appears once. */
 function grouped(list) {
   const groups = new Map();
-  for (const p of list.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version))) {
+  for (const p of list.sort((a, b) => cmp(a.name, b.name) || cmp(a.version, b.version))) {
     const key = p.texts.map((t) => t.replace(/\s+/g, " ")).join("\n--\n");
     if (!groups.has(key)) groups.set(key, { license: label(p), texts: p.texts, members: [] });
     groups.get(key).members.push(p);
@@ -384,9 +402,7 @@ function grouped(list) {
   return [...groups.values()]
     .sort(
       (a, b) =>
-        rank(a.license) - rank(b.license) ||
-        a.license.localeCompare(b.license) ||
-        a.members[0].name.localeCompare(b.members[0].name),
+        rank(a.license) - rank(b.license) || cmp(a.license, b.license) || cmp(a.members[0].name, b.members[0].name),
     )
     .map((g) => {
       const names = esc(g.members.map((p) => `${p.name} ${p.version}`).join(", "));
@@ -401,7 +417,7 @@ function grouped(list) {
 
 function table(list) {
   return list
-    .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version))
+    .sort((a, b) => cmp(a.name, b.name) || cmp(a.version, b.version))
     .map((p) => {
       const used = p.licenses.length && p.licenses.join(" AND ") !== p.expression ? `, used under ${label(p)}` : "";
       // The address as text: the source of every component is named (MPL-2.0 asks for it).
@@ -414,7 +430,7 @@ function table(list) {
 function standardTexts(referenced) {
   if (!referenced.size) return "";
   const out = [...referenced]
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => cmp(a, b))
     .map(([id, text]) => `<details>\n<summary>${id}</summary>\n\n${fenced(text)}\n\n</details>`);
   return `\n\n## Standard license texts\n\n${out.join("\n\n")}`;
 }

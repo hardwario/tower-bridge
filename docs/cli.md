@@ -29,12 +29,15 @@ Windows) hold the binary, this file, the license and the third-party notices
 
 Put the binary somewhere on your `PATH`.
 
-- **Linux:** install the udev rule so your user can open the bridge
-  ([linux.md](linux.md)):
+- **Linux:** install the udev rule so your user can open the bridge. For a
+  service or an SSH session (no login at the computer itself), also join the
+  `plugdev` group and log in again
+  ([Linux notes](https://github.com/hardwario/tower-bridge/blob/main/docs/linux.md)):
 
   ```sh
   sudo cp 70-hardwario-tower-bridge.rules /etc/udev/rules.d/
   sudo udevadm control --reload && sudo udevadm trigger
+  sudo usermod -aG plugdev $USER
   ```
 
 - **macOS:** the binary is not notarized yet. Clear the quarantine flag once:
@@ -128,7 +131,7 @@ The app and the CLI keep their settings and history in one folder:
 | System | Folder |
 |---|---|
 | macOS | `~/Library/Application Support/com.hardwario.tower-bridge` |
-| Windows | `%LOCALAPPDATA%\com.hardwario.tower-bridge`, or `data` next to the exe |
+| Windows | `%LOCALAPPDATA%\com.hardwario.tower-bridge`, or a `data` folder next to the running exe (the CLI shares a portable app's data only from the same folder) |
 | Linux | `~/.local/share/com.hardwario.tower-bridge` |
 
 `--data-dir` (or `TOWER_BRIDGE_DATA_DIR`) chooses another folder.
@@ -139,12 +142,14 @@ service and holds the bridge: the desktop app, `tower-bridge-cli run`, or the
 dashboard. The other commands work like this:
 
 - **Nothing runs:** they open the bridge themselves for a moment. Nothing is
-  recorded or published.
+  recorded or published. An instance that starts meanwhile waits for the
+  bridge and takes it over when the command ends.
 - **An instance runs with its API server on:** they go through its API
   server. Changes such as switching the relay need **Allow changes**.
 - **An instance runs without its API server:** they stop with exit code 3 and
-  say what holds the bridge. Turn the API server on (in the app's Settings,
-  or with `config set api.enabled true` while nothing runs).
+  say what holds the bridge. Turn the API server on (in the app: Settings,
+  API & MCP, Enable API server; for `run`: `config set api.enabled true`
+  while it is stopped).
 
 `export`, `alerts` and `config get` read the folder directly and work at any
 time. `config set` refuses while an instance runs, because that instance
@@ -241,8 +246,9 @@ With `--json`:
   ([api.md](api.md));
 - `watch` prints one object per line. Readings have `"type": "reading"`;
   changes of the bridge, the relay, the NFC Tag and alerts have `"type":
-  "device"`, `"relay"`, `"nfc"` and `"alert"`, and the GPS position every 5 s
-  `"type": "gps"`.
+  "device"`, `"relay"`, `"nfc"` and `"alert"`, and the GPS position
+  `"type": "gps"` (every 5 s, or when it changes while following a running
+  instance).
 
 Values are in SI units, as in the REST API: °C, %, lx, Pa, ppm, ppb. Times are
 Unix milliseconds.
@@ -276,5 +282,6 @@ modules. They open the bridge directly, without the service:
 | `co2`, `voc`, `gps` | Measure with one module directly |
 | `nfc-scan` | Look for an NFC Tag at every address |
 
-`--channel 0|1`, `--backend hid|i2c-dev` and `--trace` (every FT260 report on
-stderr) go before the tool, e.g. `tower-bridge-cli toolbox --trace probe`.
+`--channel auto|0|1`, `--backend auto|hid|i2c-dev` and `--trace` (every FT260
+report on stderr) go before the tool, e.g. `tower-bridge-cli toolbox --trace
+probe`.

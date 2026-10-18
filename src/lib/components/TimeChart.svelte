@@ -327,6 +327,9 @@
     const d = decimals(metric);
     const label = unitLabel(metric, unit);
     const limits = thresholds();
+    // Without visible data the y range is a placeholder; a band clamped to
+    // its edge would fill the plot and look like an alert.
+    let noData = false;
     const fontFamily = getComputedStyle(document.documentElement).getPropertyValue("--font").trim();
     const axisFont = `${compact ? 10 : 11}px ${fontFamily}`;
 
@@ -356,7 +359,8 @@
         x: { time: true, auto: false, range: (_u, min, max) => [min, max] },
         y: {
           range: (_u, lo, hi) => {
-            if (lo === null || hi === null || !Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 1];
+            noData = lo === null || hi === null || !Number.isFinite(lo) || !Number.isFinite(hi);
+            if (lo === null || hi === null || noData) return [0, 1];
             const span = Math.max(hi - lo, MIN_SPAN[metric]);
             const mid = (lo + hi) / 2;
             return [mid - span * 0.68, mid + span * 0.68];
@@ -405,7 +409,11 @@
         fill: bandColor(line.color, theme.effective === "dark"),
       })),
       hooks: {
-        drawAxes: [(u) => drawLimits(u, th, limits)],
+        drawAxes: [
+          (u) => {
+            if (!noData) drawLimits(u, th, limits);
+          },
+        ],
         draw: [(u) => drawOverlays(u, th)],
         setCursor: [(u) => updateCursor(u, d, label)],
         setSelect: [

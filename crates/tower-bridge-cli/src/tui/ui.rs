@@ -15,13 +15,13 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::Marker;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph};
+use ratatui::text::{Line, Span as TextSpan};
+use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, LegendPosition, Paragraph, Wrap};
 use tower_bridge_core::model::{DeviceState, Metric};
 use tower_bridge_core::store::History;
 use tower_bridge_service::MqttState;
 
-use super::app::App;
+use super::app::{App, Span};
 use crate::output;
 
 /// The line colour of each I²C channel.
@@ -73,25 +73,25 @@ pub fn draw(frame: &mut Frame, app: &App, log: &[String]) {
     draw_footer(frame, app, footer);
 }
 
-fn dot(ok: Option<bool>) -> Span<'static> {
+fn dot(ok: Option<bool>) -> TextSpan<'static> {
     let color = match ok {
         Some(true) => Color::Green,
         Some(false) => Color::Red,
         None => Color::Yellow,
     };
-    Span::styled("● ", Style::new().fg(color))
+    TextSpan::styled("● ", Style::new().fg(color))
 }
 
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
     let bar = Style::new().bg(Color::Gray).fg(Color::Black);
-    let mut spans = vec![Span::styled(
+    let mut spans = vec![TextSpan::styled(
         " TOWER Bridge  ",
         bar.add_modifier(Modifier::BOLD),
     )];
     match (&app.snap, &app.error) {
         (_, Some(e)) => {
             spans.push(dot(Some(false)));
-            spans.push(Span::raw(e.clone()));
+            spans.push(TextSpan::raw(e.clone()));
         }
         (Some(snap), None) => {
             let ok = match &snap.device {
@@ -100,8 +100,8 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
                 _ => Some(false),
             };
             spans.push(dot(ok));
-            spans.push(Span::raw(output::device(&snap.device)));
-            spans.push(Span::raw(format!(
+            spans.push(TextSpan::raw(output::device(&snap.device)));
+            spans.push(TextSpan::raw(format!(
                 "   interval {} s",
                 snap.sample_interval_ms / 1000
             )));
@@ -113,19 +113,19 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
                     MqttState::Error { .. } => (Some(false), "error".into()),
                 };
                 if !matches!(m, MqttState::Disabled) {
-                    spans.push(Span::raw("   MQTT "));
+                    spans.push(TextSpan::raw("   MQTT "));
                     spans.push(dot(ok));
-                    spans.push(Span::raw(text));
+                    spans.push(TextSpan::raw(text));
                 }
             }
         }
-        (None, None) => spans.push(Span::raw("starting…")),
+        (None, None) => spans.push(TextSpan::raw("starting…")),
     }
     // Where the data comes from, when there is room for it.
     let via = format!("   via {}", app.via);
     let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
     if used + via.chars().count() <= usize::from(area.width) {
-        spans.push(Span::raw(via));
+        spans.push(TextSpan::raw(via));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)).style(bar), area);
 }
@@ -163,8 +163,11 @@ fn sparkline(values: &[f64]) -> String {
 fn draw_values(frame: &mut Frame, app: &App, area: Rect) {
     let mut lines = Vec::new();
     let Some(snap) = &app.snap else {
+        let text = app.error.as_deref().unwrap_or("Looking for the bridge…");
         frame.render_widget(
-            Paragraph::new("Looking for the bridge…").block(block("Values")),
+            Paragraph::new(text)
+                .wrap(Wrap { trim: true })
+                .block(block("Values")),
             area,
         );
         return;
@@ -175,11 +178,11 @@ fn draw_values(frame: &mut Frame, app: &App, area: Rect) {
         if current != Some(channel) {
             current = Some(channel);
             lines.push(Line::from(vec![
-                Span::styled(
+                TextSpan::styled(
                     format!("I²C {channel}  "),
                     Style::new().fg(CHANNEL[usize::from(channel) % 2]),
                 ),
-                Span::styled(output::modules_short(sources, channel).join(", "), dim()),
+                TextSpan::styled(output::modules_short(sources, channel).join(", "), dim()),
             ]));
         }
         let selected = i == app.selected;
@@ -195,14 +198,14 @@ fn draw_values(frame: &mut Frame, app: &App, area: Rect) {
         let marker = if selected { "▸" } else { " " };
         let name = Style::new().fg(if selected { ACCENT } else { Color::Reset });
         lines.push(Line::from(vec![
-            Span::styled(marker, Style::new().fg(ACCENT)),
-            Span::styled(format!("{:<12}", output::metric_name(metric)), name),
-            Span::styled(
+            TextSpan::styled(marker, Style::new().fg(ACCENT)),
+            TextSpan::styled(format!("{:<12}", output::metric_name(metric)), name),
+            TextSpan::styled(
                 format!("{text:>12}"),
                 Style::new().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("  "),
-            Span::styled(
+            TextSpan::raw("  "),
+            TextSpan::styled(
                 sparkline(&recent(app.history.as_ref(), metric, channel, 10)),
                 Style::new().fg(CHANNEL[usize::from(channel) % 2]),
             ),
@@ -218,48 +221,79 @@ fn draw_values(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(lines).block(block("Values")), area);
 }
 
-fn draw_chart(frame: &mut Frame, app: &App, area: Rect) {
-    let Some(metric) = app.selected_metric() else {
-        frame.render_widget(block("Chart"), area);
-        return;
-    };
-    let title = format!("{} · {}", output::metric_name(metric), app.span.label());
-    let now = tower_bridge_core::acquisition::unix_ms() as f64 / 1000.0;
-    let from = now - app.span.ms() as f64 / 1000.0;
-    // One line per channel measuring the metric, from the history and the
-    // latest value.
-    let mut lines: Vec<(u8, Vec<(f64, f64)>)> = Vec::new();
+/// The lines of the chart: per channel, its runs of values between gaps
+/// (the history has a `null` where readings stopped), so a night without
+/// readings is no straight line.
+/// Points (time in s, value) without a gap.
+type Run = Vec<(f64, f64)>;
+
+pub(super) fn segments(app: &App, metric: Metric, from: f64) -> Vec<(u8, Vec<Run>)> {
+    let mut lines: Vec<(u8, Vec<Run>)> = Vec::new();
     if let Some(h) = &app.history {
         for channel in &h.channels {
             let Some(series) = h.series(metric, *channel) else {
                 continue;
             };
-            let points: Vec<(f64, f64)> =
-                h.t.iter()
-                    .zip(&series.avg)
-                    .filter_map(|(t, v)| v.map(|v| (*t, output::display(metric, v, app.unit))))
-                    .filter(|(t, _)| *t >= from)
-                    .collect();
-            lines.push((*channel, points));
-        }
-    }
-    if let Some(snap) = &app.snap {
-        for r in &snap.latest {
-            if let Some(v) = r.values.get(metric) {
-                let point = (r.ts as f64 / 1000.0, output::display(metric, v, app.unit));
-                match lines.iter_mut().find(|(c, _)| *c == r.channel) {
-                    Some((_, points)) => {
-                        if points.last().is_none_or(|p| p.0 < point.0) {
-                            points.push(point);
+            let mut runs: Vec<Run> = vec![Vec::new()];
+            for (t, v) in h.t.iter().zip(&series.avg) {
+                match v {
+                    Some(v) if *t >= from => {
+                        if let Some(run) = runs.last_mut() {
+                            run.push((*t, output::display(metric, *v, app.unit)));
                         }
                     }
-                    None => lines.push((r.channel, vec![point])),
+                    _ => {
+                        if runs.last().is_some_and(|r| !r.is_empty()) {
+                            runs.push(Vec::new());
+                        }
+                    }
                 }
+            }
+            lines.push((*channel, runs));
+        }
+    }
+    // The latest value continues the last run (the history is reloaded only
+    // every half minute).
+    if let Some(snap) = &app.snap {
+        for r in &snap.latest {
+            let Some(v) = r.values.get(metric) else {
+                continue;
+            };
+            let point = (r.ts as f64 / 1000.0, output::display(metric, v, app.unit));
+            match lines.iter_mut().find(|(c, _)| *c == r.channel) {
+                Some((_, runs)) => {
+                    if let Some(run) = runs.last_mut()
+                        && run.last().is_none_or(|p| p.0 < point.0)
+                    {
+                        run.push(point);
+                    }
+                }
+                None => lines.push((r.channel, vec![vec![point]])),
             }
         }
     }
-    lines.retain(|(_, p)| !p.is_empty());
+    for (_, runs) in &mut lines {
+        runs.retain(|r| !r.is_empty());
+    }
+    lines.retain(|(_, runs)| !runs.is_empty());
     lines.sort_by_key(|(c, _)| *c);
+    lines
+}
+
+fn draw_chart(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(metric) = app.selected_metric() else {
+        frame.render_widget(block("Chart"), area);
+        return;
+    };
+    let unit = output::unit_label(metric, app.unit);
+    let title = format!(
+        "{} ({unit}) · {}",
+        output::metric_name(metric),
+        app.span.label()
+    );
+    let now = tower_bridge_core::acquisition::unix_ms() as f64 / 1000.0;
+    let from = now - app.span.ms() as f64 / 1000.0;
+    let lines = segments(app, metric, from);
     if lines.is_empty() {
         frame.render_widget(
             Paragraph::new("No values yet.")
@@ -271,50 +305,63 @@ fn draw_chart(frame: &mut Frame, app: &App, area: Rect) {
     }
     let (lo, hi) = lines
         .iter()
-        .flat_map(|(_, p)| p.iter().map(|(_, v)| *v))
+        .flat_map(|(_, runs)| runs.iter().flatten().map(|(_, v)| *v))
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
             (lo.min(v), hi.max(v))
         });
     let pad = ((hi - lo) * 0.1).max(match metric {
-        Metric::Temperature | Metric::Humidity => 0.5,
-        Metric::Pressure => 0.5,
+        Metric::Temperature | Metric::Humidity | Metric::Pressure => 0.5,
         _ => 5.0,
     });
     let (lo, hi) = (lo - pad, hi + pad);
-    let unit = output::unit_label(metric, app.unit);
     let fmt = |v: f64| format!("{v:.*}", output::decimals(metric));
-    let time = |t: f64| output::time((t * 1000.0) as i64);
+    // One line per run; the channel is named once, for the legend.
     let datasets: Vec<Dataset> = lines
         .iter()
-        .map(|(channel, points)| {
-            Dataset::default()
-                .name(format!("I²C {channel}"))
-                .marker(Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::new().fg(CHANNEL[usize::from(*channel) % 2]))
-                .data(points)
+        .flat_map(|(channel, runs)| {
+            runs.iter().enumerate().map(move |(i, run)| {
+                let set = Dataset::default()
+                    .marker(Marker::Braille)
+                    .graph_type(GraphType::Line)
+                    .style(Style::new().fg(CHANNEL[usize::from(*channel) % 2]))
+                    .data(run);
+                if i == 0 {
+                    set.name(format!("I²C {channel}"))
+                } else {
+                    set
+                }
+            })
         })
         .collect();
+    // Relative times stay short at any span and width.
+    let (start, middle) = match app.span {
+        Span::Hour => ("-60 min", "-30 min"),
+        Span::Day => ("-24 h", "-12 h"),
+        Span::Week => ("-7 d", "-3.5 d"),
+    };
+    let x_labels = if area.width >= 50 {
+        vec![
+            TextSpan::raw(start),
+            TextSpan::raw(middle),
+            TextSpan::raw("now"),
+        ]
+    } else {
+        vec![TextSpan::raw(start), TextSpan::raw("now")]
+    };
     let chart = Chart::new(datasets)
         .block(block(&title))
+        // Top left: the newest values are at the right.
+        .legend_position(Some(LegendPosition::TopLeft))
         .x_axis(
             Axis::default()
                 .style(dim())
                 .bounds([from, now])
-                .labels(if area.width >= 60 {
-                    vec![
-                        Span::raw(time(from)),
-                        Span::raw(time((from + now) / 2.0)),
-                        Span::raw("now"),
-                    ]
-                } else {
-                    vec![Span::raw(time(from)), Span::raw("now")]
-                }),
+                .labels(x_labels),
         )
         .y_axis(Axis::default().style(dim()).bounds([lo, hi]).labels(vec![
-            Span::raw(fmt(lo)),
-            Span::raw(format!("{} {unit}", fmt((lo + hi) / 2.0))),
-            Span::raw(fmt(hi)),
+            TextSpan::raw(fmt(lo)),
+            TextSpan::raw(fmt((lo + hi) / 2.0)),
+            TextSpan::raw(fmt(hi)),
         ]));
     frame.render_widget(chart, area);
 }
@@ -335,14 +382,14 @@ fn draw_devices(frame: &mut Frame, app: &App, area: Rect) {
                 None => Color::DarkGray,
             };
             let mut first = vec![
-                Span::styled("● ", Style::new().fg(color)),
-                Span::styled(
+                TextSpan::styled("● ", Style::new().fg(color)),
+                TextSpan::styled(
                     output::relay_state(r.state),
                     Style::new().add_modifier(Modifier::BOLD),
                 ),
             ];
             if let Some(until) = r.pulse_until {
-                first.push(Span::styled(
+                first.push(TextSpan::styled(
                     format!("  pulse until {}", output::time(until)),
                     dim(),
                 ));
@@ -415,39 +462,66 @@ fn draw_log(frame: &mut Frame, app: &App, log: &[String], area: Rect) {
         };
         lines.push(Line::styled(l.clone(), style));
     }
-    frame.render_widget(Paragraph::new(lines).block(block("Log")), area);
+    // Where the data comes from, also when the header has no room for it.
+    let title = if app.via.starts_with("this") {
+        "Log".to_string()
+    } else {
+        format!("Log · data from {}", app.via)
+    };
+    frame.render_widget(Paragraph::new(lines).block(block(&title)), area);
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let key = Style::new().bg(Color::DarkGray).fg(Color::White);
+    let width = usize::from(area.width);
     let line = if let Some(text) = &app.input {
+        // The end of a long URL and the cursor stay in view.
+        let room = width.saturating_sub(34).max(10);
+        let count = text.chars().count();
+        let shown: String = if count > room {
+            let tail: String = text.chars().skip(count - room + 1).collect();
+            format!("…{tail}")
+        } else {
+            text.clone()
+        };
         Line::from(vec![
-            Span::styled(" NFC URL ", key),
-            Span::raw(format!(" {text}▏")),
-            Span::styled("   Enter write  Esc cancel", dim()),
+            TextSpan::styled(" NFC URL ", key),
+            TextSpan::raw(format!(" {shown}▏")),
+            TextSpan::styled("  Enter write  Esc cancel", dim()),
         ])
-    } else if let Some(flash) = app.flash.as_ref().filter(|f| f.at.elapsed().as_secs() < 5) {
+    } else if let Some(flash) = app
+        .flash
+        .as_ref()
+        .filter(|f| app.busy || f.at.elapsed().as_secs() < 5)
+    {
         Line::styled(
             format!(" {}", flash.text),
             Style::new().fg(if flash.ok { Color::Green } else { Color::Red }),
         )
     } else {
-        let mut spans = Vec::new();
-        let mut chip = |k: &'static str, what: &'static str| {
-            spans.push(Span::styled(format!(" {k} "), key));
-            spans.push(Span::raw(format!(" {what} ")));
-        };
-        chip("↑↓", "value");
-        chip("1 2 3", "span");
+        let mut chips: Vec<(&str, &str)> = vec![("↑↓", "value"), ("1 2 3", "span")];
         if app.has_relay() {
-            chip("t f p", "relay");
+            chips.push(("t f p", "relay"));
         }
-        chip("i", "identify");
-        chip("r", "rescan");
+        chips.extend([("i", "identify"), ("r", "rescan")]);
         if app.snap.as_ref().is_some_and(|s| s.nfc.is_some()) {
-            chip("n", "NFC");
+            chips.push(("n", "NFC"));
         }
-        chip("q", "quit");
+        chips.push(("q", "quit"));
+        // In a narrow terminal the keys alone, except for quitting.
+        let full: usize = chips
+            .iter()
+            .map(|(k, w)| k.chars().count() + w.chars().count() + 4)
+            .sum();
+        let mut spans = Vec::new();
+        for (k, what) in chips {
+            spans.push(TextSpan::styled(format!(" {k} "), key));
+            if full <= width || k == "q" {
+                spans.push(TextSpan::raw(format!(" {what} ")));
+            } else {
+                spans.push(TextSpan::raw(" "));
+            }
+        }
         Line::from(spans)
     };
     frame.render_widget(Paragraph::new(line), area);

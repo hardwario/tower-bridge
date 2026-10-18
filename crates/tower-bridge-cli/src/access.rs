@@ -128,7 +128,7 @@ impl Access {
                     exit::BUSY,
                     format!("{holder} is running and holds the bridge"),
                     Some(
-                        "turn on its API server (Settings, API server) to use tower-bridge-cli next to it, or stop it",
+                        "turn on its API server (in the app: Settings, API & MCP, Enable API server; for `run`: `config set api.enabled true` while it is stopped), or stop it",
                     ),
                 ));
             }
@@ -205,7 +205,16 @@ impl Access {
     /// A running instance answers at once.
     pub fn settle(&self, timeout: Duration) -> Result<Snapshot> {
         if matches!(self, Access::Remote(_)) {
-            return self.snapshot();
+            // A service that has just started may still be looking for the
+            // bridge.
+            let started = Instant::now();
+            loop {
+                let snap = self.snapshot()?;
+                if !matches!(snap.device, DeviceState::Searching) || started.elapsed() > timeout {
+                    return Ok(snap);
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
         }
         let started = Instant::now();
         let mut ready_since: Option<Instant> = None;
