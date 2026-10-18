@@ -20,6 +20,9 @@
   let edited = $state(false);
   let busy = $state(false);
   let error = $state<string | null>(null);
+  /** A moment of confirmation after a write (read back and verified). */
+  let written = $state(false);
+  let writtenTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => {
     const url = nfc.url ?? "";
@@ -46,6 +49,9 @@
     try {
       await api.writeNfcUrl(target);
       edited = false;
+      written = true;
+      clearTimeout(writtenTimer);
+      writtenTimer = setTimeout(() => (written = false), 3000);
     } catch (err) {
       error =
         errorCode(err) === "not_connected"
@@ -88,6 +94,7 @@
         oninput={() => {
           edited = true;
           error = null;
+          written = false;
         }}
         disabled={busy}
       />
@@ -96,8 +103,9 @@
         {busy ? m.writing : m.write}
       </button>
     </form>
-    <p class="detail" class:error={!!error}>
-      {#if error}<Icon name="warning" size={14} /> {error}{:else}{m.hint}{/if}
+    <p class="detail" class:error={!!error} class:ok={written && !error} role="status">
+      {#if error}<Icon name="warning" size={14} /> {error}{:else if written}<Icon name="check" size={14} />
+        {m.written}{:else}{m.hint}{/if}
     </p>
   {:else}
     <p class="detail error"><Icon name="warning" size={14} /> {m.notFormatted}</p>
@@ -159,6 +167,9 @@
     color: var(--text-muted);
   }
   .detail.error {
-    color: var(--warning);
+    color: var(--warning-text);
+  }
+  .detail.ok {
+    color: var(--good-text);
   }
 </style>

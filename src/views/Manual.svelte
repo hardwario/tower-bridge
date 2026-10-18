@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from "../lib/api";
+  import Icon from "../lib/components/Icon.svelte";
   import { i18n, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
   import { renderManual } from "../lib/manual";
@@ -13,6 +14,17 @@
   };
 
   const manual = $derived(renderManual(i18n.lang, t(), live.app?.version ?? "", theme.effective === "dark"));
+  /** The chapter (level 2) of every section, so a narrow window, which lists
+      the chapters only, can mark the one being read. */
+  const chapterOf = $derived.by(() => {
+    const map = new Map<string, string>();
+    let chapter = "";
+    for (const s of manual.sections) {
+      if (s.level <= 2) chapter = s.id;
+      map.set(s.id, chapter);
+    }
+    return map;
+  });
 
   let article = $state<HTMLElement>();
   let active = $state("");
@@ -98,6 +110,7 @@
           href="#{s.id}"
           class:sub={s.level > 2}
           class:active={active === s.id}
+          class:within={s.level <= 2 && active !== s.id && chapterOf.get(active) === s.id}
           aria-current={active === s.id ? "location" : undefined}
           onclick={(e) => {
             e.preventDefault();
@@ -118,6 +131,7 @@
 {#if zoomed}
   <button class="lightbox" aria-label={t().manual.close} onclick={() => (zoomed = null)}>
     <img src={zoomed.src} alt={zoomed.alt} />
+    <span class="close" aria-hidden="true"><Icon name="close" size={18} /></span>
   </button>
 {/if}
 
@@ -158,7 +172,7 @@
     font-size: 12.5px;
   }
   .toc a:hover {
-    background: var(--accent-weak);
+    background: var(--hover);
     color: var(--text);
   }
   /* Colour and a bar, never a heavier weight: bolder text is wider, so the
@@ -167,6 +181,30 @@
     color: var(--text);
     background: var(--surface-2);
     box-shadow: inset 2px 0 0 var(--accent);
+  }
+  /* A narrow window: one column, the chapters as a row above the text. */
+  @media (max-width: 1000px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .toc {
+      position: static;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .toc-title {
+      flex-basis: 100%;
+    }
+    .toc a.sub {
+      display: none;
+    }
+    .toc a.active,
+    .toc a.within {
+      color: var(--text);
+      background: var(--surface-2);
+      box-shadow: inset 0 -2px 0 var(--accent);
+    }
   }
   .prose {
     padding: 8px 28px 24px;
@@ -200,6 +238,10 @@
   }
   .prose :global(li) {
     margin: 3px 0;
+  }
+  /* A list inside a list item (the sensor tags) adds no gap below. */
+  .prose :global(li > ul) {
+    margin: 3px 0 0;
   }
   .prose :global(strong) {
     color: var(--text);
@@ -278,6 +320,18 @@
   }
   .prose :global(a:hover) {
     text-decoration: underline;
+  }
+  .lightbox .close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
   }
   .lightbox {
     position: fixed;

@@ -47,6 +47,9 @@
 
   let el: HTMLDivElement;
   let tip: HTMLDivElement;
+  /** The pointer is over this chart: only it shows the value tooltip, the
+      others just the synced crosshair. */
+  let hovered = false;
   let pill: HTMLDivElement;
   let plot: uPlot | null = null;
   let width = $state(0);
@@ -168,7 +171,7 @@
     const values = lines
       .map((line, k) => ({ line, avg: at(avgIndex(k)), lo: at(avgIndex(k) - 2), hi: at(avgIndex(k) - 1) }))
       .filter((v) => !v.line.hidden);
-    if (idx === null || idx === undefined || left < 0 || values.every((v) => v.avg === null)) {
+    if (!hovered || idx === null || idx === undefined || left < 0 || values.every((v) => v.avg === null)) {
       tip.style.display = "none";
       pill.style.display = "none";
       return;
@@ -198,11 +201,11 @@
         v.append(n);
       }
       row.append(v);
-      const [loText, hiText] = [lo, hi].map((x) => (x === null ? null : fmtNumber(x, d)));
-      if (loText !== null && hiText !== null && loText !== hiText) {
+      // The bucket's range, labelled, and always there so the box keeps its height.
+      if (lo !== null && hi !== null) {
         const r = document.createElement("div");
         r.className = "r";
-        r.textContent = `${loText} … ${hiText}`;
+        r.textContent = `${t().common.min} ${fmtNumber(lo, d)} · ${t().common.max} ${fmtNumber(hi, d)}`;
         row.append(r);
       }
       tip.append(row);
@@ -250,6 +253,8 @@
   /** Ctrl/Cmd+scroll and pinch zoom around the pointer, sideways scrolling pans; plain scrolling is the page's. */
   function attachGestures(u: uPlot) {
     const over = u.over;
+    over.addEventListener("mouseenter", () => (hovered = true));
+    over.addEventListener("mouseleave", () => (hovered = false));
     const valAt = (clientX: number) => u.posToVal(clientX - over.getBoundingClientRect().left, "x");
     let gesture: number | null = null;
 

@@ -141,17 +141,16 @@ impl ApiBackend for AppApiBackend {
         store::history(&conn, &query).map_err(|e| ApiError::Internal(e.to_string()))
     }
 
-    fn csv(&self, from: i64, to: i64) -> Result<Vec<u8>, ApiError> {
+    fn csv(&self, from: i64, to: i64, out: &mut dyn std::io::Write) -> Result<(), ApiError> {
         let conn = self.reader()?;
         let settings = self.state().settings();
         let opts = CsvOptions {
             fahrenheit: settings.temperature_unit == TemperatureUnit::Fahrenheit,
             sea_level_pa: settings.sea_level_pressure_pa,
         };
-        let mut out = Vec::new();
-        store::write_csv(&conn, from, to, opts, &mut out, |_, _| true)
-            .map_err(|e| ApiError::Internal(e.to_string()))?;
-        Ok(out)
+        store::write_csv(&conn, from, to, opts, out, |_, _| true)
+            .map(|_| ())
+            .map_err(|e| ApiError::Internal(e.to_string()))
     }
 
     fn alert_rules(&self) -> AlertRules {
@@ -229,7 +228,8 @@ pub fn run_mcp_stdio(simulated: bool) -> i32 {
         version: env!("CARGO_PKG_VERSION").into(),
     };
     let target = move || {
-        let (settings, _) = Settings::load(&settings_file);
+        // Read only: the running app owns the file.
+        let settings = Settings::read(&settings_file);
         stdio::StdioTarget {
             addr: settings
                 .api

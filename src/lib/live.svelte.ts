@@ -1,5 +1,6 @@
 import { api, on } from "./api";
 import { i18n, resolveLang } from "./i18n/index.svelte";
+import { rememberSources } from "./source";
 import { theme } from "./theme.svelte";
 import type {
   ActiveAlert,
@@ -100,7 +101,10 @@ class Live {
   /** A channel without sensors has no current values any more (as in the backend). */
   private setDevice(d: DeviceState) {
     this.device = d;
-    if (d.status === "ready") this.latest = pruneLatest(this.latest, d.sources);
+    if (d.status === "ready") {
+      this.latest = pruneLatest(this.latest, d.sources);
+      rememberSources(d.sources);
+    }
   }
 
   private pushReading(r: Reading) {

@@ -401,7 +401,12 @@ impl Co2Module {
     }
 
     fn save(&self) {
-        let (Some(path), Some(state)) = (&self.store, &self.state) else {
+        let Some(path) = &self.store else {
+            return;
+        };
+        let Some(state) = &self.state else {
+            // Started over after a fault: the stored state is the faulty one.
+            let _ = std::fs::remove_file(path);
             return;
         };
         let hex: String = state.iter().map(|b| format!("{b:02x}")).collect();

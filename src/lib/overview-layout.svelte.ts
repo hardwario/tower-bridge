@@ -6,9 +6,21 @@ import { METRICS, type Metric } from "./types";
  */
 export type PanelId = Metric | "relay" | "nfc" | "gps";
 
-const DEFAULT_ORDER: PanelId[] = ["relay", ...METRICS, "nfc", "gps"];
+const DEFAULT_ORDER: PanelId[] = ["relay", ...METRICS, "gps", "nfc"];
 /** v2: the relay moved to the top; earlier saved orders start over once. */
-const KEY = "tower-bridge.overview.layout.v2";
+const KEY_V2 = "tower-bridge.overview.layout.v2";
+/** v3: the NFC card comes after the GPS card (the user, 2026-10-18). */
+const KEY = "tower-bridge.overview.layout.v3";
+
+/** A v2 order with the NFC card moved after the GPS card; the rest stays. */
+export function upgradeV2(order: readonly PanelId[]): PanelId[] {
+  const nfc = order.indexOf("nfc");
+  const gps = order.indexOf("gps");
+  if (nfc < 0 || gps < 0 || nfc > gps) return [...order];
+  const out: PanelId[] = order.filter((id) => id !== "nfc");
+  out.splice(out.indexOf("gps") + 1, 0, "nfc");
+  return out;
+}
 
 /**
  * The saved order with the panels it does not know yet (such as one added in
@@ -28,7 +40,9 @@ export function mergeOrder(saved: readonly PanelId[], defaults: readonly PanelId
 function load(): { order: PanelId[]; maximized: Metric | null } {
   let saved: { order?: unknown; maximized?: unknown } = {};
   try {
-    saved = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    const v3 = localStorage.getItem(KEY);
+    saved = JSON.parse(v3 ?? localStorage.getItem(KEY_V2) ?? "{}");
+    if (v3 === null && Array.isArray(saved.order)) saved.order = upgradeV2(saved.order as PanelId[]);
   } catch {
     /* storage unavailable or corrupt */
   }

@@ -2,14 +2,18 @@
   import { api } from "../api";
   import { fmtDateTime, fmtNumber } from "../format";
   import { plural, t } from "../i18n/index.svelte";
+  import { live } from "../live.svelte";
+  import { gpsSource } from "../source";
   import type { GpsInfo } from "../types";
   import DragHandle from "./DragHandle.svelte";
   import GpsMap from "./GpsMap.svelte";
   import Icon from "./Icon.svelte";
+  import SourceInfo from "./SourceInfo.svelte";
 
   let { gps, ondragstart }: { gps: GpsInfo; ondragstart?: (e: PointerEvent) => void } = $props();
 
   const m = $derived(t().gps);
+  const source = $derived(gpsSource(live.device, gps));
   /** 50.771168° N, 15.056328° E */
   const coordinate = (v: number, pos: string, neg: string) => `${fmtNumber(Math.abs(v), 6)}° ${v >= 0 ? pos : neg}`;
 </script>
@@ -22,6 +26,7 @@
     </span>
     <span class="muted small">{plural(m.satellites, gps.satellites)}</span>
     <span class="spacer"></span>
+    {#if source}<SourceInfo sources={[source]} />{/if}
     {#if ondragstart}<DragHandle onstart={ondragstart} />{/if}
   </div>
 
@@ -60,6 +65,9 @@
       </div>
       <div class="map-area"><GpsMap latitude={lat} longitude={lon} accuracy={gps.accuracy} /></div>
     </div>
+  {:else}
+    <!-- Room for the map that comes with the fix, so the card does not jump. -->
+    <p class="searching">{m.searchingHint}</p>
   {/if}
 </section>
 
@@ -117,6 +125,18 @@
   }
   .info {
     flex: 1 1 260px;
+  }
+  .searching {
+    display: grid;
+    place-items: center;
+    min-height: 120px;
+    margin: 12px 0 0;
+    padding: 0 16px;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--text-muted);
+    text-align: center;
   }
   .map-area {
     flex: 2 1 380px;

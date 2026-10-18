@@ -29,15 +29,14 @@
 //! ```
 
 use std::collections::HashSet;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Sender;
 use tracing::{info, warn};
 
 use crate::gps::GpsInfo;
-use crate::model::Reading;
+use crate::model::{Metric, Reading};
 use crate::relay::{RelayInfo, parse_state, pulse_from_ms};
 
 pub const DEFAULT_PREFIX: &str = "tower";
@@ -211,10 +210,33 @@ pub enum LinkEvent {
 /// Longest wait between two connection attempts.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
+/// How long a dropped link may take to send what is queued (the clears,
+/// `offline`) and its disconnect.
+const STOP_GRACE: Duration = Duration::from_secs(3);
+
+/// The system's root certificates for TLS. rumqttc's own default panics when
+/// one certificate cannot be read; here it is skipped and logged.
+fn tls_config() -> rumqttc::TlsConfiguration {
+    let found = rustls_native_certs::load_native_certs();
+    for e in &found.errors {
+        warn!("a system certificate could not be loaded: {e}");
+    }
+    let mut roots = rustls::RootCertStore::empty();
+    let (_, ignored) = roots.add_parsable_certificates(found.certs);
+    if ignored > 0 {
+        warn!("{ignored} system certificates were not usable");
+    }
+    rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth()
+        .into()
+}
+
 /// The client connection to the broker.
 struct ClientLink {
     client: rumqttc::Client,
-    stop: Arc<AtomicBool>,
+    /// Since when the link is being dropped.
+    stopping: Arc<Mutex<Option<Instant>>>,
 }
 
 impl Link for ClientLink {
@@ -229,7 +251,11 @@ impl Link for ClientLink {
 
 impl Drop for ClientLink {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        if let Ok(mut s) = self.stopping.lock() {
+            *s = Some(Instant::now());
+        }
+        // Queued behind the last messages, which go out first; the thread
+        // ends when the disconnect is sent (or after `STOP_GRACE`).
         let _ = self.client.try_disconnect();
     }
 }
@@ -258,24 +284,27 @@ pub fn connect(
         options.set_credentials(user.clone(), password.clone());
     }
     if cfg.tls {
-        options.set_transport(rumqttc::Transport::tls_with_default_config());
+        options.set_transport(rumqttc::Transport::tls_with_config(tls_config()));
     }
     let (client, mut connection) = rumqttc::Client::new(options, 256);
-    let stop = Arc::new(AtomicBool::new(false));
+    let stopping: Arc<Mutex<Option<Instant>>> = Arc::default();
 
     let thread_client = client.clone();
     let thread_prefix = prefix.clone();
-    let thread_stop = stop.clone();
+    let thread_stopping = stopping.clone();
     let address = format!("{}:{}", cfg.host, cfg.port);
     std::thread::Builder::new()
         .name("mqtt-client".into())
         .spawn(move || {
             let mut backoff = Duration::from_secs(1);
+            let stopping = || thread_stopping.lock().ok().and_then(|s| *s);
             for notification in connection.iter() {
-                if thread_stop.load(Ordering::Relaxed) {
+                if stopping().is_some_and(|t| t.elapsed() > STOP_GRACE) {
                     break;
                 }
                 match notification {
+                    // Everything queued before it went out.
+                    Ok(rumqttc::Event::Outgoing(rumqttc::Outgoing::Disconnect)) => break,
                     Ok(rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(_))) => {
                         backoff = Duration::from_secs(1);
                         // A clean session forgets subscriptions: subscribe on
@@ -292,14 +321,14 @@ pub fn connect(
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        if thread_stop.load(Ordering::Relaxed) {
+                        if stopping().is_some() {
                             break;
                         }
                         warn!("MQTT broker at {address}: {e}");
                         let _ = events.send(LinkEvent::Disconnected(e.to_string()));
                         // Wait before the next attempt, ready to stop meanwhile.
                         let until = Instant::now() + backoff;
-                        while Instant::now() < until && !thread_stop.load(Ordering::Relaxed) {
+                        while Instant::now() < until && stopping().is_none() {
                             std::thread::sleep(Duration::from_millis(100));
                         }
                         backoff = (backoff * 2).min(MAX_BACKOFF);
@@ -308,7 +337,7 @@ pub fn connect(
             }
         })?;
     Ok(Publisher::new(
-        Box::new(ClientLink { client, stop }),
+        Box::new(ClientLink { client, stopping }),
         prefix,
     ))
 }
@@ -363,13 +392,32 @@ impl Publisher {
         Ok(())
     }
 
-    /// Clear the retained values of a channel whose sensors are gone.
-    pub fn clear_channel(&mut self, channel: u8) -> Result<(), MqttError> {
-        let suffix = format!("/{channel}");
+    /// Clear the retained values of metrics no longer measured on their
+    /// channel (a sensor or a whole module gone).
+    pub fn retain_sources(&mut self, measured: &[(Metric, u8)]) -> Result<(), MqttError> {
+        let stem = format!("{}/", self.prefix);
         let stale: Vec<String> = self
             .published
             .iter()
-            .filter(|t| t.ends_with(&suffix) && !t.contains("/relay/"))
+            .filter(|topic| {
+                let Some(rest) = topic.strip_prefix(&stem) else {
+                    return false;
+                };
+                let mut parts = rest.split('/');
+                let (Some(name), Some(channel), None) = (parts.next(), parts.next(), parts.next())
+                else {
+                    return false;
+                };
+                let Ok(channel) = channel.parse::<u8>() else {
+                    return false;
+                };
+                let metric = if name == "altitude" {
+                    Some(Metric::Pressure)
+                } else {
+                    Metric::ALL.into_iter().find(|m| m.as_str() == name)
+                };
+                metric.is_some_and(|m| !measured.contains(&(m, channel)))
+            })
             .cloned()
             .collect();
         for topic in stale {
@@ -415,6 +463,17 @@ impl Publisher {
             }
             return Ok(());
         };
+        // The module moved to another channel: its old topics go.
+        let mine = format!("{stem}{}/", g.channel);
+        let moved: Vec<String> = self
+            .published
+            .iter()
+            .filter(|t| t.starts_with(&stem) && !t.starts_with(&mine))
+            .cloned()
+            .collect();
+        for topic in moved {
+            self.publish(topic, String::new())?;
+        }
         let values = [
             ("latitude", g.latitude.map(|v| format!("{v:.7}"))),
             ("longitude", g.longitude.map(|v| format!("{v:.7}"))),
@@ -581,10 +640,14 @@ mod tests {
                 "t/altitude/1=110.0"
             ]
         );
-        p.clear_channel(1)?;
+        // Channel 1 lost its barometer (pressure and altitude go), not its
+        // thermometer.
+        p.retain_sources(&[(Metric::Temperature, 1)])?;
         let mut cleared = link.take();
         cleared.sort();
         assert_eq!(cleared, vec!["t/altitude/1=", "t/pressure/1="]);
+        p.retain_sources(&[(Metric::Temperature, 1)])?;
+        assert!(link.take().is_empty(), "cleared once");
         p.publish_reading(&reading(0))?;
         link.take();
         p.clear_all()?;
@@ -667,6 +730,8 @@ mod tests {
         connect: Vec<u8>,
         /// Topic, payload and retain flag of every PUBLISH.
         published: Vec<(String, String, bool)>,
+        /// The client said goodbye (DISCONNECT).
+        disconnected: bool,
     }
 
     /// A one-client MQTT 3.1.1 broker for the tests: it answers CONNECT,
@@ -736,7 +801,12 @@ mod tests {
                     }
                     0xA0 => write(&writer, vec![0xB0, 2, body[0], body[1]]),
                     0xC0 => write(&writer, vec![0xD0, 0]),
-                    0xE0 => break,
+                    0xE0 => {
+                        if let Ok(mut s) = record.lock() {
+                            s.disconnected = true;
+                        }
+                        break;
+                    }
                     _ => {}
                 }
             }
@@ -916,5 +986,43 @@ mod tests {
             cmd("tower/relay/0/pulse", r#"{"state": "on"}"#),
             Some(Err(_))
         ));
+    }
+
+    #[test]
+    fn stopping_sends_every_clear_and_then_disconnects() -> Result<(), Box<dyn std::error::Error>> {
+        let broker = test_broker()?;
+        let (mut publisher, _received, events) = client(broker.port, "old")?;
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(5))?,
+            LinkEvent::Connected
+        );
+        publisher.publish_status(true)?;
+        for channel in 0..2 {
+            publisher.publish_reading(&reading(channel))?;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        // A prefix change: clear everything, say offline, go.
+        publisher.clear_all()?;
+        publisher.publish_status(false)?;
+        drop(publisher);
+        std::thread::sleep(Duration::from_millis(500));
+        let seen = broker.seen.lock().map_err(|_| "lock")?;
+        for topic in [
+            "old/pressure/0",
+            "old/altitude/0",
+            "old/pressure/1",
+            "old/altitude/1",
+        ] {
+            assert!(
+                seen.published
+                    .iter()
+                    .any(|(t, p, _)| t == topic && p.is_empty()),
+                "{topic} cleared: {:?}",
+                seen.published
+            );
+        }
+        assert_eq!(seen.published.last().map(|p| p.1.as_str()), Some("offline"));
+        assert!(seen.disconnected, "a clean disconnect");
+        Ok(())
     }
 }

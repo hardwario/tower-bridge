@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use serde::Serialize;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::bus::discovery::{BackendPref, Discovery, OpenError};
 use crate::bus::{BusError, Clock, I2cBus, SystemClock};
@@ -88,6 +88,22 @@ pub enum AcqCommand {
     /// the tag holds afterwards.
     WriteNfcUrl(String, Option<Reply<NfcInfo>>),
     Shutdown,
+}
+
+impl AcqCommand {
+    fn is_relay(&self) -> bool {
+        matches!(
+            self,
+            AcqCommand::SetRelay(..) | AcqCommand::PulseRelay { .. }
+        )
+    }
+
+    fn take_relay_reply(&mut self) -> Option<Reply<RelayInfo>> {
+        match self {
+            AcqCommand::SetRelay(_, reply) | AcqCommand::PulseRelay { reply, .. } => reply.take(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -238,7 +254,7 @@ fn supervise(
         last_relay: None,
         last_nfc: None,
         last_gps: None,
-        gps_rejected_until: None,
+        gps_rejected_until: [None; 2],
         pulse: None,
         deferred: VecDeque::new(),
         pending_rescan: Vec::new(),
@@ -266,6 +282,8 @@ enum Flow {
     /// Measure immediately.
     Now,
     Shutdown,
+    /// The bridge failed while serving a background job.
+    Lost(BusError),
 }
 
 enum Exit {
@@ -302,9 +320,9 @@ struct Worker {
     last_relay: Option<RelayInfo>,
     last_nfc: Option<NfcInfo>,
     last_gps: Option<GpsInfo>,
-    /// Clock time until which no GPS Module is looked for (something else
-    /// answered at its expander address).
-    gps_rejected_until: Option<Duration>,
+    /// Per channel, the clock time until which no GPS Module is looked for
+    /// there (something else answered at its expander address).
+    gps_rejected_until: [Option<Duration>; 2],
     pulse: Option<PendingPulse>,
     /// Commands received during a measurement that wait for its end.
     deferred: VecDeque<AcqCommand>,
@@ -400,14 +418,14 @@ impl Worker {
         bus: &mut dyn I2cBus,
         gps: &mut Option<GpsModule>,
     ) -> Result<(), BusError> {
-        if gps.is_some()
-            || self
-                .gps_rejected_until
-                .is_some_and(|t| self.clock.now() < t)
-        {
+        if gps.is_some() {
             return Ok(());
         }
+        let now = self.clock.now();
         for channel in RELAY_CHANNELS {
+            if self.gps_rejected_until[usize::from(channel)].is_some_and(|t| now < t) {
+                continue;
+            }
             let found = select_channel(bus, channel).and_then(|()| GpsModule::probe(bus));
             match found {
                 Ok(true) => {}
@@ -428,26 +446,35 @@ impl Worker {
     }
 
     /// Between measurements: TVOC every 30 s, the GPS position every 5 s.
-    fn serve_background(&mut self, s: &mut Session<'_>) {
+    /// Every job served moves its next time on, also when it fails; `Err`
+    /// is a lost bridge.
+    fn serve_background(&mut self, s: &mut Session<'_>) -> Result<(), BusError> {
         let clock = Arc::clone(&self.clock);
-        if let Err(e) = s.sensors.service(&mut *s.bus, clock.as_ref()) {
-            // A lost bridge also fails the next measurement, which reopens it.
-            debug!("background measurement failed: {e}");
-        }
+        // Only transport failures come back; sensor failures are counted.
+        s.sensors.service(&mut *s.bus, clock.as_ref())?;
         let Some(module) = s.gps.as_mut() else {
-            return;
+            return Ok(());
         };
-        let changed = if select_channel(&mut *s.bus, module.channel()).is_ok() {
-            module.service(&mut *s.bus, clock.as_ref()).unwrap_or(false)
-        } else {
-            false
+        if !module.due(clock.now()) {
+            return Ok(());
+        }
+        let changed = match select_channel(&mut *s.bus, module.channel()) {
+            Ok(()) => module.service(&mut *s.bus, clock.as_ref())?,
+            Err(e) if e.is_fatal() => return Err(e),
+            Err(_) => {
+                module.missed(clock.now());
+                false
+            }
         };
         if module.gone() {
             // Not a GPS Module after all (or unplugged): leave it alone a while.
-            warn!("no GPS receiver answers on channel {}", module.channel());
+            let channel = module.channel();
+            warn!("no GPS receiver answers on channel {channel}");
             let _ = module.release(&mut *s.bus);
             *s.gps = None;
-            self.gps_rejected_until = Some(clock.now() + Duration::from_secs(600));
+            // Another channel may still have one.
+            self.gps_rejected_until[usize::from(channel) % 2] =
+                Some(clock.now() + Duration::from_secs(600));
             self.emit_gps(None);
         } else if changed || self.last_gps.is_none() {
             let info = module.info().cloned();
@@ -455,6 +482,7 @@ impl Worker {
                 self.emit_gps(info);
             }
         }
+        Ok(())
     }
 
     /// Clock time of the next background job.
@@ -599,19 +627,47 @@ impl Worker {
 
     /// Relay commands are carried out at once; anything else waits until
     /// the end of the measurement. Returns whether the bus was used.
+    /// The last of the relay commands queued behind `cmd` (a relay command)
+    /// takes its place. A burst of commands (a looping automation, many API
+    /// calls at once) then switches the relay once rather than once per
+    /// command, at 300 ms or more each, long after the callers gave up. The
+    /// replies of the replaced commands come back to get the same answer.
+    fn latest_relay_command(&mut self, mut cmd: AcqCommand) -> (AcqCommand, Vec<Reply<RelayInfo>>) {
+        while let Ok(queued) = self.rx.try_recv() {
+            self.deferred.push_back(queued);
+        }
+        let mut replaced = Vec::new();
+        while let Some(i) = self.deferred.iter().position(AcqCommand::is_relay) {
+            let Some(next) = self.deferred.remove(i) else {
+                break;
+            };
+            replaced.extend(cmd.take_relay_reply());
+            cmd = next;
+        }
+        (cmd, replaced)
+    }
+
     fn relay_command(
         &mut self,
         bus: &mut dyn I2cBus,
         relay: &mut Option<RelayModule>,
         cmd: AcqCommand,
     ) -> bool {
+        let (cmd, replaced) = if cmd.is_relay() {
+            self.latest_relay_command(cmd)
+        } else {
+            (cmd, Vec::new())
+        };
+        let answer = |reply: Option<Reply<RelayInfo>>, result: Result<RelayInfo, AcqError>| {
+            for r in replaced.iter().chain(reply.as_ref()) {
+                let _ = r.send(result.clone());
+            }
+        };
         match cmd {
             AcqCommand::SetRelay(state, reply) => {
                 self.pulse = None;
                 let result = self.move_relay(bus, relay, state);
-                if let Some(reply) = reply {
-                    let _ = reply.send(result);
-                }
+                answer(reply, result);
                 true
             }
             AcqCommand::PulseRelay {
@@ -620,9 +676,7 @@ impl Worker {
                 reply,
             } => {
                 let result = self.start_pulse(bus, relay, state, duration);
-                if let Some(reply) = reply {
-                    let _ = reply.send(result);
-                }
+                answer(reply, result);
                 true
             }
             other => {
@@ -754,6 +808,7 @@ impl Worker {
                         };
                         match self.wait(NO_MODULE_RETRY, Some(session)) {
                             Flow::Shutdown => return self.close(bus, &sensors, gps.as_ref()),
+                            Flow::Lost(e) => return Exit::Lost(e),
                             Flow::Elapsed | Flow::Now => continue,
                         }
                     }
@@ -772,6 +827,7 @@ impl Worker {
                 };
                 match self.wait(d, Some(session)) {
                     Flow::Shutdown => return self.close(bus, &sensors, gps.as_ref()),
+                    Flow::Lost(e) => return Exit::Lost(e),
                     Flow::Elapsed | Flow::Now => {}
                 }
                 if sensors.is_empty() {
@@ -812,8 +868,10 @@ impl Worker {
                         gps: &mut gps,
                         ticking: false,
                     };
-                    if self.wait(left, Some(session)) == Flow::Shutdown {
-                        return self.close(bus, &sensors, gps.as_ref());
+                    match self.wait(left, Some(session)) {
+                        Flow::Shutdown => return self.close(bus, &sensors, gps.as_ref()),
+                        Flow::Lost(e) => return Exit::Lost(e),
+                        Flow::Elapsed | Flow::Now => {}
                     }
                     if sensors.is_empty() {
                         continue;
@@ -823,14 +881,15 @@ impl Worker {
 
             let ts = unix_ms();
             let clock = Arc::clone(&self.clock);
-            let before = sensors.sources();
             let measured = sensors.measure_with(bus, clock.as_ref(), &mut |bus, until| {
                 self.measure_idle(bus, &mut relay, until)
             });
             match measured {
                 Ok(reports) => {
                     let mut measured_any = false;
+                    let mut errors = 0;
                     for (channel, report) in reports {
+                        errors += report.errors.len() + usize::from(report.unreachable);
                         for (sensor, err) in &report.errors {
                             warn!("{} on channel {channel}: {err}", sensor.name());
                         }
@@ -845,7 +904,10 @@ impl Worker {
                             }));
                         }
                     }
-                    if measured_any {
+                    // No value is a failure only when parts or the switch
+                    // said so: a CO2 Module still charging or a VOC-LP Tag
+                    // still warming up has nothing to report yet.
+                    if measured_any || errors == 0 {
                         failed_cycles = 0;
                     } else {
                         failed_cycles += 1;
@@ -853,8 +915,12 @@ impl Worker {
                 }
                 Err(e) => return Exit::Lost(e),
             }
-            // Parts that stopped answering were dropped.
-            if !sensors.is_empty() && sensors.sources() != before {
+            // Parts that stopped answering were dropped, here or between
+            // the cycles (a VOC-LP Tag served in the background).
+            if !sensors.is_empty()
+                && self.last_state.as_ref().map(DeviceState::sources)
+                    != Some(&sensors.sources()[..])
+            {
                 self.report_sensors(&device, &sensors);
             }
             if failed_cycles >= FAILED_CYCLES_REOPEN {
@@ -901,6 +967,11 @@ impl Worker {
                 self.finish_pulse(&mut *s.bus, s.relay);
                 continue;
             }
+            // The measurement first: a background job due at the same time
+            // is served in the next wait.
+            if now >= deadline {
+                return Flow::Elapsed;
+            }
             let background = target
                 .as_ref()
                 .and_then(Self::background_due)
@@ -908,11 +979,10 @@ impl Worker {
             if let (Some(due), Some(s)) = (background, target.as_mut())
                 && due <= now
             {
-                self.serve_background(s);
+                if let Err(e) = self.serve_background(s) {
+                    return Flow::Lost(e);
+                }
                 continue;
-            }
-            if now >= deadline {
-                return Flow::Elapsed;
             }
             let until = [pulse_due, background]
                 .into_iter()
@@ -926,6 +996,12 @@ impl Worker {
                     Err(RecvTimeoutError::Disconnected) => return Flow::Shutdown,
                 },
             };
+            if cmd.is_relay()
+                && let Some(s) = target.as_mut()
+            {
+                self.relay_command(&mut *s.bus, s.relay, cmd);
+                continue;
+            }
             match cmd {
                 AcqCommand::Shutdown => return Flow::Shutdown,
                 AcqCommand::SetInterval(i) => {
@@ -945,6 +1021,8 @@ impl Worker {
                 AcqCommand::Rescan(reply) => {
                     // Answered after the next detection (or failed open).
                     self.pending_rescan.extend(reply);
+                    // A GPS Module plugged in where something else was.
+                    self.gps_rejected_until = [None; 2];
                     if let Some(s) = target.as_mut() {
                         s.sensors.forget();
                         // Looked for again together with the sensors
@@ -975,29 +1053,10 @@ impl Worker {
                         let _ = reply.send(result);
                     }
                 }
-                AcqCommand::SetRelay(state, reply) => {
-                    let result = match target.as_mut() {
-                        Some(s) => {
-                            self.pulse = None;
-                            self.move_relay(&mut *s.bus, s.relay, state)
-                        }
-                        None => Err(AcqError::NotConnected),
-                    };
+                // Served above while connected.
+                AcqCommand::SetRelay(_, reply) | AcqCommand::PulseRelay { reply, .. } => {
                     if let Some(reply) = reply {
-                        let _ = reply.send(result);
-                    }
-                }
-                AcqCommand::PulseRelay {
-                    state,
-                    duration,
-                    reply,
-                } => {
-                    let result = match target.as_mut() {
-                        Some(s) => self.start_pulse(&mut *s.bus, s.relay, state, duration),
-                        None => Err(AcqError::NotConnected),
-                    };
-                    if let Some(reply) = reply {
-                        let _ = reply.send(result);
+                        let _ = reply.send(Err(AcqError::NotConnected));
                     }
                 }
             }
@@ -1528,5 +1587,330 @@ mod tests {
     fn tick_alignment() {
         let d = until_next_tick(Duration::from_secs(10));
         assert!(d <= Duration::from_secs(10));
+    }
+
+    /// A clock `scale` times faster than real time, for the CO2 Module's
+    /// first minute and the background jobs.
+    struct FastClock {
+        origin: Instant,
+        scale: u32,
+    }
+
+    impl Clock for FastClock {
+        fn now(&self) -> Duration {
+            self.origin.elapsed() * self.scale
+        }
+
+        fn sleep(&self, d: Duration) {
+            std::thread::sleep(d / self.scale);
+        }
+    }
+
+    fn fast(scale: u32) -> Box<dyn Clock> {
+        Box::new(FastClock {
+            origin: Instant::now(),
+            scale,
+        })
+    }
+
+    /// A bus that can be unplugged: every transfer then fails as USB does.
+    struct Unpluggable {
+        inner: MockBus,
+        gone: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl Unpluggable {
+        fn check(&mut self) -> Result<(), BusError> {
+            self.inner.log.clear();
+            if self.gone.load(std::sync::atomic::Ordering::Relaxed) {
+                Err(BusError::Hid("unplugged".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl I2cBus for Unpluggable {
+        fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), BusError> {
+            self.check()?;
+            self.inner.write(addr, data)
+        }
+
+        fn read(&mut self, addr: u8, buf: &mut [u8]) -> Result<(), BusError> {
+            self.check()?;
+            self.inner.read(addr, buf)
+        }
+
+        fn write_read(&mut self, addr: u8, wr: &[u8], rd: &mut [u8]) -> Result<(), BusError> {
+            self.check()?;
+            self.inner.write_read(addr, wr, rd)
+        }
+
+        fn recover(&mut self) -> Result<(), BusError> {
+            Ok(())
+        }
+
+        fn set_led(&mut self, _on: bool) -> Result<(), BusError> {
+            self.check()
+        }
+
+        fn info(&self) -> &DeviceInfo {
+            self.inner.info()
+        }
+    }
+
+    fn spawn_fast(opener: Opener, scale: u32) -> (Acquisition, Receiver<AcqEvent>) {
+        let (tx, rx) = unbounded();
+        let config = AcqConfig {
+            interval: Duration::from_secs(2),
+            ..AcqConfig::default()
+        };
+        match Acquisition::spawn(config, opener, fast(scale), tx) {
+            Ok(a) => (a, rx),
+            Err(e) => panic!("spawn failed: {e}"),
+        }
+    }
+
+    #[test]
+    fn unplugging_with_background_jobs_reconnects() {
+        use crate::bus::mock::{attach_gps_module, attach_sgpc3};
+        let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let g = gone.clone();
+        let opener: Opener = Box::new(move || {
+            let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, Arc::default());
+            attach_sgpc3(&mut bus, 0);
+            attach_gps_module(&mut bus, 1);
+            Ok(Box::new(Unpluggable {
+                inner: bus,
+                gone: g.clone(),
+            }) as Box<dyn I2cBus>)
+        });
+        let (acq, rx) = spawn_fast(opener, 100);
+        assert!(recv_until(&rx, |e| matches!(e, AcqEvent::Reading(_))).is_some());
+        // Unplugged between measurements, with TVOC and GPS jobs due: the
+        // loss is noticed instead of the jobs being served again forever.
+        gone.store(true, std::sync::atomic::Ordering::Relaxed);
+        let searching = recv_until(&rx, |e| {
+            matches!(e, AcqEvent::Device(DeviceState::Searching))
+        });
+        assert!(searching.is_some(), "the lost bridge is noticed");
+        let started = Instant::now();
+        acq.shutdown(Duration::from_secs(2));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "shutdown served"
+        );
+    }
+
+    #[test]
+    fn a_co2_module_alone_is_measured_after_its_first_charge() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let opens = Arc::new(AtomicUsize::new(0));
+        let count = opens.clone();
+        let opener: Opener = Box::new(move || {
+            count.fetch_add(1, Ordering::Relaxed);
+            let mut bus = MockBus::new();
+            crate::bus::mock::attach_co2_module(&mut bus, 0);
+            Ok(Box::new(bus) as Box<dyn I2cBus>)
+        });
+        let (acq, rx) = spawn_fast(opener, 100);
+        // The empty cycles of the first minute are no failures.
+        let reading = recv_until(
+            &rx,
+            |e| matches!(e, AcqEvent::Reading(r) if r.values.co2.is_some()),
+        );
+        assert!(reading.is_some(), "a CO2 value after the first charge");
+        assert_eq!(opens.load(Ordering::Relaxed), 1, "never reopened");
+        acq.shutdown(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_voc_tag_dropped_between_cycles_leaves_the_sources() {
+        use crate::model::Metric;
+        let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let g = gone.clone();
+        let opener: Opener = Box::new(move || {
+            let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, Arc::default());
+            let sgp = crate::bus::mock::attach_sgpc3(&mut bus, 1);
+            let g = g.clone();
+            // The tag stops answering its measurements once `gone` is set.
+            std::thread::spawn(move || {
+                while !g.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                if let Ok(mut s) = sgp.lock() {
+                    s.mute = true;
+                }
+            });
+            Ok(Box::new(bus) as Box<dyn I2cBus>)
+        });
+        let (acq, rx) = spawn_fast(opener, 20);
+        let with_voc = |e: &AcqEvent, voc: bool| {
+            matches!(e, AcqEvent::Device(DeviceState::Ready { sources, .. })
+                if sources.iter().any(|s| s.metric == Metric::Voc) == voc)
+        };
+        assert!(recv_until(&rx, |e| with_voc(e, true)).is_some());
+        gone.store(true, std::sync::atomic::Ordering::Relaxed);
+        // Three failed measurements, 30 s apart: 4.5 s at 20 times speed.
+        let deadline = Instant::now() + Duration::from_secs(12);
+        let mut dropped = false;
+        while Instant::now() < deadline && !dropped {
+            if let Ok(ev) = rx.recv_timeout(Duration::from_millis(100)) {
+                dropped = with_voc(&ev, false);
+            }
+        }
+        assert!(dropped, "the sources no longer list the VOC-LP Tag");
+        acq.shutdown(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_gps_module_is_found_next_to_another_device_at_its_address() {
+        let opener: Opener = Box::new(move || {
+            let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, Arc::default());
+            // Something else at 0x21 on channel 0, the GPS Module on 1.
+            bus.attach(
+                0,
+                crate::gps::EXPANDER,
+                Box::new(crate::bus::mock::SimTca9534a::new()),
+            );
+            let gps = crate::bus::mock::attach_gps_module(&mut bus, 1);
+            if let Ok(mut g) = gps.lock() {
+                g.position = Some((50.0, 15.0, 300.0));
+                g.satellites = 8;
+            }
+            Ok(Box::new(bus) as Box<dyn I2cBus>)
+        });
+        let (acq, rx) = spawn_fast(opener, 100);
+        // The waits between cycles run in real time: the foreign expander
+        // fails three polls, one per 2 s cycle, before channel 1 is tried.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut found = None;
+        while found.is_none() && Instant::now() < deadline {
+            if let Ok(ev) = rx.recv_timeout(Duration::from_millis(100))
+                && matches!(&ev, AcqEvent::Gps(Some(g)) if g.fix)
+            {
+                found = Some(ev);
+            }
+        }
+        match found {
+            Some(AcqEvent::Gps(Some(g))) => assert_eq!(g.channel, 1),
+            other => panic!("no GPS fix: {other:?}"),
+        }
+        acq.shutdown(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_burst_of_relay_commands_switches_once_and_answers_all() {
+        let env = Arc::new(Mutex::new(Values::default()));
+        let opener: Opener = Box::new(move || {
+            let mut bus = MockBus::with_climate(ClimateRevision::R1, 0, env.clone());
+            bus.attach(
+                1,
+                crate::relay::ADDR_DEFAULT,
+                Box::new(crate::bus::mock::SimTca9534a::new()),
+            );
+            Ok(Box::new(bus) as Box<dyn I2cBus>)
+        });
+        let (tx, rx) = unbounded();
+        // Real time: each switch waits for the coil capacitor.
+        let acq = match Acquisition::spawn(
+            AcqConfig::default(),
+            opener,
+            Box::new(SystemClock::new()),
+            tx,
+        ) {
+            Ok(a) => a,
+            Err(e) => panic!("spawn failed: {e}"),
+        };
+        assert!(recv_until(&rx, |e| matches!(e, AcqEvent::Relay(Some(_)))).is_some());
+        let mut replies = Vec::new();
+        for i in 0..10 {
+            let (reply, done) = crossbeam_channel::bounded(1);
+            let _ = acq
+                .sender()
+                .send(AcqCommand::SetRelay(i % 2 == 0, Some(reply)));
+            replies.push(done);
+        }
+        for done in &replies {
+            let answer = done.recv_timeout(Duration::from_secs(5));
+            assert!(
+                matches!(answer, Ok(Ok(_))),
+                "every caller is answered: {answer:?}"
+            );
+        }
+        let last = replies[9].try_recv();
+        assert!(last.is_err(), "one answer each");
+        // The last command decides, and the relay switched far fewer times
+        // than it was told to.
+        std::thread::sleep(Duration::from_millis(200));
+        let switches = rx
+            .try_iter()
+            .filter(|e| matches!(e, AcqEvent::Relay(Some(r)) if r.state.is_some()))
+            .count();
+        assert!(switches <= 3, "{switches} switches for 10 commands");
+        acq.shutdown(Duration::from_secs(2));
+    }
+
+    /// The switch stops answering (a module holding the bus): every channel
+    /// is unreachable, which must count as failed cycles and recover the bus.
+    struct StuckSwitch {
+        inner: MockBus,
+        stuck: Arc<std::sync::atomic::AtomicBool>,
+        recovers: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl I2cBus for StuckSwitch {
+        fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), BusError> {
+            if addr == crate::climate::SWITCH_ADDR
+                && self.stuck.load(std::sync::atomic::Ordering::Relaxed)
+            {
+                return Err(BusError::Timeout);
+            }
+            self.inner.write(addr, data)
+        }
+
+        fn read(&mut self, addr: u8, buf: &mut [u8]) -> Result<(), BusError> {
+            self.inner.read(addr, buf)
+        }
+
+        fn write_read(&mut self, addr: u8, wr: &[u8], rd: &mut [u8]) -> Result<(), BusError> {
+            self.inner.write_read(addr, wr, rd)
+        }
+
+        fn recover(&mut self) -> Result<(), BusError> {
+            self.recovers
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn info(&self) -> &DeviceInfo {
+            self.inner.info()
+        }
+    }
+
+    #[test]
+    fn a_stuck_switch_is_recovered() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let stuck = Arc::new(AtomicBool::new(false));
+        let recovers = Arc::new(AtomicUsize::new(0));
+        let (s, r) = (stuck.clone(), recovers.clone());
+        let opener: Opener = Box::new(move || {
+            Ok(Box::new(StuckSwitch {
+                inner: MockBus::with_climate(ClimateRevision::R2, 0, Arc::default()),
+                stuck: s.clone(),
+                recovers: r.clone(),
+            }) as Box<dyn I2cBus>)
+        });
+        let (acq, rx) = spawn_fast(opener, 1);
+        assert!(recv_until(&rx, |e| matches!(e, AcqEvent::Reading(_))).is_some());
+        stuck.store(true, Ordering::Relaxed);
+        // Three failed cycles, 2 s apart.
+        let deadline = Instant::now() + Duration::from_secs(14);
+        while recovers.load(Ordering::Relaxed) == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let n = recovers.load(Ordering::Relaxed);
+        acq.shutdown(Duration::from_secs(2));
+        assert!(n > 0, "the bus was never recovered");
     }
 }

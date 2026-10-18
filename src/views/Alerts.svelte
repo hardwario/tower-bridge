@@ -91,9 +91,9 @@
               {#if e.channel !== 0 || metricChannels(live.device, e.metric, null, live.latest).length > 1}
                 <span class="muted">({channelLabel(live.device, e.metric, e.channel)})</span>
               {/if}
-              {fmtWithUnit(e.metric, e.value, unit)}</span
+              <span class="nowrap">{fmtWithUnit(e.metric, e.value, unit)}</span></span
             >
-            <span class="muted">{fill(t().alerts.limit, { value: fmtWithUnit(e.metric, e.threshold, unit) })}</span>
+            <span class="muted nowrap">{fill(t().alerts.limit, { value: fmtWithUnit(e.metric, e.threshold, unit) })}</span>
             <span class="muted when tabular">{fmtDateTime(e.ts)}</span>
           </div>
         {/each}
@@ -122,10 +122,24 @@
     color: var(--critical);
   }
   .kind.recovered {
-    color: var(--good);
+    color: var(--good-text);
   }
   .when {
     min-width: 110px;
     text-align: right;
+  }
+  .nowrap {
+    white-space: nowrap;
+  }
+  /* A narrow window: what happened on the first line, the limit and the time
+     below. */
+  @media (max-width: 900px) {
+    .entry {
+      grid-template-columns: auto 1fr;
+      row-gap: 2px;
+    }
+    .when {
+      min-width: 0;
+    }
   }
 </style>

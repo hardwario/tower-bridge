@@ -3,7 +3,7 @@
 Desktop app for the HARDWARIO **TOWER Bridge Module** with a **TOWER Climate
 Module** or TOWER sensor tags (Humidity, Temperature, Lux Meter, Barometer) on
 either of its two I²C channels and, optionally, a **TOWER CO2 Module**, a
-VOC-LP Tag, a **TOWER GPS Module**, a **TOWER Relay Module** and a **TOWER NFC
+**TOWER VOC-LP Tag**, a **TOWER GPS Module**, a **TOWER Relay Module** and a **TOWER NFC
 Tag**. It lives in the menu bar (macOS) or system tray (Windows, Linux) and
 shows temperature, humidity, illuminance, barometric pressure, CO₂ and VOC at a
 glance.
@@ -12,8 +12,8 @@ glance.
 - Dashboard with live values and interactive charts: min / avg / max with
   optional lines, exact value and time under the pointer, selectable time
   span, drag to pan through all stored data, Ctrl/⌘+scroll, pinch or
-  Shift+drag to zoom, line colours from an 8-colour palette, history from
-  1 h to 30 days or a custom range, and a table view; dashboard panels can be
+  Shift+drag to zoom, line colors from an 8-color palette, history from
+  1 h to 365 days or a custom range, and a table view; dashboard panels can be
   rearranged by dragging and charts maximized; with sensors on both channels,
   each panel shows a line per channel
 - Relay Module control (true / false / timed pulse) on the dashboard, over
@@ -47,7 +47,7 @@ command-line reader for the same hardware.
 | Platform | File |
 |---|---|
 | Windows 10/11 (x64) | `TOWER-Bridge-<version>-windows-x64-portable.exe` |
-| macOS 11+ (Apple silicon and Intel) | `TOWER-Bridge-<version>-macos-universal.dmg` |
+| macOS 11+ with Safari 16.2+ (Apple silicon and Intel) | `TOWER-Bridge-<version>-macos-universal.dmg` |
 | Linux (x86_64) | `TOWER-Bridge-<version>-linux-x86_64.AppImage` |
 
 ### First run
@@ -58,7 +58,9 @@ command-line reader for the same hardware.
   *More info → Run anyway*. Windows 11 may hide new tray icons in the overflow
   area; drag the icon to the taskbar to keep it visible.
 - **macOS:** open the dmg and drag *TOWER Bridge* to *Applications* (Open at
-  Login requires the app to be in Applications). Unsigned builds must be
+  Login requires the app to be in Applications). The window is drawn by the
+  system's WebKit, so keep Safari updated (16.2 or newer; Software Update
+  offers it for macOS 11 too). Unsigned builds must be
   allowed once in *System Settings → Privacy & Security → Open Anyway*.
 - **Linux:** install the udev rule from `packaging/linux/` and see
   [docs/linux.md](docs/linux.md) (kernel driver notes, GNOME tray extension).

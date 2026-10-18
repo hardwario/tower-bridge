@@ -66,6 +66,11 @@ CASES.push([
   ],
 ]);
 CASES.push(["lang=pl&gap=2", [["tab", "data"]]]);
+// The sidebar folded to its icons, and every tab reached that way.
+CASES.push([
+  "lang=de&theme=dark&relay=true",
+  [["click", ".fold"], ["tab", "data"], ["tab", "alerts"], ["tab", "settings"], ["tab", "manual"], ["click", ".fold"]],
+]);
 CASES.push(["lang=cs&bridges=2", []]);
 CASES.push([
   "lang=de&decimal=point",

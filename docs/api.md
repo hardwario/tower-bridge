@@ -24,14 +24,23 @@ Send the token from the settings page as `Authorization: Bearer <token>`. A
 request with a valid token is always accepted.
 
 Requests without a token are accepted only if they come over loopback and their
-`Host` header (and `Origin`, if present) names `localhost`, `127.0.0.1` or
-`[::1]`. That blocks web pages from reaching the API through DNS rebinding or
-cross-site requests.
+`Host` header names `localhost`, `127.0.0.1` or `[::1]`, and their `Origin`, if
+present, is an `http` or `https` page on one of those. That blocks web pages
+from reaching the API through DNS rebinding or cross-site requests.
+
+With network access on, the traffic is plain HTTP: anyone who can watch the
+network sees the token and the readings, and with *Allow changes* on can
+switch the relay with that token. Use it on a network you trust.
+
+The server serves up to 64 connections at once and closes a connection after
+30 seconds without traffic.
 
 ## REST API
 
 Values are SI units: temperature °C, relative humidity %, illuminance lx,
-pressure **Pa**, altitude m; CO₂ in ppm and TVOC in ppb. Timestamps and durations are milliseconds.
+pressure **Pa**, altitude m; CO₂ in ppm and TVOC in ppb. Timestamps are Unix
+milliseconds; durations too, except `cooldown_s` in the alert rules and
+`sample_interval_s` in the status, which are seconds.
 JSON keys are lowercase with underscores (`bucket_ms`, `pulse_until`, …). Time parameters
 accept Unix milliseconds or RFC 3339. The OpenAPI description is at
 `/api/v1/openapi.json`.
@@ -42,14 +51,14 @@ alerts carry their `channel`.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/v1/status` | App version, device state (with the channel, module, sensor and I²C address behind each value), last reading time, active alerts |
-| GET | `/api/v1/readings/latest` | Latest reading of each channel (`stale: true` while the bridge is disconnected) |
+| GET | `/api/v1/status` | App version, device state (with the channel, module, sensor and I²C address behind each value), the relay, `sample_interval_s`, last reading time, active alerts, whether `mcp` and `allow_control` are on |
+| GET | `/api/v1/readings/latest` | Latest reading of each channel (`stale: true` while the bridge is disconnected); 404 `no_data` before the first measurement |
 | GET | `/api/v1/readings?hours=24&max_points=500` | Averaged history (`from`, `to` also accepted), columnar like the dashboard charts |
 | GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV, one row per measurement and channel |
 | GET | `/api/v1/alerts` | Alert rules and active alerts |
 | GET | `/api/v1/alerts/log?limit=50` | Recent alert events |
 | GET | `/api/v1/alerts/{metric}` | One rule (`temperature`, `humidity`, `illuminance`, `pressure`, `co2`, `voc`) |
-| PATCH / PUT | `/api/v1/alerts/{metric}` | Update fields of a rule, e.g. `{"enabled": true, "max": 26}` *(changes)* |
+| PATCH / PUT | `/api/v1/alerts/{metric}` | Update fields of a rule: `enabled`, `min`, `max`, `hysteresis`, `cooldown_s`, `notify_recovery`, in SI units (pressure in Pa), e.g. `{"enabled": true, "max": 26}` *(changes)* |
 | POST | `/api/v1/device/identify` | Blink the bridge LED *(changes)* |
 | POST | `/api/v1/device/rescan` | Look for the sensors again *(changes)* |
 | GET | `/api/v1/relay` | Relay Module state: `{"state": true, "channel": 0, "address": 59, "pulse_until": null}`; `state` is `true`, `false` or `null` (unknown); 404 without a relay |
@@ -68,13 +77,15 @@ The latest readings:
   "time": "2026-10-17T16:00:00+02:00",
   "stale": false,
   "readings": [
-    { "ts": 1792245600000, "time": "…", "device": "TB4F2A91", "channel": 0,
+    { "ts": 1792245600000, "time": "…", "device": "ft260", "channel": 0,
       "temperature": 22.81, "humidity": 41.2, "illuminance": 318.5, "pressure": 100421.0, "altitude": 75.6 },
-    { "ts": 1792245600000, "time": "…", "device": "TB4F2A91", "channel": 1,
+    { "ts": 1792245600000, "time": "…", "device": "ft260", "channel": 1,
       "temperature": 12.44, "humidity": 70.3, "illuminance": 9120.0, "pressure": 100433.0, "altitude": 74.6 }
   ]
 }
 ```
+
+`device` is always `ft260`: the bridge has no serial number to tell two apart.
 
 The history has a series per channel: `channels` lists them (e.g. `[0, 1]`),
 and each metric holds one `{"avg": [...], "min": [...], "max": [...]}` per
@@ -96,8 +107,8 @@ The relay state is `null` until the relay has been switched: it is latching
 and cannot be read back. `/metrics` exports a known state as
 `tower_bridge_relay_state{channel="0"} 1` (`true`) or `0` (`false`).
 
-Every value in `/metrics` carries a `channel` label, for example
-`tower_bridge_temperature_celsius{device="TB4F2A91",channel="1"} 12.44`;
+Every reading in `/metrics` carries a `channel` label, for example
+`tower_bridge_temperature_celsius{device="ft260",channel="1"} 12.44`;
 alert gauges are labelled with the metric, channel and bound. CO₂ and VOC are
 `tower_bridge_co2_ppm` and `tower_bridge_voc_ppb`.
 
@@ -119,7 +130,7 @@ The tools use friendly units (°C, %, lx, **hPa**, ppm, ppb):
 | `get_current_readings` | Latest values of each channel with the module that measured them, measurement time, active alerts |
 | `get_history` | Averaged points and min/avg/max per channel for `hours` back or a `from`/`to` range |
 | `get_alerts` | Alert limits, active alerts, recent events (with the channel) |
-| `get_device_status` | Bridge status, serial number, the modules and sensors on each channel with their I²C addresses, interval, relay state, GPS position |
+| `get_device_status` | Bridge status, the modules and sensors on each channel with their I²C addresses, interval, relay state, GPS position |
 | `set_alert_threshold` | Change one metric's limits *(only with "Allow changes")* |
 | `identify_device` | Blink the bridge LED *(only with "Allow changes")* |
 | `set_relay` | Switch the Relay Module: `state` `true` or `false` *(only with "Allow changes")* |

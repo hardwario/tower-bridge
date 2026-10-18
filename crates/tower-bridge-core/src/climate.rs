@@ -154,6 +154,10 @@ pub struct CycleReport {
     pub values: Values,
     pub errors: Vec<(SensorKind, SensorError)>,
     pub duration: Duration,
+    /// The switch did not select the channel, or lost it during the cycle:
+    /// nothing could be measured. A failed cycle, unlike one that simply
+    /// has no value yet (a CO2 Module charging).
+    pub unreachable: bool,
 }
 
 /// Offsets from the trigger point at which results are collected.
@@ -187,6 +191,12 @@ pub struct ChannelSensors {
     mpl: Part,
     co2: Option<Co2Module>,
     voc: Option<Sgpc3>,
+    /// Modules kept from before a re-detection (Rescan, a channel change):
+    /// taken over if found again, instead of starting them anew (a minute
+    /// of charging for the LP8, a new preheat for the SGPC3 that loses what
+    /// it learnt since its baseline was stored).
+    spare_co2: Option<Co2Module>,
+    spare_voc: Option<Sgpc3>,
     /// Where the LP8 and SGPC3 keep their state between runs.
     state_dir: Option<PathBuf>,
 }
@@ -202,6 +212,8 @@ impl ChannelSensors {
             mpl: Part::ABSENT,
             co2: None,
             voc: None,
+            spare_co2: None,
+            spare_voc: None,
             state_dir,
         }
     }
@@ -272,13 +284,23 @@ impl ChannelSensors {
             found = true;
         }
         if self.voc.is_none() && sgpc3::probe(bus)?.is_some() {
-            let store = self.state_file("sgpc3");
-            self.voc = answered(Sgpc3::start(bus, clock, self.channel, store))?;
+            self.voc = match self.spare_voc.take() {
+                Some(voc) => Some(voc),
+                None => {
+                    let store = self.state_file("sgpc3");
+                    answered(Sgpc3::start(bus, clock, self.channel, store))?
+                }
+            };
             found |= self.voc.is_some();
         }
         if self.co2.is_none() && Co2Module::probe(bus)? {
-            let store = self.state_file("lp8");
-            self.co2 = answered(Co2Module::start(bus, clock, self.channel, store))?;
+            self.co2 = match self.spare_co2.take() {
+                Some(co2) => Some(co2),
+                None => {
+                    let store = self.state_file("lp8");
+                    answered(Co2Module::start(bus, clock, self.channel, store))?
+                }
+            };
             found |= self.co2.is_some();
         }
         Ok(found)
@@ -407,6 +429,17 @@ impl ChannelSensors {
         Ok(())
     }
 
+    /// The TVOC slot could not be served.
+    fn missed(&mut self, now: Duration) {
+        if let Some(voc) = self.voc.as_mut() {
+            voc.missed(now);
+            if voc.gone() {
+                info!("VOC-LP Tag on channel {} stopped answering", self.channel);
+                self.voc = None;
+            }
+        }
+    }
+
     fn part(&mut self, kind: SensorKind) -> &mut Part {
         match kind {
             SensorKind::Sht30 => &mut self.sht30,
@@ -470,6 +503,7 @@ impl ChannelSensors {
             Err(e) => {
                 debug!("I2C switch did not accept channel {channel}: {e}");
                 report.duration = clock.now() - started;
+                report.unreachable = true;
                 return Ok(report);
             }
         }
@@ -538,6 +572,7 @@ impl ChannelSensors {
         }
         if !on_channel {
             report.duration = clock.now() - started;
+            report.unreachable = true;
             return Ok(report);
         }
 
@@ -708,6 +743,8 @@ pub struct Sensors {
     state_dir: Option<PathBuf>,
     /// The latest values of each channel.
     last: Vec<(u8, Values)>,
+    /// CO2 and VOC modules of channels forgotten by [`forget`](Self::forget).
+    spares: Vec<ChannelSensors>,
 }
 
 impl Sensors {
@@ -717,6 +754,7 @@ impl Sensors {
             channels: Vec::new(),
             state_dir: None,
             last: Vec::new(),
+            spares: Vec::new(),
         }
     }
 
@@ -762,7 +800,12 @@ impl Sensors {
             match select_channel(bus, channel) {
                 Ok(()) => self.channels[i].service(bus, clock, climate)?,
                 Err(e) if e.is_fatal() => return Err(e),
-                Err(e) => debug!("I2C switch did not accept channel {channel}: {e}"),
+                Err(e) => {
+                    // The slot is lost; never leave the job due, or the
+                    // caller would serve it again at once, forever.
+                    debug!("I2C switch did not accept channel {channel}: {e}");
+                    self.channels[i].missed(now);
+                }
             }
         }
         self.channels.retain(|c| !c.is_empty());
@@ -774,9 +817,21 @@ impl Sensors {
         self.forget();
     }
 
-    /// Forget every part found; the next [`detect`](Self::detect) starts over.
+    /// Forget every part found; the next [`detect`](Self::detect) starts
+    /// over. Running CO2 and VOC modules are kept aside and taken over when
+    /// they are found again: they kept their power on the same bridge.
     pub fn forget(&mut self) {
-        self.channels.clear();
+        self.spares = self
+            .channels
+            .drain(..)
+            .filter(|c| c.co2.is_some() || c.voc.is_some())
+            .map(|c| {
+                let mut spare = ChannelSensors::new(c.channel, c.state_dir.clone());
+                spare.spare_co2 = c.co2;
+                spare.spare_voc = c.voc;
+                spare
+            })
+            .collect();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -810,7 +865,10 @@ impl Sensors {
             let index = self.channels.iter().position(|c| c.channel == channel);
             let mut sensors = match index {
                 Some(i) => self.channels[i].clone(),
-                None => ChannelSensors::new(channel, self.state_dir.clone()),
+                None => match self.spares.iter().position(|s| s.channel == channel) {
+                    Some(i) => self.spares.remove(i),
+                    None => ChannelSensors::new(channel, self.state_dir.clone()),
+                },
             };
             if !sensors.probe(bus, clock)? {
                 continue;
@@ -870,6 +928,10 @@ impl Sensors {
             reports.push((channel, report));
         }
         self.channels.retain(|c| !c.is_empty());
+        // A channel no longer measured must not lend its pressure to the LP8.
+        let channels = &self.channels;
+        self.last
+            .retain(|(c, _)| channels.iter().any(|ch| ch.channel == *c));
         Ok(reports)
     }
 }
@@ -1121,7 +1183,7 @@ mod tests {
         );
         let sources = sensors.sources();
         assert_eq!(
-            crate::model::source_label(&sources, Metric::Humidity, 1).as_deref(),
+            crate::model::source_label(&sources, Metric::Humidity, 1, "channel {n}").as_deref(),
             Some("Humidity Tag, channel 1"),
             "the same name on both channels: the channel tells them apart"
         );
@@ -1478,5 +1540,231 @@ mod tests {
         fn info(&self) -> &crate::model::DeviceInfo {
             self.inner.info()
         }
+    }
+
+    /// Run measurement cycles every `step` of clock time until `until`.
+    fn cycles(
+        sensors: &mut Sensors,
+        bus: &mut MockBus,
+        clock: &MockClock,
+        step: Duration,
+        until: Duration,
+    ) -> Result<Vec<Values>, BusError> {
+        let mut out = Vec::new();
+        while clock.now() < until {
+            for (_, report) in sensors.measure(bus, clock)? {
+                out.push(report.values);
+            }
+            sensors.service(bus, clock)?;
+            clock.sleep(step);
+        }
+        Ok(out)
+    }
+
+    #[test]
+    fn co2_after_the_first_charge_with_the_state_handed_back() -> Result<(), BusError> {
+        let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, env());
+        let lp8 = crate::bus::mock::attach_co2_module(&mut bus, 0);
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Auto);
+        sensors.detect(&mut bus, &clock)?;
+        assert!(
+            modules(&sensors).contains(&(0, ModuleKind::Co2Module)),
+            "{:?}",
+            modules(&sensors)
+        );
+        // Nothing while the capacitor charges for the first minute.
+        let early = cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(20),
+            Duration::from_secs(50),
+        )?;
+        assert!(early.iter().all(|v| v.co2.is_none()));
+        let later = cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(20),
+            Duration::from_secs(130),
+        )?;
+        assert_eq!(later.last().and_then(|v| v.co2), Some(650.0));
+        let writes = lp8.lock().map(|l| l.writes.clone()).unwrap_or_default();
+        assert!(writes.len() >= 3, "{writes:?}");
+        // Initial first, then sequential with the state the last reply gave.
+        assert_eq!(writes[0].0, 0x10);
+        assert!(writes[1..].iter().all(|w| w.0 == 0x20));
+        assert_eq!(writes[2].1[0], writes[1].1[0].wrapping_add(1));
+        // The barometer on the channel compensates: 98 765 Pa in 0.1 hPa.
+        assert_eq!(writes[1].2, 9877);
+        Ok(())
+    }
+
+    #[test]
+    fn co2_state_survives_a_restart_and_a_fault_starts_over() -> Result<(), BusError> {
+        let Ok(dir) = tempfile::tempdir() else {
+            panic!("no temp dir");
+        };
+        let mut bus = MockBus::new();
+        let lp8 = crate::bus::mock::attach_co2_module(&mut bus, 1);
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Auto).with_state_dir(Some(dir.path().into()));
+        sensors.detect(&mut bus, &clock)?;
+        cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(20),
+            Duration::from_secs(90),
+        )?;
+        assert!(dir.path().join("lp8-channel1.txt").exists());
+
+        // A new run (the app restarted) continues from the stored state.
+        let mut sensors = Sensors::new(ChannelMode::Auto).with_state_dir(Some(dir.path().into()));
+        sensors.detect(&mut bus, &clock)?;
+        let before = lp8.lock().map(|l| l.writes.len()).unwrap_or(0);
+        let until = clock.now() + Duration::from_secs(90);
+        cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(20),
+            until,
+        )?;
+        let writes = lp8.lock().map(|l| l.writes.clone()).unwrap_or_default();
+        assert_eq!(writes[before].0, 0x20, "sequential after the restart");
+
+        // A fault the datasheet answers with a power cycle: initial again,
+        // and no value from the faulty measurement.
+        if let Ok(mut l) = lp8.lock() {
+            l.status = [crate::sensors::lp8::status0::ALGORITHM, 0];
+        }
+        let n = writes.len();
+        let until = clock.now() + Duration::from_secs(20);
+        cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(20),
+            until,
+        )?;
+        if let Ok(mut l) = lp8.lock() {
+            l.status = [0, 0];
+        }
+        let until = clock.now() + Duration::from_secs(40);
+        cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(20),
+            until,
+        )?;
+        let writes = lp8.lock().map(|l| l.writes.clone()).unwrap_or_default();
+        assert_eq!(writes[n].0, 0x20);
+        assert_eq!(writes[n + 1].0, 0x10, "initial after the fault: {writes:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn voc_in_ultra_low_power_with_humidity_from_its_channel() -> Result<(), BusError> {
+        let Ok(dir) = tempfile::tempdir() else {
+            panic!("no temp dir");
+        };
+        let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, env());
+        let sgp = crate::bus::mock::attach_sgpc3(&mut bus, 0);
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Auto).with_state_dir(Some(dir.path().into()));
+        sensors.detect(&mut bus, &clock)?;
+        assert!(modules(&sensors).contains(&(0, ModuleKind::VocLpTag)));
+        let commands = |sgp: &Arc<Mutex<crate::bus::mock::SimSgpc3>>| {
+            sgp.lock().map(|s| s.commands.clone()).unwrap_or_default()
+        };
+        let start = commands(&sgp);
+        let pos = |cmd: [u8; 2]| start.iter().position(|c| c.0 == cmd);
+        // Ultra-low power before the algorithm starts.
+        assert_eq!(
+            start.iter().find(|c| c.0 == [0x20, 0x9F]).map(|c| c.1),
+            Some(Some(0))
+        );
+        assert!(pos([0x20, 0x9F]) < pos([0x20, 0xAE]));
+
+        // Zeros while preheating are not values.
+        if let Ok(mut s) = sgp.lock() {
+            s.tvoc = 0;
+        }
+        let preheat = cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(20),
+            Duration::from_secs(200),
+        )?;
+        assert!(preheat.iter().all(|v| v.voc.is_none()), "{preheat:?}");
+        if let Ok(mut s) = sgp.lock() {
+            s.tvoc = 87;
+        }
+        let warm = cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(20),
+            Duration::from_secs(400),
+        )?;
+        assert_eq!(warm.last().and_then(|v| v.voc), Some(87.0));
+        // Measured on the 30 s grid, each with the humidity of 23.5 °C, 41 %.
+        let measures: Vec<_> = commands(&sgp)
+            .iter()
+            .filter(|c| c.0 == [0x20, 0x08])
+            .cloned()
+            .collect();
+        assert!(
+            (12..=14).contains(&measures.len()),
+            "{} measurements in 400 s",
+            measures.len()
+        );
+        let humidity = commands(&sgp)
+            .iter()
+            .rev()
+            .find(|c| c.0 == [0x20, 0x61])
+            .and_then(|c| c.1);
+        assert_eq!(
+            humidity,
+            Some(crate::sensors::sgpc3::absolute_humidity(23.5, 41.0))
+        );
+        // After the 5 minute preheat a zero is a value: clean air.
+        if let Ok(mut s) = sgp.lock() {
+            s.tvoc = 0;
+        }
+        let clean = cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(20),
+            Duration::from_secs(460),
+        )?;
+        assert_eq!(clean.last().and_then(|v| v.voc), Some(0.0));
+
+        // The baseline is stored after an hour and written back after a restart.
+        cycles(
+            &mut sensors,
+            &mut bus,
+            &clock,
+            Duration::from_secs(60),
+            Duration::from_secs(3700),
+        )?;
+        assert!(dir.path().join("sgpc3-channel0.txt").exists());
+        if let Ok(mut s) = sgp.lock() {
+            s.baseline = 0;
+            s.commands.clear();
+        }
+        let mut sensors = Sensors::new(ChannelMode::Auto).with_state_dir(Some(dir.path().into()));
+        sensors.detect(&mut bus, &clock)?;
+        let restored = commands(&sgp)
+            .iter()
+            .find(|c| c.0 == [0x20, 0x1E])
+            .and_then(|c| c.1);
+        assert_eq!(restored, Some(0x8123));
+        Ok(())
     }
 }

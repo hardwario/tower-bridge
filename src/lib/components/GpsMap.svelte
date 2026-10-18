@@ -3,6 +3,7 @@
   import {
     MAX_ZOOM,
     MIN_ZOOM,
+    clampY,
     drawMap,
     loadMap,
     mercator,
@@ -44,7 +45,10 @@
   let themeTick = $state(0);
 
   const target = $derived(mercator(longitude, latitude));
-  const center = $derived(pan ?? target);
+  const center = $derived.by((): [number, number] => {
+    const [x, y] = pan ?? target;
+    return [x, clampY(y, zoom, height)];
+  });
 
   $effect(() => {
     loadMap().then(
@@ -136,7 +140,7 @@
   }
 
   function moveTo(x: number, y: number) {
-    pan = [x, Math.max(0, Math.min(1, y))];
+    pan = [x, clampY(y, zoom, height)];
   }
 
   let drag: { x: number; y: number; cx: number; cy: number } | null = null;

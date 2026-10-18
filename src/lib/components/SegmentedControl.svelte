@@ -12,14 +12,28 @@
     onchange: (v: T) => void;
     disabled?: boolean;
   } = $props();
+
+  let group: HTMLDivElement;
+
+  /** A radio group: one Tab stop, the arrow keys move the choice. */
+  function onkeydown(e: KeyboardEvent) {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (step === undefined || disabled) return;
+    e.preventDefault();
+    const i = options.findIndex((o) => o.value === value);
+    const next = options[(i + step + options.length) % options.length];
+    onchange(next.value);
+    queueMicrotask(() => group.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus());
+  }
 </script>
 
-<div class="seg" role="radiogroup" aria-label={label}>
+<div class="seg" role="radiogroup" aria-label={label} tabindex="-1" bind:this={group} {onkeydown}>
   {#each options as o (o.value)}
     <button
       type="button"
       role="radio"
       aria-checked={o.value === value}
+      tabindex={o.value === value ? 0 : -1}
       class:active={o.value === value}
       {disabled}
       onclick={() => onchange(o.value)}>{o.label}</button

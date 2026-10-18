@@ -35,11 +35,18 @@ export interface Source {
 
 export const hexAddress = (a: number) => `0x${a.toString(16).toUpperCase().padStart(2, "0")}`;
 
-/** "Climate Module R1 · I²C (FT260) → channel 0 → 0x48 TMP112" */
+/** "I²C (chip FT260) → channel 0 → address 0x48 (chip TMP112)" */
+export function sourcePath(s: Source): string {
+  const c = t().common;
+  const bus = s.backend === "hid" ? fill(c.chip, { name: "FT260" }) : "i2c-dev";
+  const channel = fill(c.channel, { n: s.channel });
+  const address = fill(c.address, { address: hexAddress(s.address) });
+  return `I²C (${bus}) → ${channel} → ${address} (${fill(c.chip, { name: s.part })})`;
+}
+
+/** "TOWER Climate Module R1 · I²C (chip FT260) → channel 0 → address 0x48 (chip TMP112)" */
 export function sourceText(s: Source): string {
-  const bus = s.backend === "hid" ? "FT260" : "i2c-dev";
-  const channel = fill(t().common.channel, { n: s.channel });
-  return `${s.module} · I²C (${bus}) → ${channel} → ${hexAddress(s.address)} ${s.part}`;
+  return `${s.module} · ${sourcePath(s)}`;
 }
 
 /** Sensor sources while the bridge works, otherwise none. */
@@ -52,7 +59,7 @@ export function metricSource(device: DeviceState, metric: Metric, channel: numbe
   const s = sourcesOf(device).find((x) => x.metric === metric && x.channel === channel);
   if (!s) return null;
   return {
-    module: MODULE_NAMES[s.module] ?? s.module,
+    module: productName(s.module),
     backend: device.device.backend,
     channel: s.channel,
     address: s.address,
@@ -82,17 +89,29 @@ export interface ModuleLine {
 const PRODUCTS: Record<ModuleKind, Omit<ModuleLine, "channel">> = {
   climate_module_r1: { product: "TOWER Climate Module", revision: "R1" },
   climate_module_r2: { product: "TOWER Climate Module", revision: "R2" },
-  humidity_tag: { product: "HARDWARIO Humidity Tag", revision: null },
-  temperature_tag: { product: "HARDWARIO Temperature Tag", revision: null },
-  lux_meter_tag: { product: "HARDWARIO Lux Meter Tag", revision: null },
-  barometer_tag: { product: "HARDWARIO Barometer Tag", revision: null },
+  humidity_tag: { product: "TOWER Humidity Tag", revision: null },
+  temperature_tag: { product: "TOWER Temperature Tag", revision: null },
+  lux_meter_tag: { product: "TOWER Lux Meter Tag", revision: null },
+  barometer_tag: { product: "TOWER Barometer Tag", revision: null },
   co2_module: { product: "TOWER CO2 Module", revision: null },
-  voc_lp_tag: { product: "HARDWARIO VOC-LP Tag", revision: null },
+  voc_lp_tag: { product: "TOWER VOC-LP Tag", revision: null },
 };
 
+/** The full product name with its revision, e.g. "TOWER Climate Module R1". */
+export function productName(kind: ModuleKind): string {
+  const p = PRODUCTS[kind];
+  return p ? (p.revision ? `${p.product} ${p.revision}` : p.product) : kind;
+}
+
+/** Product names of the modules that are not sensor sources. */
+export const RELAY_PRODUCT = "TOWER Relay Module";
+export const NFC_PRODUCT = "TOWER NFC Tag";
+export const GPS_PRODUCT = "TOWER GPS Module";
+
 /**
- * Every module once, in channel order; the Relay Module after the sensors on
- * its channel (it measures nothing, so it is not among the sources).
+ * Every module once, by channel and A to Z within a channel (the user,
+ * 2026-10-18). The Relay Module, NFC Tag and GPS Module measure nothing, so
+ * they are not among the sources and come as arguments.
  */
 export function moduleLines(
   sources: SensorSource[],
@@ -105,11 +124,10 @@ export function moduleLines(
     const line = { channel: s.channel, ...(PRODUCTS[s.module] ?? { product: s.module, revision: null }) };
     if (!out.some((l) => l.channel === line.channel && l.product === line.product)) out.push(line);
   }
-  if (relay) out.push({ channel: relay.channel, product: "TOWER Relay Module", revision: null });
-  if (nfc) out.push({ channel: nfc.channel, product: "TOWER NFC Tag", revision: null });
-  if (gps) out.push({ channel: gps.channel, product: "TOWER GPS Module", revision: null });
-  // Stable: within a channel, the order above stays.
-  return out.sort((a, b) => a.channel - b.channel);
+  if (relay) out.push({ channel: relay.channel, product: RELAY_PRODUCT, revision: null });
+  if (nfc) out.push({ channel: nfc.channel, product: NFC_PRODUCT, revision: null });
+  if (gps) out.push({ channel: gps.channel, product: GPS_PRODUCT, revision: null });
+  return out.sort((a, b) => a.channel - b.channel || a.product.localeCompare(b.product));
 }
 
 /** "Climate Module R1 (channel 0), Humidity Tag, Lux Meter Tag (channel 1)" */
@@ -154,10 +172,49 @@ export function lineLabels(names: { channel: number; name: string }[]): string[]
   return names.map((n) => (ambiguous ? `${n.name} · ${fill(t().common.channel, { n: n.channel })}` : n.name));
 }
 
-/** Which module measures `metric` on `channel`, e.g. "Humidity Tag"; else "Channel 1". */
+const KNOWN_KEY = "tower-bridge.known-sources";
+
+/** The browser's storage; none in tests and the like. */
+const storage = (): Storage | null => (typeof window === "undefined" ? null : window.localStorage);
+
+/** The module last seen measuring each metric on each channel ("temperature:0"). */
+let known: Record<string, ModuleKind> = (() => {
+  try {
+    return JSON.parse(storage()?.getItem(KNOWN_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+})();
+
+/** Remember which module measures what, so stored data keeps a name after it is unplugged. */
+export function rememberSources(sources: SensorSource[]) {
+  let changed = false;
+  for (const s of sources) {
+    const key = `${s.metric}:${s.channel}`;
+    if (known[key] !== s.module) {
+      known = { ...known, [key]: s.module };
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  try {
+    storage()?.setItem(KNOWN_KEY, JSON.stringify(known));
+  } catch {
+    // Private mode: names are remembered for this session only.
+  }
+}
+
+/**
+ * Which module measures `metric` on `channel`, e.g. "Humidity Tag"; for stored
+ * data of a module unplugged since, "Climate Module R1 (disconnected)", or
+ * "I²C channel 1 (disconnected)" when it was never seen here.
+ */
 export function channelName(device: DeviceState, metric: Metric, channel: number): string {
   const s = sourcesOf(device).find((x) => x.metric === metric && x.channel === channel);
-  return s ? (MODULE_NAMES[s.module] ?? s.module) : fill(t().settings.channelN, { n: channel });
+  if (s) return MODULE_NAMES[s.module] ?? s.module;
+  const gone = known[`${metric}:${channel}`];
+  const name = gone ? (MODULE_NAMES[gone] ?? gone) : fill(t().overview.i2cChannel, { n: channel });
+  return fill(t().chart.disconnected, { name });
 }
 
 /** `channelName`, with the channel when another channel's module has the same name. */
@@ -176,7 +233,7 @@ export function channelLabel(
 export function nfcSource(device: DeviceState, nfc: NfcInfo): Source | null {
   if (device.status !== "ready" && device.status !== "no_module") return null;
   return {
-    module: t().nfc.title,
+    module: NFC_PRODUCT,
     backend: device.device.backend,
     channel: nfc.channel,
     address: nfc.address,
@@ -187,11 +244,23 @@ export function nfcSource(device: DeviceState, nfc: NfcInfo): Source | null {
 export function relaySource(device: DeviceState, relay: RelayInfo): Source | null {
   if (device.status !== "ready" && device.status !== "no_module") return null;
   return {
-    module: t().relay.title,
+    module: RELAY_PRODUCT,
     backend: device.device.backend,
     channel: relay.channel,
     address: relay.address,
     // The expander's address tells which variant is fitted.
     part: relay.address >= 0x38 ? "TCA9534A" : "TCA9534",
+  };
+}
+
+/** The GPS Module's receiver: a u-blox SAM-M8Q at 0x42 behind its expander. */
+export function gpsSource(device: DeviceState, gps: GpsInfo): Source | null {
+  if (device.status !== "ready" && device.status !== "no_module") return null;
+  return {
+    module: GPS_PRODUCT,
+    backend: device.device.backend,
+    channel: gps.channel,
+    address: 0x42,
+    part: "SAM-M8Q",
   };
 }

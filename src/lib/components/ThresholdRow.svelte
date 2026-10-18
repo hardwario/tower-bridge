@@ -161,8 +161,9 @@
   .input.num {
     width: 76px;
   }
+  /* Room for the widest unit (ppm, hPa), so the fields line up row to row. */
   .unit {
-    min-width: 22px;
+    min-width: 2.4em;
   }
   .off .fields {
     opacity: 0.6;

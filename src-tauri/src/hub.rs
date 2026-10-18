@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tower_bridge_core::acquisition::AcqEvent;
 use tower_bridge_core::alerts::{AlertEngine, AlertEvent, AlertKind, Bound};
 use tower_bridge_core::gps::GpsInfo;
-use tower_bridge_core::model::{DeviceState, Reading, altitude, source_label};
+use tower_bridge_core::model::{DeviceState, Metric, Reading, altitude, source_label};
 use tower_bridge_core::mqtt::{self, ClientConfig, LinkEvent, MqttCommand, Publisher};
 use tower_bridge_core::nfc::NfcInfo;
 use tower_bridge_core::relay::RelayInfo;
@@ -136,7 +136,28 @@ pub fn spawn(
                 last_retention: None,
                 presence: Presence::default(),
             };
-            hub.run(acq_rx, hub_rx);
+            // A panic must not silently end storage, alerts and MQTT while
+            // the app looks alive.
+            let mut panics = 0u32;
+            loop {
+                let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    // After a panic: connect MQTT again (its client went with
+                    // the panic) and refresh what the UI and tray show. Not
+                    // forever, should that panic itself.
+                    if (1..=3).contains(&panics) {
+                        hub.on_init();
+                    }
+                    hub.run(&acq_rx, &hub_rx);
+                }));
+                if run.is_ok() {
+                    break;
+                }
+                panics += 1;
+                tracing::error!("hub thread panicked; restarting");
+                hub.mqtt = None;
+                hub.set_mqtt_state(MqttState::Disabled);
+                std::thread::sleep(Duration::from_secs(1));
+            }
         })
 }
 
@@ -145,7 +166,7 @@ impl Hub {
         self.app.state::<AppState>()
     }
 
-    fn run(&mut self, acq_rx: Receiver<AcqEvent>, hub_rx: Receiver<HubMsg>) {
+    fn run(&mut self, acq_rx: &Receiver<AcqEvent>, hub_rx: &Receiver<HubMsg>) {
         let ticker = tick(Duration::from_secs(5));
         loop {
             let link_events = self
@@ -264,7 +285,7 @@ impl Hub {
         };
         // With the metric measured on several channels, say which one.
         let device = self.state().device.read().clone();
-        let title = match source_label(device.sources(), ev.metric, ev.channel) {
+        let title = match source_label(device.sources(), ev.metric, ev.channel, tr.channel_n) {
             Some(source) => format!("{title} · {source}"),
             None => title,
         };
@@ -288,26 +309,21 @@ impl Hub {
             notify::send(&self.app, tr.reconnected_title, tr.reconnected_body);
         }
         if let DeviceState::Ready { sources, .. } = &d {
-            // A channel without sensors has no current values, alerts or
-            // MQTT topics any more.
-            let channels: Vec<u8> = sources.iter().map(|s| s.channel).collect();
-            let mut gone: Vec<u8> = Vec::new();
-            self.state().latest.write().retain(|r| {
-                let keep = channels.contains(&r.channel);
-                if !keep {
-                    gone.push(r.channel);
-                }
-                keep
-            });
-            if self.engine.retain_channels(&channels) {
+            // A metric no longer measured on a channel (a sensor gone) has no
+            // current value, alert or MQTT topic any more.
+            let measured: Vec<(Metric, u8)> =
+                sources.iter().map(|s| (s.metric, s.channel)).collect();
+            self.state()
+                .latest
+                .write()
+                .retain(|r| measured.iter().any(|(_, c)| *c == r.channel));
+            if self.engine.retain_sources(&measured) {
                 self.publish_active_alerts();
             }
-            if let Some(publisher) = self.publisher() {
-                for channel in gone {
-                    if let Err(e) = publisher.clear_channel(channel) {
-                        warn!("MQTT publish failed: {e}");
-                    }
-                }
+            if let Some(publisher) = self.publisher()
+                && let Err(e) = publisher.retain_sources(&measured)
+            {
+                warn!("MQTT publish failed: {e}");
             }
         }
         *self.state().device.write() = d.clone();
@@ -448,6 +464,9 @@ impl Hub {
         {
             self.run_retention(&settings);
         }
+        // Readings that stop coming send no event: the tray notices them
+        // getting old here (an unchanged menu is not touched).
+        self.refresh_tray();
     }
 
     fn run_retention(&mut self, settings: &Settings) {

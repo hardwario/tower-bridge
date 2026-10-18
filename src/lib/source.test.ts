@@ -10,6 +10,7 @@ import {
   moduleLines,
   modulesByChannel,
   relaySource,
+  rememberSources,
   sourceText,
 } from "./source";
 import type { DeviceState, History } from "./types";
@@ -46,10 +47,12 @@ describe("data source", () => {
   it("reads from the module over the bus and channel to the address", () => {
     i18n.set("en");
     const s = metricSource(ready, "temperature", 0);
-    expect(s && sourceText(s)).toBe("Climate Module R1 · I²C (FT260) → channel 0 → 0x48 TMP112");
+    expect(s && sourceText(s)).toBe(
+      "TOWER Climate Module R1 · I²C (chip FT260) → channel 0 → address 0x48 (chip TMP112)",
+    );
     i18n.set("cs");
     expect(s && sourceText(metricSource(ready, "temperature", 1)!)).toBe(
-      "Humidity Tag · I²C (FT260) → kanál 1 → 0x40 SHT20",
+      "TOWER Humidity Tag · I²C (čip FT260) → kanál 1 → adresa 0x40 (čip SHT20)",
     );
   });
 
@@ -82,7 +85,10 @@ describe("data source", () => {
     };
     expect(metricChannels({ status: "searching" }, "pressure", history, [])).toEqual([1]);
     expect(channelName(ready, "temperature", 1)).toBe("Humidity Tag");
-    expect(channelName(ready, "pressure", 1)).toBe("Channel 1");
+    expect(channelName(ready, "pressure", 1)).toBe("I²C channel 1 (disconnected)");
+    // A module seen before and unplugged since keeps its name for stored data.
+    rememberSources([{ metric: "pressure", channel: 1, module: "barometer_tag", sensor: "MPL3115A2", address: 0x60 }]);
+    expect(channelName(ready, "pressure", 1)).toBe("Barometer Tag (disconnected)");
   });
 
   it("describes the modules per channel", () => {
@@ -193,8 +199,8 @@ describe("data source", () => {
     expect(moduleLines([...sources, humidity], relay(0))).toEqual([
       { channel: 0, product: "TOWER Climate Module", revision: "R1" },
       { channel: 0, product: "TOWER Relay Module", revision: null },
-      { channel: 1, product: "HARDWARIO Humidity Tag", revision: null },
-      { channel: 1, product: "HARDWARIO Lux Meter Tag", revision: null },
+      { channel: 1, product: "TOWER Humidity Tag", revision: null },
+      { channel: 1, product: "TOWER Lux Meter Tag", revision: null },
     ]);
     // Alone on its channel, or with no sensors at all.
     expect(moduleLines(sources.slice(1), relay(0))[0]).toEqual({

@@ -8,10 +8,14 @@ Potřebujete:
 
 - **TOWER Bridge Module** připojený k počítači přes USB.
 - **TOWER Climate Module** (revize R1 nebo R2) pro teplotu, relativní vlhkost, osvětlení a atmosférický tlak.
-- Volitelně senzorové tagy TOWER: **Humidity Tag**, **Temperature Tag**, **Lux Meter Tag** a **Barometer Tag**, samostatně nebo vedle Climate Module.
+- Volitelně senzorové tagy TOWER, samostatně nebo vedle Climate Module:
+  - **TOWER Humidity Tag**
+  - **TOWER Temperature Tag**
+  - **TOWER Lux Meter Tag**
+  - **TOWER Barometer Tag**
 - Volitelně **TOWER Relay Module**, bistabilní relé, které ovládáte z aplikace.
 - Volitelně **TOWER NFC Tag**, který telefonu, jenž se ho dotkne, předá webovou adresu podle vaší volby.
-- Volitelně **TOWER CO2 Module** (oxid uhličitý), **VOC-LP Tag** (těkavé organické látky) a **TOWER GPS Module** (poloha).
+- Volitelně **TOWER CO2 Module** (oxid uhličitý), **TOWER VOC-LP Tag** (těkavé organické látky) a **TOWER GPS Module** (poloha).
 
 Aplikace běží v řádku nabídek (macOS) nebo v oznamovací oblasti (Windows, Linux). Měří i se zavřeným oknem.
 
@@ -35,11 +39,11 @@ Bridge Module má dva kanály I²C a senzory mohou být na obou, například Cli
 
 ### Řádek nabídek a oznamovací oblast {#tray}
 
-Ikona ukazuje aktuální hodnotu veličiny zvolené v nastavení. Její nabídka otevírá nástěnku, vypisuje všechny hodnoty a stav připojení, zapíná a vypíná **Spouštět po přihlášení** a MQTT a ukončuje aplikaci. Zavřením okna nástěnky aplikace běží dál. Když se veličina měří na obou kanálech, nabídka ukazuje obě hodnoty, kanál 0 první.
+Ikona ukazuje aktuální hodnotu veličiny zvolené v nastavení. Její nabídka otevírá nástěnku, vypisuje všechny hodnoty a stav připojení, zapíná a vypíná **Spouštět po přihlášení** a MQTT a ukončuje aplikaci. Zavřením okna nástěnky aplikace běží dál. Když se veličina měří na obou kanálech, nabídka ukazuje obě hodnoty, kanál 0 jako první.
 
 ## Nástěnka {#dashboard}
 
-Nástěnka ukazuje Relay Module, poslední hodnotu každé veličiny s grafem a TOWER Bridge Module. **Poslední aktualizace** nahoře říká, kdy proběhlo poslední měření. Vedle ní **Interval** určuje, jak často se senzory měří, od 5 sekund do 3 minut (ve výchozím stavu 20 sekund).
+Nástěnka ukazuje Relay Module, poslední hodnotu každé veličiny s grafem, karty TOWER NFC Tag a TOWER GPS Module, pokud jsou připojené, a TOWER Bridge Module. **Sbalit** dole v postranním panelu ho sbalí na ikony; šipka na stejném místě ho zase rozbalí. Panel nebo čáru má jen to, co je právě připojené; hodnoty modulu, který byl mezitím odpojen, zůstávají na stránce Data. **Poslední aktualizace** nahoře říká, kdy proběhlo poslední měření. Vedle ní **Interval** určuje, jak často se senzory měří, od 5 sekund do 3 minut (ve výchozím stavu 20 sekund).
 
 ![Nástěnka](images/cs/dashboard.webp)
 
@@ -104,11 +108,11 @@ TOWER NFC Tag uchovává webovou adresu. Telefon, který se ho dotkne, ji otevř
 
 ### TOWER Bridge Module {#bridge}
 
-Ukazuje moduly nalezené na jednotlivých kanálech I²C (včetně Relay Module). **Identifikovat** blikne LED na Bridge Module. **Hledat znovu** znovu vyhledá moduly. Když je připojeno více Bridge Module, karta na to upozorní: aplikace čte jen jeden z nich, ten, jehož LED blikne po **Identifikovat**. Ostatní odpojte, jinak se mohou smíchat hodnoty z různých sestav. Karta je na nástěnce vždy poslední.
+Ukazuje moduly nalezené na jednotlivých kanálech I²C (včetně Relay Module). **Identifikovat** blikne LED na Bridge Module. **Hledat znovu** znovu vyhledá moduly. Když je připojen více než jeden Bridge Module, karta na to upozorní: aplikace čte jen jeden z nich, ten, jehož LED blikne po **Identifikovat**. Ostatní odpojte, jinak se mohou smíchat hodnoty z různých sestav. Karta je na nástěnce vždy poslední.
 
 ## Data {#data}
 
-Ukazuje uložené hodnoty za stejná období jako Nástěnka, 1 hodinu až 365 dní, nebo za vlastní období jako tabulku, nejnovější nahoře. Každý řádek je průměr za úsek, který roste s délkou období; jak je dlouhý, říká řádek pod tabulkou. **Exportovat CSV** a **Exportovat XLSX** uloží každou jednotlivou hodnotu zvoleného období; soubory XLSX používají váš formát data a času. Exporty mají jeden řádek pro každé měření a kanál I²C. Grafy jsou na Nástěnce.
+Ukazuje uložené hodnoty za stejná období jako nástěnka, 1 hodinu až 365 dní, nebo za vlastní období jako tabulku, nejnovější nahoře. Každý řádek je průměr za úsek, který roste s délkou období; jak je dlouhý, říká řádek pod tabulkou. **Exportovat CSV** a **Exportovat XLSX** uloží každou jednotlivou hodnotu zvoleného období; soubory XLSX používají váš formát data a času. Exporty mají jeden řádek pro každé měření a kanál I²C. Grafy jsou na Nástěnce.
 
 ![Data](images/cs/data.webp)
 
@@ -127,12 +131,12 @@ Pro každou veličinu nastavte dolní limit (**Pod**) a horní limit (**Nad**). 
 
 V diagramu hodnota stoupne nad limit: upozornění začne a přijde oznámení (červený zvonek). Pokles do pásma hystereze ho neukončí. Upozornění skončí, až když hodnota klesne pod pásmo; je-li zapnuté **Oznámit návrat do normy**, přijde oznámení (zelený zvonek).
 
-Tlačítko **Odeslat** u Zkušebního oznámení ověří, že oznámení dorazí. Nedávná upozornění jsou vypsána dole.
+Tlačítko **Odeslat** u položky Zkušební oznámení ověří, že oznámení dorazí. Nedávná upozornění jsou vypsána dole.
 
 ## Nastavení {#settings}
 
-- **Obecné:** vzhled (podle systému, světlý, tmavý), jazyk, formát data, formát času, desetinný oddělovač (tečka nebo čárka; Automaticky se řídí jazykem), jednotka teploty, hodnota vedle ikony v řádku nabídek nebo oznamovací oblasti a spouštění po přihlášení.
-- **Měření:** tlak na hladině moře pro odhad nadmořské výšky a kanály I²C, na kterých se hledají senzory (Automaticky používá oba).
+- **Obecné:** vzhled (podle systému, světlý, tmavý), jazyk, formát data, formát času, desetinný oddělovač (tečka nebo čárka; volba „Automaticky“ se řídí jazykem), jednotka teploty, hodnota vedle ikony v řádku nabídek nebo oznamovací oblasti a spouštění po přihlášení.
+- **Měření:** tlak na hladině moře pro odhad nadmořské výšky a kanály I²C, na kterých se hledají senzory (volba „Automaticky“ používá oba).
 - **Data:** jak dlouho se hodnoty uchovávají a kde je složka s daty.
 
 ### MQTT {#mqtt}
@@ -141,7 +145,7 @@ Tlačítko **Odeslat** u Zkušebního oznámení ověří, že oznámení doraz�
 
 MQTT je ve výchozím stavu vypnuté. Po zapnutí aplikace publikuje každou hodnotu do vašeho vlastního brokeru MQTT, například Mosquitto nebo brokeru v Home Assistant; sama broker neprovozuje. Zadejte **Adresa brokeru** a podle potřeby port, TLS a přihlášení. Změny platí hned a aplikace se k brokeru sama znovu připojí, když vypadne. Stav pod přepínačem říká, zda je připojena.
 
-Každá hodnota se publikuje jako retained zpráva pod prefixem témat (výchozí `tower`) s kanálem I²C na konci: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` a `tower/altitude/0`. Senzory na kanálu 1 publikují na `tower/temperature/1` a tak dále. TOWER CO2 Module publikuje na `tower/co2/0` (ppm), VOC-LP Tag na `tower/voc/0` (ppb) a TOWER GPS Module na `tower/gps/0/latitude`, `/longitude`, `/altitude` a `/satellites`. Stav relé se publikuje na `tower/relay/0` (kanál Relay Module) jako `true`, `false`, nebo `null`, dokud není znám. `tower/status` říká `online`, dokud aplikace publikuje, a `offline`, když přestane.
+Každá hodnota se publikuje jako retained zpráva pod předponou témat (výchozí `tower`) s kanálem I²C na konci: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` a `tower/altitude/0`. Senzory na kanálu 1 publikují na `tower/temperature/1` a tak dále. TOWER CO2 Module publikuje na `tower/co2/0` (ppm), VOC-LP Tag na `tower/voc/0` (ppb) a TOWER GPS Module na `tower/gps/0/latitude`, `/longitude`, `/altitude` a `/satellites`. Stav relé se publikuje na `tower/relay/0` (kanál Relay Module) jako `true`, `false`, nebo `null`, dokud není znám. `tower/status` říká `online`, dokud aplikace publikuje, a `offline`, když přestane.
 
 Se zapnutým **Povolit ovládání relé** přijímá relé `true` nebo `false` na `tower/relay/0/set` a impulz na `tower/relay/0/pulse`.
 
@@ -153,9 +157,9 @@ Volitelný místní server nabízí REST API, metriky pro Prometheus a server MC
 
 - **Zařízení není připojeno:** zkontrolujte kabel USB. Zařízení může současně používat jen jeden program, ukončete proto jiné nástroje, které ho mohou držet.
 - **Chybí oprávnění (Linux):** nainstalujte [pravidlo udev](#install) a zařízení znovu připojte.
-- **Senzory nenalezeny:** zkontrolujte, že jsou moduly a tagy dobře zasunuté, a stiskněte **Hledat znovu**. Kanály I²C nechte na Automaticky, nebo nastavte kanál, ke kterému jsou připojeny.
+- **Senzory nenalezeny:** zkontrolujte, že jsou moduly a tagy dobře zasunuté, a stiskněte **Hledat znovu**. Kanály I²C nechte na „Automaticky“, nebo nastavte kanál, ke kterému jsou připojeny.
 - **Stav relé je neznámý:** přepněte relé jednou pomocí Aktivovat TRUE nebo Aktivovat FALSE.
-- **Oznámení nechodí:** povolte oznámení pro TOWER Bridge v nastavení systému a použijte **Odeslat** u Zkušebního oznámení.
+- **Oznámení nechodí:** povolte oznámení pro TOWER Bridge v nastavení systému a použijte **Odeslat** u položky Zkušební oznámení.
 
 ## O aplikaci {#about}
 

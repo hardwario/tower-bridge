@@ -6,9 +6,11 @@
   let { onstart }: { onstart: (e: PointerEvent) => void } = $props();
 </script>
 
+<!-- Pointer only, so not a Tab stop that does nothing. -->
 <button
   type="button"
   class="grip"
+  tabindex="-1"
   title={t().overview.dragToReorder}
   aria-label={t().overview.dragToReorder}
   onpointerdown={onstart}><Icon name="grip" size={15} /></button

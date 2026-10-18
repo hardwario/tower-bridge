@@ -8,10 +8,14 @@ Sie benötigen:
 
 - **TOWER Bridge Module**, per USB mit dem Computer verbunden.
 - **TOWER Climate Module** (Revision R1 oder R2) für Temperatur, relative Luftfeuchtigkeit, Beleuchtungsstärke und Luftdruck.
-- Optional TOWER Sensor-Tags: **Humidity Tag**, **Temperature Tag**, **Lux Meter Tag** und **Barometer Tag**, allein oder neben dem Climate Module.
+- Optional TOWER Sensor-Tags, allein oder neben dem Climate Module:
+  - **TOWER Humidity Tag**
+  - **TOWER Temperature Tag**
+  - **TOWER Lux Meter Tag**
+  - **TOWER Barometer Tag**
 - Optional ein **TOWER Relay Module**, ein bistabiles Relais, das Sie aus der App schalten.
 - Optional ein **TOWER NFC Tag**, der einem Telefon, das ihn berührt, eine Webadresse Ihrer Wahl übergibt.
-- Optional ein **TOWER CO2 Module** (Kohlendioxid), ein **VOC-LP Tag** (flüchtige organische Verbindungen) und ein **TOWER GPS Module** (Position).
+- Optional ein **TOWER CO2 Module** (Kohlendioxid), ein **TOWER VOC-LP Tag** (flüchtige organische Verbindungen) und ein **TOWER GPS Module** (Position).
 
 Die App läuft in der Menüleiste (macOS) oder im Infobereich der Taskleiste (Windows, Linux). Sie misst auch bei geschlossenem Fenster weiter.
 
@@ -39,7 +43,7 @@ Das Symbol zeigt den aktuellen Wert der in den Einstellungen gewählten Messgrö
 
 ## Dashboard {#dashboard}
 
-Das Dashboard zeigt das Relay Module, den letzten Wert jeder Messgröße mit Diagramm und das TOWER Bridge Module. **Letzte Aktualisierung** oben gibt an, wann zuletzt gemessen wurde. Daneben legt **Intervall** fest, wie oft die Sensoren messen, von 5 Sekunden bis 3 Minuten (standardmäßig 20 Sekunden).
+Das Dashboard zeigt das Relay Module, den letzten Wert jeder Messgröße mit Diagramm, die Karten von TOWER NFC Tag und TOWER GPS Module, wenn sie angeschlossen sind, und das TOWER Bridge Module. **Einklappen** unten in der Seitenleiste klappt sie auf ihre Symbole ein; der Pfeil an derselben Stelle klappt sie wieder aus. Ein Panel oder eine Linie hat nur, was gerade angeschlossen ist; die Messwerte eines inzwischen getrennten Moduls bleiben auf der Seite Daten. **Letzte Aktualisierung** oben gibt an, wann zuletzt gemessen wurde. Daneben legt **Intervall** fest, wie oft die Sensoren messen, von 5 Sekunden bis 3 Minuten (standardmäßig 20 Sekunden).
 
 ![Das Dashboard](images/de/dashboard.webp)
 
@@ -53,7 +57,7 @@ Das Dashboard zeigt das Relay Module, den letzten Wert jeder Messgröße mit Dia
 4. **Maximieren:** vergrößert das Diagramm; ein weiterer Klick oder <kbd>Esc</kbd> stellt es wieder her.
 5. **Verschieben:** Ziehen Sie das Panel an eine neue Stelle; die Reihenfolge wird gespeichert.
 6. **Diagramm:** Zeigen Sie darauf, um den genauen Wert und die Uhrzeit zu sehen.
-7. **Min, Mittel, Max:** für den sichtbaren Bereich. Ein Klick blendet die zugehörige Linie im Diagramm ein oder aus.
+7. **Min., Ø, Max.:** für den sichtbaren Bereich. Ein Klick blendet die zugehörige Linie im Diagramm ein oder aus.
 
 Wählen Sie den Zeitraum über den Diagrammen, von 1 Stunde bis 365 Tage. Alle Diagramme einer Seite bewegen sich gemeinsam.
 
@@ -96,7 +100,7 @@ Beide Sensoren behalten, was sie gelernt haben, auch wenn die App neu startet.
 
 ![Die GPS-Karte](images/de/gps.webp)
 
-Die GPS-Karte erscheint, wenn ein TOWER GPS Module angeschlossen ist. Sie zeigt, ob der Empfänger eine Position bestimmt hat und wie viele Satelliten er nutzt; mit Position auch die Koordinaten, ihre Genauigkeit, die Höhe über dem Meer und die Zeit der Satelliten. Die Karte daneben funktioniert ohne Internet: Länder, Flüsse, Seen und Städte, die Position als roter Punkt. Ziehen verschiebt sie, vergrößert wird mit den Tasten + und −, mit Strg/⌘ und dem Mausrad oder mit zwei Fingern; nach dem Verschieben holt eine dritte Taste die Position zurück in die Mitte. Für Straßen öffnet **Auf der Karte zeigen** die Position in OpenStreetMap. Die erste Positionsbestimmung kann einige Minuten dauern und braucht freie Sicht zum Himmel; mit einer Position leuchtet die grüne LED am Modul.
+Die GPS-Karte erscheint, wenn ein TOWER GPS Module angeschlossen ist. Sie zeigt, ob der Empfänger eine Position bestimmt hat und wie viele Satelliten er nutzt; mit Position auch die Koordinaten, ihre Genauigkeit, die Höhe über dem Meer und die Zeit der Satelliten. Die Karte daneben funktioniert ohne Internet: Länder, Flüsse, Seen und Städte, die Position als roter Punkt. Ziehen verschiebt sie, gezoomt wird mit den Schaltflächen + und −, mit Strg/⌘ und dem Mausrad oder mit zwei Fingern; nach dem Verschieben holt eine dritte Schaltfläche die Position zurück in die Mitte. Für Straßen öffnet **Auf der Karte zeigen** die Position in OpenStreetMap. Die erste Positionsbestimmung kann einige Minuten dauern und braucht freie Sicht zum Himmel; mit einer Position leuchtet die grüne LED am Modul.
 
 ### TOWER NFC Tag {#nfc}
 
@@ -118,21 +122,21 @@ Legen Sie für jede Messgröße eine untere Grenze (**Unter**) und eine obere Gr
 
 ![Alarmgrenzen](images/de/alerts.webp)
 
-- **Hysterese:** wie weit der Wert in die Grenze zurückkehren muss, bevor der Alarm endet, damit ein Wert nahe der Grenze nicht immer wieder Alarme auslöst.
+- **Hysterese:** wie weit der Wert in den zulässigen Bereich zurückkehren muss, bevor der Alarm endet, damit ein Wert nahe der Grenze nicht immer wieder Alarme auslöst.
 - **Wiederholen nach:** die kürzeste Zeit zwischen zwei Benachrichtigungen für dieselbe Grenze.
-- **Bei Normalisierung benachrichtigen:** meldet auch, wenn der Wert wieder im Bereich liegt.
+- **Benachrichtigen, wenn wieder normal:** meldet auch, wenn der Wert wieder im Bereich liegt.
 - **Gerät getrennt:** meldet, wenn eine Minute lang keine Messung eintrifft.
 
 ![So wirkt die Hysterese](diagrams/hysteresis.svg)
 
-Im Diagramm steigt der Wert über die Grenze: Der Alarm beginnt und Sie erhalten eine Benachrichtigung (rote Glocke). Ein Absinken in das Hystereseband beendet ihn nicht. Erst wenn der Wert unter das Band fällt, endet der Alarm; ist **Bei Normalisierung benachrichtigen** eingeschaltet, kommt eine Benachrichtigung (grüne Glocke).
+Im Diagramm steigt der Wert über die Grenze: Der Alarm beginnt und Sie erhalten eine Benachrichtigung (rote Glocke). Ein Absinken in das Hystereseband beendet ihn nicht. Erst wenn der Wert unter das Band fällt, endet der Alarm; ist **Benachrichtigen, wenn wieder normal** eingeschaltet, kommt eine Benachrichtigung (grüne Glocke).
 
 **Senden** bei Testbenachrichtigung prüft, ob Benachrichtigungen ankommen. Die letzten Alarme stehen unten.
 
 ## Einstellungen {#settings}
 
-- **Allgemein:** Darstellung (System, hell, dunkel), Sprache, Datumsformat, Zeitformat, Dezimaltrennzeichen (Punkt oder Komma; Automatisch richtet sich nach der Sprache), Temperatureinheit, der Wert neben dem Symbol in der Menüleiste oder im Infobereich und das Öffnen bei Anmeldung.
-- **Messung:** der Luftdruck auf Meereshöhe für die Höhenschätzung und die I²C-Kanäle, auf denen nach Sensoren gesucht wird (Automatisch nutzt beide).
+- **Allgemein:** Erscheinungsbild (System, hell, dunkel), Sprache, Datumsformat, Zeitformat, Dezimaltrennzeichen (Punkt oder Komma; „Automatisch“ richtet sich nach der Sprache), Temperatureinheit, der Wert neben dem Symbol in der Menüleiste oder im Infobereich und das Öffnen bei Anmeldung.
+- **Messung:** der Luftdruck auf Meereshöhe für die Höhenschätzung und die I²C-Kanäle, auf denen nach Sensoren gesucht wird („Automatisch“ nutzt beide).
 - **Daten:** wie lange Messwerte aufbewahrt werden und wo der Datenordner liegt.
 
 ### MQTT {#mqtt}
@@ -153,7 +157,7 @@ Der optionale lokale Server bietet eine REST-API, Prometheus-Metriken und einen 
 
 - **Gerät nicht verbunden:** Prüfen Sie das USB-Kabel. Nur ein Programm kann das Gerät gleichzeitig nutzen; beenden Sie daher andere Werkzeuge, die es belegen könnten.
 - **Keine Berechtigung (Linux):** Installieren Sie die [udev-Regel](#install) und schließen Sie das Gerät neu an.
-- **Keine Sensoren gefunden:** Prüfen Sie, ob Module und Tags richtig sitzen, und drücken Sie **Neu suchen**. Lassen Sie die I²C-Kanäle auf Automatisch oder stellen Sie den Kanal ein, an dem sie angeschlossen sind.
+- **Keine Sensoren gefunden:** Prüfen Sie, ob Module und Tags richtig sitzen, und drücken Sie **Neu suchen**. Lassen Sie die I²C-Kanäle auf „Automatisch“ oder stellen Sie den Kanal ein, an dem sie angeschlossen sind.
 - **Relaiszustand unbekannt:** Schalten Sie das Relais einmal mit TRUE aktivieren oder FALSE aktivieren.
 - **Keine Benachrichtigungen:** Erlauben Sie Benachrichtigungen für TOWER Bridge in den Systemeinstellungen und verwenden Sie **Senden** bei Testbenachrichtigung.
 

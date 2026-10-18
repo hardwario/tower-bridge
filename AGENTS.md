@@ -16,8 +16,8 @@ Open and ongoing work is tracked in [TODO.md](TODO.md); released changes go in [
 
 TOWER Bridge is a tray-first desktop app (Tauri 2, Rust, Svelte 5) for the HARDWARIO TOWER Bridge Module, an FTDI FT260 USB-HID to I²C bridge. It:
 
-- reads the TOWER Climate Module and the TOWER sensor tags (temperature, humidity, illuminance, pressure) on both I²C channels of the bridge;
-- switches the TOWER Relay Module;
+- reads the TOWER Climate Module, the TOWER sensor tags (temperature, humidity, illuminance, pressure), the TOWER CO2 Module and the VOC-LP Tag on both I²C channels of the bridge;
+- switches the TOWER Relay Module, shows the TOWER GPS Module's position on an offline map, and writes a URL to the TOWER NFC Tag;
 - stores the history in SQLite;
 - shows charts and alerts;
 - offers MQTT, REST, Prometheus metrics and MCP.
@@ -32,8 +32,10 @@ Prerequisites: Rust 1.99+, Node 22+. On Linux, see the CI workflow for the apt p
 npm ci                                       # once
 npm run dev                                  # browser preview, open http://localhost:1420/preview.html
 npm run tauri dev                            # the real app with hot reload
-TOWER_BRIDGE_SIMULATE=1 npm run tauri dev    # no hardware needed
-cargo run -p tower-bridge-cli -- --help      # hardware CLI: scan, probe, watch, i2c-scan, i2c-identify, relay
+TOWER_BRIDGE_SIMULATE=1 npm run tauri dev    # no hardware needed: a simulated bridge with every module
+                                             # (Climate Module, tags, relay, CO2, VOC-LP, GPS, NFC)
+cargo run -p tower-bridge-cli -- --help      # hardware CLI: scan, probe, watch, led, i2c-scan, i2c-identify,
+                                             # i2c-read, i2c-write, relay, co2, voc, gps, nfc
 ```
 
 A debug binary that embeds the built frontend and needs no dev server:
@@ -131,7 +133,9 @@ FT260 ─USB HID─> bus ─> acquisition thread ──AcqEvent──> hub threa
   - zoom needs Ctrl/⌘ with the scroll wheel, or a pinch, so plain scrolling still scrolls the page;
   - panning stays within the stored data.
 - Chart line colours come from the 8-colour palette in `src/lib/palette.ts`, with separate light and dark values. These values passed the dataviz validator, so re-validate any change. The status colours (good, warning, critical) are reserved for status and are never used as series colours.
-- The Dashboard layout (panel order) is kept in localStorage. The TOWER Bridge Module card is not a panel: it always comes last and cannot be dragged (the user, 2026-10-17).
+- The Dashboard layout (panel order) is kept in localStorage. The TOWER Bridge Module card is not a panel: it always comes last and cannot be dragged (the user, 2026-10-17). The GPS card comes before the NFC card (layout v3 moves it in saved orders).
+- While the bridge works, the Dashboard shows only what is connected now: a module unplugged since has no line and no panel; its readings stay on the Data page, named "Climate Module R1 (disconnected)" from the module last seen there (`rememberSources`, kept in localStorage) (the user, 2026-10-18).
+- The sidebar folds to an icon rail with "‹ Collapse" at its very bottom, a "›" there on the rail (the user, 2026-10-18; remembered in localStorage). It lists the connected modules A to Z, short names, no relay state; the Bridge Module card lists them by I²C channel, A to Z within a channel (the user, 2026-10-18).
 - The GPS card's map is offline: `src/assets/map/world.json` (7.4 MB, about 1.5 MB compressed in the binary) is fetched only when a GPS card shows a position. It holds Natural Earth countries, lakes, rivers and populated places; `npm run map:build` rebuilds it from the sources named in `scripts/build-map.mjs`. Zoom levels match web maps (256 px tiles), so Natural Earth's `min_zoom` decides which places and rivers show.
 - **The drag handle is the rightmost tool** in every card header (the user, 2026-10-17).
 - **State never changes the font weight.** Active, current, selected or pressed items show it with colour, background, a border or an indicator. Bolder text is wider, so buttons grow and menus reflow (the user noticed it in the relay card and the manual's contents).
@@ -143,7 +147,7 @@ FT260 ─USB HID─> bus ─> acquisition thread ──AcqEvent──> hub threa
 - **JSON:** keys are lowercase snake_case everywhere: REST, MQTT payloads, MCP, `settings.json`, Tauri IPC. Durations are integer milliseconds with an `_ms` suffix (`duration_ms`, `pulse_duration_ms`). Enum values are snake_case too. Names defined by a protocol keep their spelling (MCP `structuredContent`).
 - **No em or en dashes.** This applies everywhere: code, comments, docs, UI texts and commit messages. Use a comma, a semicolon, a colon or parentheses, or split the sentence. A plain hyphen is fine. `src/repo.test.ts` fails on any long dash.
 - **I²C:** write "I²C" in UI texts and docs, and `i2c` in identifiers.
-- **Product names** keep their capitals: TOWER Bridge Module, TOWER Climate Module, TOWER Relay Module. The tags' full names are HARDWARIO Humidity Tag, HARDWARIO Temperature Tag, HARDWARIO Lux Meter Tag and HARDWARIO Barometer Tag (the user, 2026-10-17). The NFC Tag is the TOWER NFC Tag, also in its card title (the user, 2026-10-17). The other modules are the TOWER CO2 Module, TOWER GPS Module and HARDWARIO VOC-LP Tag. The Bridge Module card lists the full names with the revision set small; tight places (legends, tray, status) use the short ones.
+- **Product names** keep their capitals: TOWER Bridge Module, TOWER Climate Module, TOWER Relay Module. The tags' full names are TOWER Humidity Tag, TOWER Temperature Tag, TOWER Lux Meter Tag, TOWER Barometer Tag and TOWER VOC-LP Tag (the user, 2026-10-18; on 2026-10-17 it was HARDWARIO). The NFC Tag is the TOWER NFC Tag. Dashboard cards are titled by what they do: "Relay" (translated), "NFC", "GPS"; the TOWER Bridge Module card keeps its name (the user, 2026-10-18). The other modules are the TOWER CO2 Module and TOWER GPS Module. The Bridge Module card and the ⓘ data sources show the full names (`productName` in `src/lib/source.ts`), the card with the revision set small; tight places (legends, tray, status, the sidebar) use the short ones.
 - **Five languages:** English, Czech, Slovak, German, Polish. Every UI text goes into all five files in `src/lib/i18n/`; a test checks that the keys match. Tray and notification texts are in `src-tauri/src/i18n.rs`.
 - **Rust:** edition 2024; `unwrap` and `expect` are denied by clippy outside tests. The core crate must not depend on Tauri.
 - **Comments** explain why, not what, at the density of the surrounding code.
@@ -221,3 +225,12 @@ Newest at the end. One bullet per learning, with the date and the reason.
 - 2026-10-17. An inline grid (`display: inline-grid`) with `1fr` button columns sizes every such column to the widest button, which gives equal buttons with aligned edges without fixed widths (the relay card). Subgrid and container queries would be neater but need Safari 16, newer than the WebKit of macOS 11, the app's minimum.
 - 2026-10-17. Natural Earth's populated places have English, German and Polish names but no Czech or Slovak ones; the map builder takes those from Wikidata labels by the places' `WIKIDATAID` (CC0). The NE `NAME` is the English exonym ("Prague"), so the builder stores a language's name only where it differs.
 - 2026-10-17. Vitest 5 caches transformed modules in `node_modules/.vitest-cache`, including the result of `import.meta.glob`; a new file that matches a glob (such as a new manual screenshot) stays invisible to the tests until that folder is deleted.
+- 2026-10-18. A background job in the acquisition wait loop must move its next time on even when it cannot run (its channel cannot be selected); a job that stays due is served again at once, forever. Unplugging the bridge with a VOC-LP Tag or GPS Module attached spun the thread at 100 % CPU and it never reconnected. `Sgpc3::missed`, `GpsModule::missed` and `Flow::Lost` fix it, with a regression test that unplugs a simulated bus.
+- 2026-10-18. An empty measurement cycle counts as failed only when parts reported errors: a CO2 Module charging its capacitor (first minute) or a VOC-LP Tag preheating (five minutes) has nothing to report yet, and counting those cycles made a bridge with only such modules reconnect forever.
+- 2026-10-18. rumqttc 0.25: dropping the link must not stop its thread before the queued messages and the disconnect went out (only one request is sent per poll); wait for `Outgoing::Disconnect`. Its `TlsConfiguration::default()` panics when one system certificate cannot be loaded, so the app builds the rustls config itself.
+- 2026-10-18. rusqlite's `execute_batch` steps a statement once, and `PRAGMA incremental_vacuum` frees one page per step: step it to the end, or the file never shrinks. `SELECT MIN(ts), MAX(ts)` scans the table; two subqueries use the index.
+- 2026-10-18. axum 0.8's `serve` has no header or idle timeout; the API server wraps the listener (`axum::serve::Listener`) to cap connections and close idle ones. Hyper keeps reading while a handler runs, so the idle timeout must be longer than any answer takes (30 s).
+- 2026-10-18. An error returned from Tauri's `setup` ends in a panic that cannot unwind on macOS, with no message and no log. `setup` shows a native message box and exits instead.
+- 2026-10-18. Queued relay commands are coalesced, the last one wins: each switch takes 300 ms or more, and a burst (a looping automation, many API calls) used to keep clicking long after the callers gave up.
+- 2026-10-18. On the GPS Module (schematic rev 1.2) only P0 (receiver supply), P3 and P5 (LEDs) and P7 (backup supply) of the TCA9534 are connected. Until the receiver answers, only those are outputs, since 0x21 may be another device.
+- 2026-10-18. A popover sized `width: max-content` with a `max-width` lets unbreakable text spill out of its box. Give long text places to wrap (the ⓘ data path wraps between its "→" steps), and open popovers toward the side with room, since the scrolling `<main>` clips anything that sticks out (`ColorPicker`, `SourceInfo`).

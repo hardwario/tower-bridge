@@ -219,6 +219,344 @@ impl SimDevice for SimTca9534a {
     }
 }
 
+/// The TOWER CO2 Module as the driver sees it: its TCA9534A at 0x38 (supply,
+/// enable, RDY on P7) and the SC16IS740 UART at 0x4D in front of a Senseair
+/// LP8. The LP8 answers a write frame with its acknowledgement and RDY high,
+/// and the read frame with a reply built from [`SimLp8`].
+pub fn attach_co2_module(bus: &mut MockBus, channel: usize) -> Arc<Mutex<SimLp8>> {
+    let lp8 = Arc::new(Mutex::new(SimLp8::default()));
+    bus.attach(
+        channel,
+        crate::co2::EXPANDER,
+        Box::new(SimCo2Expander(lp8.clone())),
+    );
+    bus.attach(channel, crate::co2::UART, Box::new(SimCo2Uart(lp8.clone())));
+    lp8
+}
+
+/// The simulated LP8 and what the driver wrote to it.
+#[derive(Debug)]
+pub struct SimLp8 {
+    /// The filtered, pressure compensated value it reports (RAM 0xAA).
+    pub ppm: i16,
+    /// Error status 0 and 1 (RAM 0xA7, 0xA6) of the next replies.
+    pub status: [u8; 2],
+    /// Calculation control, sensor state and pressure of every write frame.
+    pub writes: Vec<(u8, [u8; crate::sensors::lp8::STATE_LEN], u16)>,
+    expander: [u8; 4],
+    pointer: usize,
+    uart: [u8; 16],
+    rx: std::collections::VecDeque<u8>,
+    tx: Vec<u8>,
+    rdy_high: bool,
+}
+
+impl Default for SimLp8 {
+    fn default() -> Self {
+        Self {
+            ppm: 650,
+            status: [0, 0],
+            writes: Vec::new(),
+            expander: [0xFF, 0xFF, 0x00, 0xFF],
+            pointer: 0,
+            uart: [0; 16],
+            rx: Default::default(),
+            tx: Vec::new(),
+            rdy_high: false,
+        }
+    }
+}
+
+impl SimLp8 {
+    /// P3 as an output pulls the enable line low: the sensor is on.
+    fn enabled(&self) -> bool {
+        self.expander[3] & 0x08 == 0
+    }
+
+    fn received(&mut self) {
+        use crate::sensors::lp8::{STATE_LEN, WRITE_ACK, crc16, read_frame};
+        if self.tx.len() >= 33 && self.tx[..2] == [0xFE, 0x41] {
+            let frame: Vec<u8> = self.tx.drain(..33).collect();
+            if crc16(&frame) == 0 {
+                let mut state = [0u8; STATE_LEN];
+                state.copy_from_slice(&frame[6..6 + STATE_LEN]);
+                let pressure = u16::from_be_bytes([frame[29], frame[30]]);
+                self.writes.push((frame[5], state, pressure));
+                self.rx.extend(WRITE_ACK);
+                self.rdy_high = true;
+            }
+        } else if self.tx == read_frame() {
+            self.tx.clear();
+            let Some(&(control, mut state, _)) = self.writes.last() else {
+                return;
+            };
+            // The state changes with every measurement: a counter in byte 0.
+            state[0] = state[0].wrapping_add(1);
+            let mut ram = [0u8; 44];
+            let mut put = |addr: usize, bytes: &[u8]| {
+                ram[addr - 0x80..addr - 0x80 + bytes.len()].copy_from_slice(bytes);
+            };
+            put(0x80, &[control]);
+            put(0x81, &state);
+            put(0x9A, &(self.ppm + 20).to_be_bytes());
+            put(0x9C, &(self.ppm + 10).to_be_bytes());
+            put(0x9E, &2350i16.to_be_bytes());
+            put(0xA0, &3300u16.to_be_bytes());
+            put(0xA2, &3150u16.to_be_bytes());
+            put(0xA6, &[self.status[1]]);
+            put(0xA7, &[self.status[0]]);
+            put(0xA8, &(self.ppm + 5).to_be_bytes());
+            put(0xAA, &self.ppm.to_be_bytes());
+            let mut reply = vec![0xFE, 0x44, 0x2C];
+            reply.extend_from_slice(&ram);
+            let crc = crc16(&reply).to_le_bytes();
+            reply.extend_from_slice(&crc);
+            self.rx.extend(reply);
+        }
+    }
+}
+
+struct SimCo2Expander(Arc<Mutex<SimLp8>>);
+
+impl SimDevice for SimCo2Expander {
+    fn write(&mut self, data: &[u8]) -> Result<(), BusError> {
+        let mut s = self.0.lock().map_err(|_| BusError::Timeout)?;
+        let Some((&cmd, rest)) = data.split_first() else {
+            return Ok(());
+        };
+        if cmd > 3 {
+            return Err(BusError::DataNack);
+        }
+        s.pointer = usize::from(cmd);
+        if let Some(&v) = rest.first()
+            && cmd != 0
+        {
+            let was = s.enabled();
+            let pointer = s.pointer;
+            s.expander[pointer] = v;
+            if s.enabled() && !was {
+                // Powered up: a new measurement, RDY low until it is done.
+                s.rdy_high = false;
+                s.tx.clear();
+            }
+        }
+        Ok(())
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<(), BusError> {
+        let s = self.0.lock().map_err(|_| BusError::Timeout)?;
+        let rdy = !s.enabled() || s.rdy_high;
+        let value = match s.pointer {
+            0 => 0x7F | if rdy { 0x80 } else { 0 },
+            p => s.expander[p],
+        };
+        buf.fill(value);
+        Ok(())
+    }
+}
+
+struct SimCo2Uart(Arc<Mutex<SimLp8>>);
+
+impl SimDevice for SimCo2Uart {
+    fn write(&mut self, data: &[u8]) -> Result<(), BusError> {
+        let mut s = self.0.lock().map_err(|_| BusError::Timeout)?;
+        let Some((&reg, rest)) = data.split_first() else {
+            return Ok(());
+        };
+        let index = usize::from(reg >> 3) & 0x0F;
+        // LCR 0x80 or 0xBF selects the divisor and enhanced registers.
+        let special = s.uart[3] == 0x80 || s.uart[3] == 0xBF;
+        if index == 0 && !special {
+            if s.enabled() {
+                s.tx.extend_from_slice(rest);
+                s.received();
+            }
+        } else if let Some(&v) = rest.first() {
+            if index == 2 && !special && v & 0x02 != 0 {
+                s.rx.clear();
+            }
+            s.uart[index] = v;
+        }
+        s.uart[15] = reg;
+        Ok(())
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<(), BusError> {
+        let mut s = self.0.lock().map_err(|_| BusError::Timeout)?;
+        match usize::from(s.uart[15] >> 3) & 0x0F {
+            0 => {
+                for b in buf.iter_mut() {
+                    *b = s.rx.pop_front().unwrap_or(0);
+                }
+            }
+            8 => buf.fill(64),
+            9 => buf.fill(u8::try_from(s.rx.len()).unwrap_or(u8::MAX)),
+            i => buf.fill(s.uart[i]),
+        }
+        Ok(())
+    }
+}
+
+/// The Sensirion SGPC3 of the VOC-LP Tag (0x58).
+#[derive(Debug, Default)]
+pub struct SimSgpc3 {
+    /// TVOC the next measurements report, in ppb.
+    pub tvoc: u16,
+    pub baseline: u16,
+    /// Commands received, with their argument word if any.
+    pub commands: Vec<([u8; 2], Option<u16>)>,
+    /// Stops acknowledging, as if unplugged.
+    pub mute: bool,
+    last: [u8; 2],
+}
+
+/// Attach a simulated SGPC3 and return its state.
+pub fn attach_sgpc3(bus: &mut MockBus, channel: usize) -> Arc<Mutex<SimSgpc3>> {
+    let sgp = Arc::new(Mutex::new(SimSgpc3 {
+        tvoc: 42,
+        baseline: 0x8123,
+        ..SimSgpc3::default()
+    }));
+    bus.attach(
+        channel,
+        crate::sensors::sgpc3::ADDR,
+        Box::new(SimSgpc3Device(sgp.clone())),
+    );
+    sgp
+}
+
+struct SimSgpc3Device(Arc<Mutex<SimSgpc3>>);
+
+impl SimDevice for SimSgpc3Device {
+    fn write(&mut self, data: &[u8]) -> Result<(), BusError> {
+        let mut s = self.0.lock().map_err(|_| BusError::Timeout)?;
+        if s.mute {
+            return Err(BusError::AddrNack);
+        }
+        let [a, b, rest @ ..] = data else {
+            return Err(BusError::DataNack);
+        };
+        let word = match rest {
+            [hi, lo, crc] if crc8(&[*hi, *lo], 0xFF) == *crc => {
+                Some(u16::from_be_bytes([*hi, *lo]))
+            }
+            [] => None,
+            _ => return Err(BusError::DataNack),
+        };
+        if [*a, *b] == [0x20, 0x1E]
+            && let Some(w) = word
+        {
+            s.baseline = w;
+        }
+        s.last = [*a, *b];
+        s.commands.push(([*a, *b], word));
+        Ok(())
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<(), BusError> {
+        let s = self.0.lock().map_err(|_| BusError::Timeout)?;
+        if s.mute {
+            return Err(BusError::AddrNack);
+        }
+        let word = match s.last {
+            [0x20, 0x2F] => 0x1006,
+            [0x20, 0x08] => s.tvoc,
+            [0x20, 0x15] => s.baseline,
+            _ => return Err(BusError::AddrNack),
+        };
+        let [hi, lo] = word.to_be_bytes();
+        let reply = [hi, lo, crc8(&[hi, lo], 0xFF)];
+        for (b, r) in buf.iter_mut().zip(reply.iter().cycle()) {
+            *b = *r;
+        }
+        Ok(())
+    }
+}
+
+/// The u-blox receiver of the TOWER GPS Module (0x42): it answers a NAV-PVT
+/// poll with the position in [`SimGps`], and CFG-PRT with an acknowledgement.
+#[derive(Debug, Default)]
+pub struct SimGps {
+    /// Latitude and longitude in degrees and altitude in metres; `None`: no fix.
+    pub position: Option<(f64, f64, f64)>,
+    pub satellites: u8,
+    /// UBX frames received, as class and id.
+    pub received: Vec<(u8, u8)>,
+    stream: std::collections::VecDeque<u8>,
+    pointer: u8,
+}
+
+/// Attach a GPS Module (its expander and receiver) and return the receiver.
+pub fn attach_gps_module(bus: &mut MockBus, channel: usize) -> Arc<Mutex<SimGps>> {
+    let gps = Arc::new(Mutex::new(SimGps::default()));
+    bus.attach(channel, crate::gps::EXPANDER, Box::new(SimTca9534a::new()));
+    bus.attach(
+        channel,
+        crate::gps::RECEIVER,
+        Box::new(SimGpsReceiver(gps.clone())),
+    );
+    gps
+}
+
+impl SimGps {
+    fn nav_pvt(&self) -> Vec<u8> {
+        let mut p = vec![0u8; 92];
+        p[4..6].copy_from_slice(&2026u16.to_le_bytes());
+        p[6..11].copy_from_slice(&[10, 17, 20, 0, 0]);
+        p[11] = 0x07;
+        p[23] = self.satellites;
+        if let Some((lat, lon, alt)) = self.position {
+            p[20] = 3;
+            p[21] = 0x01;
+            p[24..28].copy_from_slice(&((lon * 1e7).round() as i32).to_le_bytes());
+            p[28..32].copy_from_slice(&((lat * 1e7).round() as i32).to_le_bytes());
+            p[36..40].copy_from_slice(&((alt * 1000.0).round() as i32).to_le_bytes());
+            p[40..44].copy_from_slice(&2_500u32.to_le_bytes());
+        }
+        crate::gps::ubx(0x01, 0x07, &p)
+    }
+}
+
+struct SimGpsReceiver(Arc<Mutex<SimGps>>);
+
+impl SimDevice for SimGpsReceiver {
+    fn write(&mut self, data: &[u8]) -> Result<(), BusError> {
+        let mut s = self.0.lock().map_err(|_| BusError::Timeout)?;
+        match data {
+            [reg] => s.pointer = *reg,
+            [0xB5, 0x62, class, id, ..] => {
+                let (class, id) = (*class, *id);
+                s.received.push((class, id));
+                let reply = match (class, id) {
+                    (0x01, 0x07) => s.nav_pvt(),
+                    (0x06, _) => crate::gps::ubx(0x05, 0x01, &[class, id]),
+                    _ => Vec::new(),
+                };
+                s.stream.extend(reply);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<(), BusError> {
+        let mut s = self.0.lock().map_err(|_| BusError::Timeout)?;
+        if s.pointer == 0xFD {
+            let n = u16::try_from(s.stream.len())
+                .unwrap_or(u16::MAX)
+                .to_be_bytes();
+            for (b, v) in buf.iter_mut().zip(n) {
+                *b = v;
+            }
+        } else {
+            for b in buf.iter_mut() {
+                *b = s.stream.pop_front().unwrap_or(0xFF);
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Virtual time: `sleep` advances the clock instantly.
 #[derive(Default)]
 pub struct MockClock {
@@ -580,13 +918,17 @@ impl SimDevice for SimMpl3115a2 {
 }
 
 /// A simulated bridge whose environment drifts slowly, for running the app
-/// without hardware: a Climate Module R2 and a Relay Module on channel 0, and
-/// the Humidity, Lux Meter and Barometer Tags on channel 1 (somewhere a bit
-/// cooler and brighter).
+/// without hardware: a Climate Module R2, a Relay Module, a CO2 Module, a
+/// VOC-LP Tag and an NFC Tag on channel 0, and the Humidity, Lux Meter and
+/// Barometer Tags (somewhere a bit cooler and brighter) and a GPS Module with
+/// a fix on channel 1.
 pub struct SimulatedBridge {
     bus: MockBus,
     env: SharedEnv,
     tags: SharedEnv,
+    lp8: Arc<Mutex<SimLp8>>,
+    sgp: Arc<Mutex<SimSgpc3>>,
+    gps: Arc<Mutex<SimGps>>,
     seed: u64,
 }
 
@@ -599,10 +941,17 @@ impl SimulatedBridge {
         bus.attach(1, 0x40, Box::new(SimSht20::new(tags.clone())));
         bus.attach(1, 0x44, Box::new(SimOpt3001::new(tags.clone())));
         bus.attach(1, 0x60, Box::new(SimMpl3115a2::new(tags.clone())));
+        bus.attach(0, crate::nfc::ADDRESSES[0], Box::new(SimNtag::new()));
+        let lp8 = attach_co2_module(&mut bus, 0);
+        let sgp = attach_sgpc3(&mut bus, 0);
+        let gps = attach_gps_module(&mut bus, 1);
         let mut s = Self {
             bus,
             env,
             tags,
+            lp8,
+            sgp,
+            gps,
             seed: 0x2545_F491_4F6C_DD1D,
         };
         s.update_env();
@@ -639,6 +988,20 @@ impl SimulatedBridge {
                 co2: None,
                 voc: None,
             };
+        }
+        // People in the room during the day: more CO2 and VOC.
+        let local = (wall + 7200.0) % 86_400.0 / 86_400.0 * std::f64::consts::TAU;
+        let occupied = (local - 2.0).sin().max(0.0);
+        let (n1, n2, n3) = (self.noise(), self.noise(), self.noise());
+        if let Ok(mut lp8) = self.lp8.lock() {
+            lp8.ppm = (520.0 + 420.0 * occupied + 20.0 * n1) as i16;
+        }
+        if let Ok(mut sgp) = self.sgp.lock() {
+            sgp.tvoc = (30.0 + 90.0 * occupied + 10.0 * n2).max(0.0) as u16;
+        }
+        if let Ok(mut gps) = self.gps.lock() {
+            gps.position = Some((50.771168 + n3 * 2e-5, 15.056328 - n3 * 2e-5, 374.5 + n3));
+            gps.satellites = 9;
         }
     }
 }

@@ -6,8 +6,8 @@ broker and publishes there; it does not run a broker itself. MQTT is off by
 default; turn it on in **Settings → MQTT** or from the tray menu.
 
 Every reading is published as a **retained** QoS 0 message, so a new
-subscriber immediately gets the latest values, and relay commands are accepted
-on the same topics (see below).
+subscriber immediately gets the latest values. Relay commands are accepted on
+`/set` and `/pulse` below the relay topic (see below).
 
 ## Connection
 

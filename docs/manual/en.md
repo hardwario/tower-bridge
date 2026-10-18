@@ -8,10 +8,14 @@ You need:
 
 - **TOWER Bridge Module** connected to the computer over USB.
 - **TOWER Climate Module** (revision R1 or R2) for temperature, relative humidity, illuminance and barometric pressure.
-- Optionally TOWER sensor tags: **Humidity Tag**, **Temperature Tag**, **Lux Meter Tag** and **Barometer Tag**, alone or next to the Climate Module.
+- Optionally TOWER sensor tags, alone or next to the Climate Module:
+  - **TOWER Humidity Tag**
+  - **TOWER Temperature Tag**
+  - **TOWER Lux Meter Tag**
+  - **TOWER Barometer Tag**
 - Optionally a **TOWER Relay Module**, a latching relay you can switch from the app.
 - Optionally a **TOWER NFC Tag**, which hands a web address of your choice to a phone that touches it.
-- Optionally a **TOWER CO2 Module** (carbon dioxide), a **VOC-LP Tag** (volatile organic compounds) and a **TOWER GPS Module** (position).
+- Optionally a **TOWER CO2 Module** (carbon dioxide), a **TOWER VOC-LP Tag** (volatile organic compounds) and a **TOWER GPS Module** (position).
 
 The app lives in the menu bar (macOS) or in the system tray (Windows, Linux). It keeps measuring when its window is closed.
 
@@ -39,7 +43,7 @@ The icon shows the current value of the measurement chosen in the settings. Its 
 
 ## Dashboard {#dashboard}
 
-The Dashboard shows the Relay Module, the latest value of each measurement with its chart, and the TOWER Bridge Module. **Last update** at the top tells when the latest measurement was taken. Next to it, **Interval** sets how often the sensors are measured, from 5 seconds to 3 minutes (20 seconds by default).
+The Dashboard shows the Relay Module, the latest value of each measurement with its chart, the TOWER NFC Tag and TOWER GPS Module cards when they are connected, and the TOWER Bridge Module. **Collapse** at the bottom of the sidebar folds it to its icons; the arrow in the same place brings it back. Only what is connected now has a panel or a line; the readings of a module unplugged since stay on the Data page. **Last update** at the top tells when the latest measurement was taken. Next to it, **Interval** sets how often the sensors are measured, from 5 seconds to 3 minutes (20 seconds by default).
 
 ![The Dashboard](images/en/dashboard.webp)
 
@@ -47,7 +51,7 @@ The Dashboard shows the Relay Module, the latest value of each measurement with 
 
 ![Parts of a chart panel](diagrams/chart-card.svg)
 
-1. **Colour:** picks the line colour.
+1. **Color:** picks the line color.
 2. **Data source:** point at the ⓘ icon to see the module, the I²C channel, the address and the sensor behind the values.
 3. **Reset:** returns to the selected time span.
 4. **Maximize:** enlarges the chart; press it again, or <kbd>Esc</kbd>, to restore it.
@@ -66,7 +70,7 @@ Choose the time span above the charts, from 1 hour to 365 days. All charts on a 
 
 A red edge at the top of a panel means the value is outside its alert limits; the dashed red line in the chart shows the limit.
 
-When the same quantity is measured on both channels, for example temperature by the Climate Module and by the Humidity Tag, its panel shows both values, a line for each channel in its own colour, and a row with min, avg and max for each below the chart. The coloured dot at the start of a row picks that line's colour, and the column heads switch the min, avg and max lines on or off. Click a row's name, for example *Humidity Tag*, to hide its line from the chart; the row turns grey, and another click brings the line back. One line always stays.
+When the same quantity is measured on both channels, for example temperature by the Climate Module and by the Humidity Tag, its panel shows both values, a line for each channel in its own color, and a row with min, avg and max for each below the chart. The colored dot at the start of a row picks that line's color, and the column heads switch the min, avg and max lines on or off. Click a row's name, for example *Humidity Tag*, to hide its line from the chart; the row turns gray, and another click brings the line back. One line always stays.
 
 ![A panel with two sources](images/en/chart.webp)
 

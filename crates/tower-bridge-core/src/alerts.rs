@@ -177,21 +177,30 @@ impl AlertEngine {
         &self.rules
     }
 
-    /// Replace the rules; state is kept only for metrics whose rule is unchanged.
+    /// Replace the rules. Active alerts stay, and the next values are
+    /// checked against the new limits: an edit neither repeats a
+    /// notification nor forgets when the last one was sent.
     pub fn set_rules(&mut self, rules: AlertRules) {
-        for metric in Metric::ALL {
-            if self.rules.get(metric) != rules.get(metric) {
-                self.state.retain(|(m, _, _), _| *m != metric);
-            }
-        }
+        // A rule switched off or a limit removed ends its alerts at once:
+        // with no readings coming (the bridge unplugged) they would stay.
+        self.state.retain(|(metric, _, bound), _| {
+            let rule = rules.get(*metric);
+            rule.enabled
+                && match bound {
+                    Bound::Low => rule.min.is_some(),
+                    Bound::High => rule.max.is_some(),
+                }
+        });
         self.rules = rules;
     }
 
-    /// Forget alerts of channels that no longer measure (their sensors are
-    /// gone); they could never end otherwise. Returns whether any was active.
-    pub fn retain_channels(&mut self, channels: &[u8]) -> bool {
+    /// Forget alerts of metrics no longer measured on their channel (the
+    /// sensor is gone); they could never end otherwise. Returns whether any
+    /// was active.
+    pub fn retain_sources(&mut self, measured: &[(Metric, u8)]) -> bool {
         let before = self.active().len();
-        self.state.retain(|(_, c, _), _| channels.contains(c));
+        self.state
+            .retain(|(m, c, _), _| measured.contains(&(*m, *c)));
         self.active().len() != before
     }
 
@@ -368,21 +377,21 @@ mod tests {
     }
 
     #[test]
-    fn rule_edit_resets_only_that_metric() {
+    fn a_rule_edit_keeps_the_alert_and_checks_the_new_limits() {
         let mut e = engine();
         e.evaluate(0, 0, &temp(Some(30.0)));
+        // Only the repeat interval changes: no second notification.
         let mut rules = e.rules().clone();
-        rules.humidity.enabled = true;
+        rules.temperature.cooldown_s += 60;
         e.set_rules(rules.clone());
-        assert_eq!(
-            e.active().len(),
-            1,
-            "unchanged temperature rule keeps state"
-        );
+        assert!(e.evaluate(1, 0, &temp(Some(30.0))).is_empty());
+        assert_eq!(e.active().len(), 1);
+        // A limit above the value ends it, as the value falling would.
         rules.temperature.max = Some(35.0);
         e.set_rules(rules);
+        let ev = e.evaluate(2, 0, &temp(Some(30.0)));
+        assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Recovered, true)]);
         assert!(e.active().is_empty());
-        assert!(e.evaluate(1, 0, &temp(Some(30.0))).is_empty());
     }
 
     #[test]
@@ -392,6 +401,7 @@ mod tests {
         let mut rules = e.rules().clone();
         rules.temperature.enabled = false;
         e.set_rules(rules);
+        assert!(e.active().is_empty(), "at once, not at the next reading");
         assert!(e.evaluate(1, 0, &temp(Some(30.0))).is_empty());
         assert!(e.active().is_empty());
     }
@@ -412,16 +422,22 @@ mod tests {
     }
 
     #[test]
-    fn alerts_of_vanished_channels_are_cleared() {
+    fn alerts_of_vanished_sensors_are_cleared() {
         let mut e = engine();
         e.evaluate(0, 1, &temp(Some(30.0)));
         e.evaluate(0, 0, &temp(Some(30.0)));
         assert_eq!(e.active().len(), 2);
-        assert!(e.retain_channels(&[0]));
+        // Channel 1 lost its thermometer but kept other sensors.
+        let measured = [
+            (Metric::Temperature, 0),
+            (Metric::Humidity, 0),
+            (Metric::Humidity, 1),
+        ];
+        assert!(e.retain_sources(&measured));
         let active = e.active();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].channel, 0);
-        assert!(!e.retain_channels(&[0]), "nothing more to drop");
+        assert!(!e.retain_sources(&measured), "nothing more to drop");
     }
 
     #[test]

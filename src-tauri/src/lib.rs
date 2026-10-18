@@ -25,7 +25,7 @@ use tower_bridge_core::acquisition::{self, AcqConfig, Acquisition};
 use tower_bridge_core::bus::SystemClock;
 use tower_bridge_core::model::DeviceState;
 use tower_bridge_core::store::Store;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::hub::HubMsg;
 use crate::paths::Paths;
@@ -52,6 +52,7 @@ pub fn run() {
     // Development instances (simulated bridge or a custom data folder) may run
     // next to an installed copy, so they skip the single-instance check.
     let isolated = simulated || std::env::var_os("TOWER_BRIDGE_DATA_DIR").is_some();
+    autostart::set_isolated(isolated);
     let mut builder = tauri::Builder::default();
     if !isolated {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -88,10 +89,11 @@ pub fn run() {
             commands::open_link,
         ])
         .setup(move |app| {
-            setup(app, simulated, autostarted).map_err(|e| {
+            if let Err(e) = setup(app, simulated, autostarted) {
                 error!("startup failed: {e:#}");
-                e.into()
-            })
+                fatal(app.handle(), &format!("{e:#}"));
+            }
+            Ok(())
         })
         .build(tauri::generate_context!());
 
@@ -111,6 +113,27 @@ pub fn run() {
         RunEvent::Exit => shutdown(app, Duration::from_secs(1)),
         _ => {}
     });
+}
+
+/// A start that cannot go on: say why in a message box (the Windows build has
+/// no console, and the log may not exist yet), then quit. Returning the
+/// error to Tauri instead would end in a panic without a word.
+fn fatal(app: &tauri::AppHandle, error: &str) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    let tr = i18n::Lang::effective(settings::LanguagePref::System).tr();
+    let dialog = app
+        .dialog()
+        .message(i18n::fill(tr.cannot_start, &[("error", error)]))
+        .kind(MessageDialogKind::Error)
+        .title("TOWER Bridge");
+    // On Linux a blocking dialog on the main thread, which owns GTK, could
+    // hang: there it shows once the event loop runs and quits when closed.
+    if cfg!(target_os = "linux") {
+        dialog.show(|_| std::process::exit(1));
+    } else {
+        dialog.blocking_show();
+        std::process::exit(1);
+    }
 }
 
 fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()> {
@@ -135,8 +158,14 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
     }
     let settings = Arc::new(settings);
 
-    let store = match Store::open(&paths.db_file()) {
-        Ok(mut s) => {
+    let store = match Store::open_or_replace(&paths.db_file()) {
+        Ok((mut s, aside)) => {
+            if let Some(aside) = aside {
+                warn!(
+                    "the database was damaged; moved to {} and started anew",
+                    aside.display()
+                );
+            }
             if simulated {
                 seed_simulated_history(&mut s, settings.sample_interval_s);
             }

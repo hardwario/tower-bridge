@@ -133,7 +133,7 @@
   const empty = $derived(!!history && rows.length === 0);
 </script>
 
-<div class="view">
+<div class="view data">
   <header class="page-head">
     <h1>{t().data.title}</h1>
   </header>
@@ -318,8 +318,14 @@
     padding: 48px;
     color: var(--text-muted);
   }
+  /* The page fills the window and the table takes the height left below the
+     controls, scrolling inside; a small window scrolls the page instead. */
+  .data {
+    height: 100%;
+  }
   .table-wrap {
-    max-height: calc(100vh - 230px);
+    flex: 1 1 auto;
+    min-height: 220px;
     overflow: auto;
     transition: opacity 0.2s;
   }
@@ -348,6 +354,17 @@
   }
   tbody tr + tr td {
     border-top: 1px solid var(--border);
+  }
+  /* The time stays in view when the columns scroll sideways. */
+  th:first-child,
+  td:first-child {
+    position: sticky;
+    left: 0;
+    background: var(--surface);
+    box-shadow: inset -1px 0 0 var(--border);
+  }
+  th:first-child {
+    z-index: 1;
   }
   .small {
     font-size: 12.5px;

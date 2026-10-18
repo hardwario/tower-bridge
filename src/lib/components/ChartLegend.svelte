@@ -52,7 +52,8 @@
 </script>
 
 <div class="legend" role="group" aria-label={t().metrics[metric]}>
-  <span></span>
+  <!-- The unit once, above the names, so long values leave room for them. -->
+  <span class="unit-head">{unitLabel(metric, unit)}</span>
   {#each KEYS as k (k)}
     {@const on = style[flag[k]]}
     <button
@@ -85,9 +86,11 @@
       >
     </span>
     {#each KEYS as k (k)}
-      <span class="value tabular" class:off={line.hidden} aria-label="{line.name}, {t().common[k]}"
-        >{line.stats ? fmtValue(metric, line.stats[k], unit) : NO_VALUE}<span class="unit">{unitLabel(metric, unit)}</span
-        ></span
+      <span
+        class="value tabular"
+        class:off={line.hidden}
+        aria-label="{line.name}, {t().common[k]}, {unitLabel(metric, unit)}"
+        >{line.stats ? fmtValue(metric, line.stats[k], unit) : NO_VALUE}</span
       >
     {/each}
   {/each}
@@ -96,7 +99,7 @@
 <style>
   .legend {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+    grid-template-columns: minmax(6.5em, 1fr) repeat(3, auto);
     align-items: center;
     column-gap: 4px;
     width: 100%;
@@ -187,10 +190,11 @@
     font-size: 13px;
     font-weight: 600;
     white-space: nowrap;
+    text-align: right;
   }
-  .unit {
-    margin-left: 3px;
-    font-weight: 400;
+  .unit-head {
+    padding-left: 2px;
+    font-size: 11px;
     color: var(--text-muted);
   }
 </style>

@@ -22,7 +22,7 @@
     "copyright": "© 2026 HARDWARIO a.s.",
     "category": "Utility",
     "shortDescription": "TOWER Bridge Module sensor monitor",
-    "longDescription": "Shows temperature, humidity, illuminance and pressure from the HARDWARIO TOWER Climate Module connected through the TOWER Bridge Module.",
+    "longDescription": "Shows temperature, humidity, illuminance, pressure, CO2 and VOC from HARDWARIO TOWER modules and tags connected through the TOWER Bridge Module, switches the TOWER Relay Module, and offers MQTT, a REST API and MCP.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

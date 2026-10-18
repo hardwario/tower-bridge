@@ -11,8 +11,8 @@ rust-version.workspace = true
 [features]
 default = []
 store = ["dep:rusqlite", "dep:chrono"]
-mqtt = ["dep:rumqttc", "dep:serde_json"]
-api = ["store", "dep:axum", "dep:tokio", "dep:serde_json"]
+mqtt = ["dep:rumqttc", "dep:rustls", "dep:rustls-native-certs", "dep:serde_json"]
+api = ["store", "dep:axum", "dep:futures-util", "dep:tokio", "dep:serde_json"]
 xlsx = ["store", "dep:rust_xlsxwriter"]
 
 [dependencies]
@@ -24,11 +24,17 @@ tracing.workspace = true
 
 chrono = { workspace = true, optional = true }
 rumqttc = { workspace = true, optional = true }
+# The versions rumqttc uses; its own TLS setup panics on an unreadable
+# system certificate.
+rustls = { version = "0.23", optional = true, default-features = false, features = ["std"] }
+rustls-native-certs = { version = "0.8", optional = true }
 rusqlite = { workspace = true, optional = true }
 rust_xlsxwriter = { version = "0.100", optional = true, features = ["constant_memory"] }
 axum = { version = "0.8", optional = true, default-features = false, features = ["http1", "json", "query", "tokio"] }
 serde_json = { workspace = true, optional = true }
 tokio = { version = "1", optional = true, features = ["rt", "net", "sync", "time"] }
+# Already in the tree through axum; streams the CSV export.
+futures-util = { version = "0.3", optional = true, default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 i2cdev = "0.6"

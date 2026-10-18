@@ -470,13 +470,34 @@ impl Settings {
                 return (Self::default().validated(), false);
             }
         };
-        let mut v = match serde_json::from_str::<serde_json::Value>(&text) {
-            Ok(v) => v,
-            Err(e) => {
+        match Self::parse(&text) {
+            Parsed::Complete(s) => (s, false),
+            Parsed::Partial(s, e) => {
+                warn!("some settings are invalid ({e}); keeping the valid ones");
+                backup(path, true);
+                (s, false)
+            }
+            Parsed::NotJson(e) => {
                 warn!("settings file is not valid JSON ({e}); using defaults");
                 backup(path, false);
-                return (Self::default().validated(), false);
+                (Self::default().validated(), false)
             }
+        }
+    }
+
+    /// The settings in the file, without touching it: for another process
+    /// (the `--mcp-stdio` bridge) next to the running app.
+    pub fn read(path: &Path) -> Self {
+        match std::fs::read_to_string(path).map(|text| Self::parse(&text)) {
+            Ok(Parsed::Complete(s) | Parsed::Partial(s, _)) => s,
+            _ => Self::default().validated(),
+        }
+    }
+
+    fn parse(text: &str) -> Parsed {
+        let mut v = match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(v) => v,
+            Err(e) => return Parsed::NotJson(e.to_string()),
         };
         snake_case_keys(&mut v);
         // Files from before versioning are version 1.
@@ -486,13 +507,9 @@ impl Settings {
         if v["version"].as_u64().is_some_and(|n| n < 4) {
             upgrade_mqtt_v3(&mut v);
         }
-        let mut s = match serde_json::from_value::<Settings>(v.clone()) {
-            Ok(s) => s,
-            Err(e) => {
-                warn!("some settings are invalid ({e}); keeping the valid ones");
-                backup(path, true);
-                lenient(&v)
-            }
+        let (mut s, problem) = match serde_json::from_value::<Settings>(v.clone()) {
+            Ok(s) => (s, None),
+            Err(e) => (lenient(&v), Some(e.to_string())),
         };
         if s.version < 3 {
             s.charts.upgrade(s.version);
@@ -501,12 +518,18 @@ impl Settings {
         if s.version < 5 && s.sample_interval_s == 10 {
             s.sample_interval_s = 20;
         }
-        (s.validated(), false)
+        match problem {
+            None => Parsed::Complete(s.validated()),
+            Some(e) => Parsed::Partial(s.validated(), e),
+        }
     }
 
-    /// Save atomically (write a temporary file, then rename). Each save has
-    /// its own temporary file, so concurrent saves cannot mix.
+    /// Save atomically (write a temporary file, flush it to the disk, then
+    /// rename), readable by the user only: it holds the MQTT password and the
+    /// API token. Each save has its own temporary file, so concurrent saves
+    /// cannot mix.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        use std::io::Write;
         static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -514,9 +537,26 @@ impl Settings {
         let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let tmp = path.with_extension(format!("json.tmp-{}-{n}", std::process::id()));
         let text = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        std::fs::write(&tmp, text)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        // Without it, a power cut right after the rename can leave an empty
+        // file, and the next start would fall back to the defaults.
+        file.sync_all()?;
+        drop(file);
         std::fs::rename(&tmp, path)
     }
+}
+
+/// What a settings file held.
+enum Parsed {
+    Complete(Settings),
+    /// Some values did not fit and are defaults now (the error says why).
+    Partial(Settings, String),
+    NotJson(String),
 }
 
 /// Version 3 and older could run a built-in MQTT broker (`port`,
@@ -1010,6 +1050,12 @@ mod tests {
         }
         .validated();
         s.save(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path)?.permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "secrets readable by the user only");
+        }
         let (loaded, first_run) = Settings::load(&path);
         assert!(!first_run);
         assert_eq!(loaded, s);

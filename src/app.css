@@ -89,7 +89,7 @@
   --border-strong: rgba(37, 37, 50, 0.18);
   --text: #252532;
   --text-2: #55555f;
-  --text-muted: #85858e;
+  --text-muted: #6a6a74;
   --accent: #e4002b;
   --accent-hover: #c70025;
   --accent-weak: rgba(228, 0, 43, 0.08);
@@ -102,7 +102,13 @@
   --good: #0ca30c;
   --warning: #b77900;
   --warning-weak: rgba(250, 178, 25, 0.14);
-  --focus: rgba(42, 120, 214, 0.45);
+  --focus: #2a78d6;
+  /* Hover: neutral, quieter than the selected item. */
+  --hover: rgba(37, 37, 50, 0.06);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236a6a74' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  /* Status colours as text: darker than the dots, for contrast on white. */
+  --good-text: #087a08;
+  --warning-text: #8f5f00;
   --map-water: #d6e4ef;
   --map-land: #f7f6f2;
   --map-border: rgba(37, 37, 50, 0.35);
@@ -143,6 +149,11 @@
     --good: #0ca30c;
     --warning: #fab219;
     --warning-weak: rgba(250, 178, 25, 0.12);
+    --good-text: #0ca30c;
+    --warning-text: #fab219;
+    --focus: #5a9be6;
+    --hover: rgba(255, 255, 255, 0.06);
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a0a0aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     --map-water: #141c26;
     --map-land: #24242b;
     --map-border: rgba(255, 255, 255, 0.26);
@@ -177,6 +188,11 @@
   --good: #0ca30c;
   --warning: #fab219;
   --warning-weak: rgba(250, 178, 25, 0.12);
+  --good-text: #0ca30c;
+  --warning-text: #fab219;
+  --focus: #5a9be6;
+  --hover: rgba(255, 255, 255, 0.06);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a0a0aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --map-water: #141c26;
   --map-land: #24242b;
   --map-border: rgba(255, 255, 255, 0.26);
@@ -306,6 +322,18 @@ textarea {
   border-radius: var(--radius-sm);
   background: var(--surface);
   min-width: 0;
+}
+
+/* Drawn by the app, so every select looks the same in Chromium (Windows)
+   and WebKit (macOS, Linux). The explicit line box keeps WebKit from
+   setting the text low. */
+.select {
+  -webkit-appearance: none;
+  appearance: none;
+  line-height: 28px;
+  padding: 0 28px 0 10px;
+  background: var(--surface) var(--chevron) no-repeat right 8px center;
+  color: var(--text);
 }
 
 .input:disabled,

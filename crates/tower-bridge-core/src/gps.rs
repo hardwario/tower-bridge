@@ -22,6 +22,11 @@ const REG_OUTPUT: u8 = 0x01;
 const REG_CONFIG: u8 = 0x03;
 /// Receiver supply (P0), red LED (P3), green LED (P5), backup supply (P7).
 const POWER: u8 = 0x01;
+/// Only those four pins are outputs until the receiver answers: the
+/// expander may belong to something else. P1, P2, P4 and P6 are not
+/// connected on the module (schematic rev 1.2); once the receiver answered
+/// they are outputs too, rather than floating inputs.
+const OUTPUTS: u8 = !(0x01 | 0x08 | 0x20 | 0x80);
 const LED_GREEN: u8 = 0x20;
 const BACKUP: u8 = 0x80;
 
@@ -39,7 +44,7 @@ const GIVE_UP: u8 = 3;
 
 /// UBX frame: sync, class, id, length (little endian), payload, Fletcher
 /// checksum over class to payload.
-fn ubx(class: u8, id: u8, payload: &[u8]) -> Vec<u8> {
+pub(crate) fn ubx(class: u8, id: u8, payload: &[u8]) -> Vec<u8> {
     let len = u16::try_from(payload.len()).unwrap_or(0).to_le_bytes();
     let mut frame = vec![0xB5, 0x62, class, id, len[0], len[1]];
     frame.extend_from_slice(payload);
@@ -196,6 +201,8 @@ pub struct GpsModule {
     /// Clock time of the next step.
     next: Duration,
     led: bool,
+    /// The receiver answered: this is a GPS Module.
+    confirmed: bool,
     failures: u8,
     info: Option<GpsInfo>,
 }
@@ -214,12 +221,13 @@ impl GpsModule {
     /// Power the receiver of a module found on `channel` (selected).
     pub fn start(bus: &mut dyn I2cBus, clock: &dyn Clock, channel: u8) -> Result<Self, BusError> {
         bus.write(EXPANDER, &[REG_OUTPUT, BACKUP | POWER])?;
-        bus.write(EXPANDER, &[REG_CONFIG, 0x00])?;
+        bus.write(EXPANDER, &[REG_CONFIG, OUTPUTS])?;
         Ok(Self {
             channel,
             phase: Phase::Booting,
             next: clock.now() + BOOT,
             led: false,
+            confirmed: false,
             failures: 0,
             info: None,
         })
@@ -239,6 +247,13 @@ impl GpsModule {
 
     pub fn gone(&self) -> bool {
         self.failures >= GIVE_UP
+    }
+
+    /// A step that could not be done (the channel could not be selected):
+    /// counts as a failure, and the next try is a period later.
+    pub fn missed(&mut self, now: Duration) {
+        self.failures = self.failures.saturating_add(1);
+        self.next = now + PERIOD;
     }
 
     pub fn info(&self) -> Option<&GpsInfo> {
@@ -308,6 +323,10 @@ impl GpsModule {
         let Some(pvt) = find_pvt(&self.drain(bus)?) else {
             return Ok(false);
         };
+        if !self.confirmed {
+            bus.write(EXPANDER, &[REG_CONFIG, 0x00])?;
+            self.confirmed = true;
+        }
         let fix = pvt.fix_ok && matches!(pvt.fix_type, 2..=4);
         let info = GpsInfo {
             channel: self.channel,
@@ -402,5 +421,65 @@ mod tests {
         let last = frame.len() - 1;
         frame[last] ^= 0xFF;
         assert_eq!(find_pvt(&frame), None);
+    }
+
+    #[test]
+    fn configures_then_polls_and_lights_the_led_with_a_fix() -> Result<(), BusError> {
+        use crate::bus::mock::{MockBus, MockClock, attach_gps_module};
+        let mut bus = MockBus::new();
+        let receiver = attach_gps_module(&mut bus, 1);
+        let clock = MockClock::new();
+        crate::climate::select_channel(&mut bus, 1)?;
+        assert!(GpsModule::probe(&mut bus)?);
+        let mut gps = GpsModule::start(&mut bus, &clock, 1)?;
+        let led = |bus: &mut MockBus| -> Result<bool, BusError> {
+            let mut out = [0u8];
+            bus.write_read(EXPANDER, &[REG_OUTPUT], &mut out)?;
+            Ok(out[0] & LED_GREEN != 0)
+        };
+
+        // Booting, then the port is switched to UBX: no news yet.
+        assert!(!gps.service(&mut bus, &clock)?, "not due before boot");
+        clock.sleep(BOOT);
+        assert!(!gps.service(&mut bus, &clock)?);
+        let received = || {
+            receiver
+                .lock()
+                .map(|r| r.received.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(received(), vec![(0x06, 0x00)]);
+
+        // Searching: satellites but no position.
+        if let Ok(mut r) = receiver.lock() {
+            r.satellites = 3;
+        }
+        clock.sleep(PERIOD);
+        assert!(gps.service(&mut bus, &clock)?);
+        let info = gps.info().cloned();
+        assert_eq!(
+            info.as_ref().map(|i| (i.fix, i.satellites, i.latitude)),
+            Some((false, 3, None))
+        );
+        assert!(!led(&mut bus)?);
+
+        // A fix: the position, and the green LED as on the module.
+        if let Ok(mut r) = receiver.lock() {
+            r.position = Some((50.771168, 15.056328, 374.5));
+            r.satellites = 9;
+        }
+        clock.sleep(PERIOD);
+        assert!(gps.service(&mut bus, &clock)?);
+        let Some(info) = gps.info().cloned() else {
+            panic!("no info");
+        };
+        assert!(info.fix);
+        assert!((info.latitude.unwrap_or_default() - 50.771168).abs() < 1e-6);
+        assert!((info.longitude.unwrap_or_default() - 15.056328).abs() < 1e-6);
+        assert_eq!(info.altitude, Some(374.5));
+        assert_eq!(info.accuracy, Some(2.5));
+        assert!(led(&mut bus)?);
+        assert_eq!(received().iter().filter(|r| **r == (0x01, 0x07)).count(), 2);
+        Ok(())
     }
 }

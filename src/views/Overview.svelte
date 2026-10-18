@@ -17,7 +17,7 @@
   import { channelColor, chartStyle, lineColor } from "../lib/palette";
   import { theme } from "../lib/theme.svelte";
   import { channelLabel, channelName, metricChannels, metricSource, moduleLines, sourcesOf } from "../lib/source";
-  import { OPTIONAL_METRICS, type History, type Metric } from "../lib/types";
+  import { METRICS, OPTIONAL_METRICS, type History, type Metric } from "../lib/types";
   import { altitude } from "../lib/units";
   import { SPANS, type Span } from "../lib/time";
   import DeviceBanners from "./DeviceBanners.svelte";
@@ -91,9 +91,16 @@
 
   /** One line per I²C channel measuring `m` (none for CO₂ and VOC without a sensor or data). */
   function panelLines(m: Metric): PanelLine[] {
-    // The whole span counts too, so a panel keeps its lines while zooming.
+    // With the bridge working, only what is connected now: stored data of a
+    // module unplugged since is on the Data page (the user, 2026-10-18).
+    // Without it, the stored lines, over the whole span so a panel keeps its
+    // lines while zooming.
     const fallback = !OPTIONAL_METRICS.includes(m);
-    return metricChannels(live.device, m, [history, shown], latest, fallback).map((channel) => ({
+    const channels =
+      live.device.status === "ready"
+        ? metricChannels(live.device, m, null, [], false)
+        : metricChannels(live.device, m, [history, shown], latest, fallback);
+    return channels.map((channel) => ({
       channel,
       name: channelName(live.device, m, channel),
       value: latest.find((r) => r.channel === channel)?.[m] ?? null,
@@ -131,10 +138,14 @@
       if (id === "relay") return !!live.relay;
       if (id === "nfc") return !!live.nfc;
       if (id === "gps") return !!live.gps;
-      if (OPTIONAL_METRICS.includes(id as Metric)) return panelLines(id as Metric).length > 0;
+      // A measurement nothing connected measures has no panel.
+      if (live.device.status === "ready" || OPTIONAL_METRICS.includes(id as Metric))
+        return panelLines(id as Metric).length > 0;
       return true;
     }),
   );
+  /** Where the first chart is among the panels; -1 without one. */
+  const firstChart = $derived(panels.findIndex((id) => METRICS.includes(id as Metric)));
   let innerHeight = $state(800);
   /** Chart height of a maximized card: most of the window. */
   const tallChart = $derived(Math.min(700, Math.max(240, innerHeight - 380)));
@@ -156,6 +167,18 @@
     <div class="device-head">
       <h2><Icon name="plug" size={16} /> {t().overview.device}</h2>
       <div class="actions">
+        <!-- Beside the buttons, so a result does not make the card jump. -->
+        <span
+          class="action-result"
+          class:error={deviceActions.result && !deviceActions.result.ok}
+          role="status"
+          aria-live="polite"
+        >
+          {#if deviceActions.result}
+            <Icon name={deviceActions.result.ok ? "check" : "warning"} size={14} />
+            {deviceActions.result.text}
+          {/if}
+        </span>
         <button
           class="btn"
           disabled={!device || device.backend !== "hid" || deviceActions.busy !== null}
@@ -183,12 +206,6 @@
         <span>{fill(t().overview.severalBridges, { identify: t().overview.identify })}</span>
       </p>
     {/if}
-    <p class="action-result" class:error={deviceActions.result && !deviceActions.result.ok} role="status" aria-live="polite">
-      {#if deviceActions.result}
-        <Icon name={deviceActions.result.ok ? "check" : "warning"} size={14} />
-        {deviceActions.result.text}
-      {/if}
-    </p>
     <dl>
       <div class="modules">
         <dt>{t().overview.modules}</dt>
@@ -246,13 +263,13 @@
     {#if group.zoom}
       <button class="btn" onclick={() => group.reset()}><Icon name="refresh" size={14} /> {t().chart.resetZoom}</button>
     {/if}
-    <span class="hint muted">{zoomHint()}</span>
   </div>
 
   <div class="grid">
-    {#each panels as id (id)}
+    {#each panels as id, i (id)}
       <div
         class="panel"
+        style:order={2 * i}
         class:wide={id === "relay" || id === "nfc" || id === "gps" || layout.maximized === id}
         class:dragging={layout.dragging === id}
         data-panel={id}
@@ -300,8 +317,13 @@
         </div>
       </div>
     {/each}
+    <!-- How to move and zoom the charts, right above the first one (the
+         user, 2026-10-18); placed by `order`, as the panels are animated. -->
+    {#if firstChart >= 0}
+      <p class="hint muted" style:order={2 * firstChart - 1}>{zoomHint()}</p>
+    {/if}
     <!-- The TOWER Bridge Module card stays last and does not move. -->
-    <div class="panel wide">
+    <div class="panel wide" style:order={2 * panels.length}>
       <div class="lift">{@render deviceCard()}</div>
     </div>
   </div>
@@ -338,6 +360,8 @@
     gap: 10px;
   }
   .hint {
+    grid-column: 1 / -1;
+    margin: 0;
     font-size: 12.5px;
   }
   /* At most two charts side by side; full-width panels span both columns. */
@@ -403,17 +427,17 @@
   .actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 8px;
   }
   .action-result {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    justify-content: flex-end;
     gap: 6px;
-    min-height: 18px;
-    margin: 6px 0 0;
+    margin-right: 4px;
     font-size: 12.5px;
-    color: var(--good);
+    color: var(--good-text);
   }
   /* Which bridge is read is a guess while several are plugged in. */
   .several-bridges {
@@ -430,7 +454,7 @@
   .several-bridges :global(svg) {
     flex-shrink: 0;
     margin-top: 2px;
-    color: var(--warning);
+    color: var(--warning-text);
   }
   .interval {
     display: inline-flex;
@@ -441,10 +465,12 @@
   /* As tall as the time chip next to it. */
   .interval .select {
     height: 26px;
+    line-height: 24px;
     font-size: 12.5px;
   }
+
   .action-result.error {
-    color: var(--warning);
+    color: var(--warning-text);
   }
   dl {
     display: grid;

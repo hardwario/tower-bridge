@@ -30,12 +30,13 @@ pub const INTERNAL_ERROR: i64 = -32603;
 pub const HEADER_MISMATCH: i64 = -32020;
 pub const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
 
-const INSTRUCTIONS: &str = "Climate readings from HARDWARIO TOWER sensors (a Climate Module or sensor tags) \
-connected to this computer through a TOWER Bridge Module: temperature (°C), relative humidity (%), \
-illuminance (lx) and barometric pressure (hPa). Sensors can sit on I2C channel 0 and 1, for example one \
-indoors and one outdoors, so readings come per channel with the module that measured them. Use \
-get_current_readings for the present state, get_history for trends and statistics over a time range, \
-and get_alerts for configured limits and recent alerts.";
+const INSTRUCTIONS: &str = "Readings from HARDWARIO TOWER sensors (a Climate Module, sensor tags, a CO2 \
+Module, a VOC-LP Tag) connected to this computer through a TOWER Bridge Module: temperature (°C), relative \
+humidity (%), illuminance (lx), barometric pressure (hPa), CO2 (ppm) and total volatile organic compounds \
+(TVOC, ppb). Sensors can sit on I2C channel 0 and 1, for example one indoors and one outdoors, so readings \
+come per channel with the module that measured them. Use get_current_readings for the present state, \
+get_history for trends and statistics over a time range, get_alerts for configured limits and recent \
+alerts, and get_device_status for the modules found, the Relay Module and the GPS position.";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RpcError {
@@ -134,8 +135,8 @@ pub fn tool_definitions(allow_control: bool) -> Vec<Value> {
             "name": "get_current_readings",
             "title": "Current readings",
             "description": "Latest temperature (°C), relative humidity (%), illuminance (lx), barometric \
-        pressure (hPa) and estimated altitude (m) of each I2C channel, with the measuring module, the \
-        measurement time and any active alerts.",
+        pressure (hPa), estimated altitude (m), CO2 (ppm) and TVOC (ppb) of each I2C channel, as far as \
+        measured there, with the measuring module, the measurement time and any active alerts.",
             "inputSchema": empty_schema(),
             "annotations": read_only,
         }),
@@ -171,9 +172,10 @@ pub fn tool_definitions(allow_control: bool) -> Vec<Value> {
         json!({
             "name": "get_device_status",
             "title": "Device status",
-            "description": "Connection state of the TOWER Bridge Module, serial number, the modules and \
-        sensors found on each I2C channel, measurement interval and the Relay Module state (true, false, \
-        or null when unknown) when one is connected.",
+            "description": "Connection state of the TOWER Bridge Module, the modules and sensors found on \
+        each I2C channel, the measurement interval, the Relay Module state (true, false, or null when \
+        unknown) and the GPS position (fix, latitude, longitude, altitude, satellites) when a GPS Module \
+        is connected.",
             "inputSchema": empty_schema(),
             "annotations": read_only,
         }),
@@ -183,7 +185,8 @@ pub fn tool_definitions(allow_control: bool) -> Vec<Value> {
             "name": "set_alert_threshold",
             "title": "Set alert limits",
             "description": "Change the alert limits for one metric. Units: temperature °C, humidity %, \
-illuminance lx, pressure hPa. Omitted fields keep their current value; null removes a limit.",
+illuminance lx, pressure hPa, CO2 ppm, VOC ppb. Omitted fields keep their current value; null removes a \
+limit.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -776,7 +779,7 @@ impl McpServer {
             out["message"] = json!(m);
         }
         if let Some(d) = device.device() {
-            out["serial"] = json!(d.serial);
+            // No serial number: the FT260 has none, every bridge says "ft260".
             out["connection"] = json!(match d.backend {
                 crate::model::Backend::Hid => "usb-hid",
                 crate::model::Backend::I2cDev => "linux-i2c-dev",

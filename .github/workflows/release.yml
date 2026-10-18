@@ -4,15 +4,39 @@ on:
   push:
     tags: ["v*"]
 
+# Read-only by default; only the final job writes the release.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: node scripts/check-version.mjs "$GITHUB_REF_NAME"
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libudev-dev patchelf
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: cargo test --workspace --all-features
+
   build:
     name: Build (${{ matrix.name }})
+    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -35,12 +59,13 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 22
           cache: npm
       - run: npm ci
-      - run: node scripts/check-version.mjs "$GITHUB_REF_NAME"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust-targets }}
@@ -50,9 +75,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libudev-dev patchelf libfuse2
-      - name: macOS signing (only when secrets are configured)
-        if: runner.os == 'macOS'
+      - name: Build
         env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+          # Only this step sees the Apple secrets.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -60,16 +87,12 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
-          if [ -n "$APPLE_CERTIFICATE" ]; then
-            for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-              echo "$v=${!v}" >> "$GITHUB_ENV"
-            done
+          # Without a certificate the build is ad-hoc signed: empty variables
+          # would make Tauri try to sign and notarize.
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
           fi
-      - name: Build
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: 1
-        run: npx tauri build ${{ matrix.args }}
+          npx tauri build ${{ matrix.args }}
       - name: Collect artifacts
         run: |
           set -euo pipefail
@@ -86,6 +109,23 @@ jobs:
             if command -v sha256sum >/dev/null; then sha256sum "$f" > "$f.sha256"; else shasum -a 256 "$f" > "$f.sha256"; fi
           done
           ls -la
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: out/*
+
+  # One job creates the draft release, so the builds cannot race to make two.
+  publish:
+    name: Draft release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
           draft: true

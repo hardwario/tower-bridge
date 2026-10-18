@@ -73,6 +73,12 @@
   const sources = $derived(lines.flatMap((l) => (l.source ? [l.source] : [])));
   /** Line names, with the channel where two would read the same. */
   const labels = $derived(lineLabels(lines));
+  /** Lines measured now; a module unplugged since keeps its line in the
+      chart and the legend, but no "-" among the current values. */
+  const current = $derived.by(() => {
+    const live = lines.filter((l) => l.source !== null || l.value !== null);
+    return live.length ? live : lines;
+  });
   const labelOf = (channel: number) => labels[lines.findIndex((l) => l.channel === channel)] ?? "";
   /** One badge per direction: one channel may be above while another is below. */
   const bounds = $derived((["high", "low"] as const).filter((b) => alerts.some((a) => a.bound === b)));
@@ -118,19 +124,28 @@
   </header>
   {#if single}
     <div class="value">
-      <span class="number">{fmtValue(metric, single.value, unit)}</span>
+      {#if single.value === null && single.source}
+        <!-- Connected, no value yet (a CO2 Module charging, a VOC-LP Tag warming up). -->
+        <span class="waiting" title={t().overview.waiting}><Icon name="loader" size={24} /></span>
+      {:else}
+        <span class="number" class:none={single.value === null}>{fmtValue(metric, single.value, unit)}</span>
+      {/if}
       {#if single.value !== null}<span class="unit">{unitLabel(metric, unit)}</span>{/if}
     </div>
   {:else}
     <div class="values">
-      {#each lines as line, i (line.channel)}
+      {#each current as line (line.channel)}
         <div class="each" class:alerting={alerting(line.channel)}>
           <div class="value">
-            <span class="number small">{fmtValue(metric, line.value, unit)}</span>
+            {#if line.value === null && line.source}
+              <span class="waiting small" title={t().overview.waiting}><Icon name="loader" size={20} /></span>
+            {:else}
+              <span class="number small" class:none={line.value === null}>{fmtValue(metric, line.value, unit)}</span>
+            {/if}
             {#if line.value !== null}<span class="unit">{unitLabel(metric, unit)}</span>{/if}
             {#if alerting(line.channel)}<Icon name="warning" size={14} />{/if}
           </div>
-          <div class="who"><span class="dot" style:background={colorOf(line.channel)}></span>{labels[i]}</div>
+          <div class="who"><span class="dot" style:background={colorOf(line.channel)}></span>{labelOf(line.channel)}</div>
         </div>
       {/each}
     </div>
@@ -247,14 +262,30 @@
     align-items: baseline;
     gap: 6px;
   }
+  /* No tightened spacing: at this size it swallowed the decimal point
+     ("21.1" read as "211"). Tabular digits keep the unit still. */
   .number {
     font-size: 40px;
     font-weight: 600;
-    letter-spacing: -0.02em;
     line-height: 1.05;
+    font-variant-numeric: tabular-nums;
   }
   .number.small {
     font-size: 30px;
+  }
+  /* Waiting for the first value: a quiet spinner the height of a number. */
+  .waiting {
+    display: inline-flex;
+    align-items: center;
+    height: 42px;
+    color: var(--text-muted);
+  }
+  .waiting.small {
+    height: 32px;
+  }
+  /* No value: a quiet placeholder, not a bold black bar. */
+  .number.none {
+    color: var(--text-muted);
   }
   /* A source beyond its limit: its value in the alert colour. */
   .each.alerting .number,

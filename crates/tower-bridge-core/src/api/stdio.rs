@@ -67,7 +67,7 @@ impl ApiBackend for OfflineBackend {
     fn history(&self, _: i64, _: i64, _: usize) -> Result<History, ApiError> {
         Self::unavailable()
     }
-    fn csv(&self, _: i64, _: i64) -> Result<Vec<u8>, ApiError> {
+    fn csv(&self, _: i64, _: i64, _: &mut dyn std::io::Write) -> Result<(), ApiError> {
         Self::unavailable()
     }
     fn alert_rules(&self) -> AlertRules {

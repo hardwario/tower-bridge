@@ -225,11 +225,24 @@ impl NfcTag {
             return Err(NfcError::TooLong);
         }
         select_channel(bus, self.channel)?;
-        for (i, chunk) in bytes.chunks(BLOCK).enumerate() {
+        let block = |i: usize, chunk: &[u8]| {
             let mut data = [0u8; BLOCK + 1];
             data[0] = USER_START + u8::try_from(i).unwrap_or(u8::MAX);
             data[1..=chunk.len()].copy_from_slice(chunk);
-            write_block(bus, clock, self.address, &data)?;
+            data
+        };
+        let chunks: Vec<&[u8]> = bytes.chunks(BLOCK).collect();
+        // An interrupted write (the bridge unplugged) must not leave a valid
+        // record over a mix of old and new bytes, which a phone would open:
+        // first an empty message, then the rest, the real start last.
+        if chunks.len() > 1 {
+            write_block(bus, clock, self.address, &block(0, &[0x03, 0x00, 0xFE]))?;
+        }
+        for (i, chunk) in chunks.iter().enumerate().skip(1) {
+            write_block(bus, clock, self.address, &block(i, chunk))?;
+        }
+        if let Some(first) = chunks.first() {
+            write_block(bus, clock, self.address, &block(0, first))?;
         }
         self.url = self.read_url(bus)?;
         if self.url.as_deref() == Some(url) {
@@ -503,6 +516,53 @@ mod tests {
     fn no_tag_no_detection() -> Result<(), BusError> {
         let mut bus = MockBus::new();
         assert!(NfcTag::detect(&mut bus, &[0, 1])?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn an_interrupted_write_leaves_no_mangled_url() -> Result<(), NfcError> {
+        /// Fails every write to the tag after the first `left` ones.
+        struct Unplugged {
+            bus: MockBus,
+            left: usize,
+        }
+        impl I2cBus for Unplugged {
+            fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), BusError> {
+                if addr == ADDRESSES[0] && data.len() > 1 {
+                    if self.left == 0 {
+                        return Err(BusError::Hid("unplugged".into()));
+                    }
+                    self.left -= 1;
+                }
+                self.bus.write(addr, data)
+            }
+            fn read(&mut self, addr: u8, buf: &mut [u8]) -> Result<(), BusError> {
+                self.bus.read(addr, buf)
+            }
+            fn write_read(&mut self, addr: u8, wr: &[u8], rd: &mut [u8]) -> Result<(), BusError> {
+                self.bus.write_read(addr, wr, rd)
+            }
+            fn recover(&mut self) -> Result<(), BusError> {
+                Ok(())
+            }
+            fn info(&self) -> &crate::model::DeviceInfo {
+                self.bus.info()
+            }
+        }
+        let clock = MockClock::new();
+        let mut bus = bus_with_tag(0, SimNtag::new());
+        let Some(mut tag) = NfcTag::detect(&mut bus, &[0])? else {
+            panic!("no tag");
+        };
+        tag.write_url(&mut bus, &clock, "https://www.hardwario.com/old-address")?;
+        // Cut after two of the three blocks of a longer URL.
+        let mut cut = Unplugged { bus, left: 2 };
+        let long = "https://www.hardwario.com/a/much/longer/address/than/before";
+        assert!(tag.write_url(&mut cut, &clock, long).is_err());
+        let Some(tag) = NfcTag::detect(&mut cut.bus, &[0])? else {
+            panic!("no tag");
+        };
+        assert_eq!(tag.info().url, None, "an empty tag, not a mix of both URLs");
         Ok(())
     }
 }

@@ -77,7 +77,8 @@ pub trait ApiBackend: Send + Sync + 'static {
     fn sample_interval_s(&self) -> u64;
     fn history(&self, from: i64, to: i64, max_points: usize) -> Result<History, ApiError>;
     /// CSV export of individual readings in `[from, to)`.
-    fn csv(&self, from: i64, to: i64) -> Result<Vec<u8>, ApiError>;
+    /// Write the readings of the range as CSV into `out`, row by row.
+    fn csv(&self, from: i64, to: i64, out: &mut dyn std::io::Write) -> Result<(), ApiError>;
     fn alert_rules(&self) -> AlertRules;
     fn active_alerts(&self) -> Vec<ActiveAlert>;
     fn alert_log(&self, limit: usize) -> Result<Vec<AlertLogEntry>, ApiError>;
@@ -261,8 +262,9 @@ pub(crate) mod testing {
                 voc: Vec::new(),
             })
         }
-        fn csv(&self, _from: i64, _to: i64) -> Result<Vec<u8>, ApiError> {
-            Ok(b"timestamp,unix_ms\n".to_vec())
+        fn csv(&self, _from: i64, _to: i64, out: &mut dyn std::io::Write) -> Result<(), ApiError> {
+            out.write_all(b"timestamp,unix_ms\n")
+                .map_err(|e| ApiError::Internal(e.to_string()))
         }
         fn alert_rules(&self) -> AlertRules {
             self.rules.lock().map(|r| r.clone()).unwrap_or_default()

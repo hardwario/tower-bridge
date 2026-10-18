@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeOrder } from "./overview-layout.svelte";
+import { mergeOrder, upgradeV2 } from "./overview-layout.svelte";
 
 describe("dashboard layout", () => {
   it("keeps the saved order and puts a new panel at its default place", () => {
@@ -14,8 +14,8 @@ describe("dashboard layout", () => {
       "pressure",
       "co2",
       "voc",
-      "nfc",
       "gps",
+      "nfc",
     ]);
   });
 
@@ -28,8 +28,8 @@ describe("dashboard layout", () => {
       "pressure",
       "co2",
       "voc",
-      "nfc",
       "gps",
+      "nfc",
     ]);
     expect(mergeOrder(["device" as never, "bogus" as never, "relay", "relay"])).toEqual([
       "relay",
@@ -39,8 +39,21 @@ describe("dashboard layout", () => {
       "pressure",
       "co2",
       "voc",
-      "nfc",
       "gps",
+      "nfc",
     ]);
+  });
+
+  it("moves the NFC card after the GPS card in a v2 order, once", () => {
+    expect(upgradeV2(["relay", "temperature", "nfc", "humidity", "gps"])).toEqual([
+      "relay",
+      "temperature",
+      "humidity",
+      "gps",
+      "nfc",
+    ]);
+    // Already after it, or one of them missing: unchanged.
+    expect(upgradeV2(["gps", "relay", "nfc"])).toEqual(["gps", "relay", "nfc"]);
+    expect(upgradeV2(["nfc", "relay"])).toEqual(["nfc", "relay"]);
   });
 });

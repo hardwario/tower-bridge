@@ -2,6 +2,7 @@
   import Icon from "../lib/components/Icon.svelte";
   import { deviceActions } from "../lib/device-actions.svelte";
   import Banner from "../lib/components/Banner.svelte";
+  import CopyBlock from "../lib/components/CopyBlock.svelte";
   import Rich from "../lib/components/Rich.svelte";
   import { fill, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
@@ -9,8 +10,13 @@
   const d = $derived(live.device);
   const linux = $derived(live.app?.os === "linux");
   const b = $derived(t().banners);
+  /** The udev rule of packaging/linux, written in place: the AppImage cannot ship the file. */
+  const rule = (subsystem: string) =>
+    `'${subsystem}, ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6030", MODE="0660", TAG+="uaccess"'`;
   const udev =
-    "sudo cp 70-hardwario-tower-bridge.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger";
+    `printf '%s\\n' ${rule('KERNEL=="hidraw*"')} ${rule('SUBSYSTEM=="i2c-dev"')}` +
+    " | sudo tee /etc/udev/rules.d/70-hardwario-tower-bridge.rules > /dev/null" +
+    " && sudo udevadm control --reload && sudo udevadm trigger";
 </script>
 
 {#if live.app?.simulated}
@@ -23,7 +29,8 @@
   {:else if d.kind === "permission_denied"}
     <Banner kind="error" title={b.permissionTitle}>
       {#if linux}
-        <Rich text={b.permissionLinux} codes={{ command: udev }} />
+        {b.permissionLinux}
+        <CopyBlock text={udev} />
       {:else}
         {d.message}
       {/if}

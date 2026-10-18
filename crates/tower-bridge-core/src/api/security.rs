@@ -33,11 +33,20 @@ pub(crate) fn is_loopback_host(host: &str) -> bool {
             .is_ok_and(|ip| ip.is_loopback())
 }
 
+/// A web page served from this computer: http or https, and the host
+/// exactly a loopback name. Other schemes (`tauri://localhost` is any Tauri
+/// app's own page) and `*.localhost` names are not.
 fn is_loopback_origin(origin: &str) -> bool {
-    origin
-        .split_once("://")
-        .map(|(_, rest)| rest.split('/').next().unwrap_or(""))
-        .is_some_and(is_loopback_host)
+    let Some((scheme, rest)) = origin.split_once("://") else {
+        return false;
+    };
+    let host = strip_port(rest.split('/').next().unwrap_or("")).to_ascii_lowercase();
+    matches!(scheme, "http" | "https")
+        && (host == "localhost"
+            || host == "::1"
+            || host
+                .parse::<std::net::Ipv4Addr>()
+                .is_ok_and(|ip| ip.is_loopback()))
 }
 
 pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -114,6 +123,15 @@ mod tests {
         assert!(is_loopback_host("[::1]:8180"));
         assert!(!is_loopback_host("evil.example:8180"));
         assert!(!is_loopback_host("192.168.1.10:8180"));
+        assert!(is_loopback_origin("http://localhost:5173"));
+        assert!(is_loopback_origin("https://127.0.0.1"));
+        assert!(is_loopback_origin("http://[::1]:8080"));
+        assert!(
+            !is_loopback_origin("tauri://localhost"),
+            "another app's page"
+        );
+        assert!(!is_loopback_origin("http://evil.localhost"));
+        assert!(!is_loopback_origin("null"));
     }
 
     #[test]

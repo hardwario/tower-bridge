@@ -6,8 +6,12 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use tokio::sync::oneshot;
-use tracing::{info, warn};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
+use tracing::{debug, info, warn};
 
 use super::ApiBackend;
 use super::mcp::McpServer;
@@ -47,7 +51,10 @@ impl ApiServer {
                 };
                 runtime.block_on(async move {
                     let listener = match tokio::net::TcpListener::from_std(listener) {
-                        Ok(l) => l,
+                        Ok(l) => Guarded {
+                            listener: l,
+                            slots: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+                        },
                         Err(e) => {
                             warn!("API server listener failed: {e}");
                             return;
@@ -97,6 +104,111 @@ impl ApiServer {
 impl Drop for ApiServer {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Connections served at once; more wait in the kernel's backlog instead of
+/// taking file descriptors the rest of the app needs (the database, the
+/// bridge, MQTT).
+const MAX_CONNECTIONS: usize = 64;
+/// A connection without traffic either way for this long is closed: an idle
+/// keep-alive, or headers trickling in. Hyper keeps reading while a request
+/// is answered, so this must be longer than any answer takes.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(if cfg!(test) { 3 } else { 30 });
+
+/// The listener with a cap on connections and an idle timeout on each.
+struct Guarded {
+    listener: tokio::net::TcpListener,
+    slots: Arc<Semaphore>,
+}
+
+impl axum::serve::Listener for Guarded {
+    type Io = GuardedStream;
+    type Addr = SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            let Ok(permit) = self.slots.clone().acquire_owned().await else {
+                // Never closed; wait as for a failed accept.
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            };
+            match self.listener.accept().await {
+                Ok((stream, addr)) => {
+                    let idle = Box::pin(tokio::time::sleep(IDLE_TIMEOUT));
+                    return (
+                        GuardedStream {
+                            stream,
+                            idle,
+                            _permit: permit,
+                        },
+                        addr,
+                    );
+                }
+                Err(e) => {
+                    // Out of file descriptors and the like: wait, retry.
+                    debug!("API server accept failed: {e}");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.listener.local_addr()
+    }
+}
+
+/// A connection holding its slot; reading fails once it was idle too long.
+struct GuardedStream {
+    stream: tokio::net::TcpStream,
+    idle: Pin<Box<tokio::time::Sleep>>,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl AsyncRead for GuardedStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = &mut *self;
+        match Pin::new(&mut this.stream).poll_read(cx, buf) {
+            Poll::Ready(r) => {
+                let deadline = tokio::time::Instant::now() + IDLE_TIMEOUT;
+                this.idle.as_mut().reset(deadline);
+                Poll::Ready(r)
+            }
+            Poll::Pending => match this.idle.as_mut().poll(cx) {
+                Poll::Ready(()) => Poll::Ready(Err(std::io::ErrorKind::TimedOut.into())),
+                Poll::Pending => Poll::Pending,
+            },
+        }
+    }
+}
+
+impl AsyncWrite for GuardedStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = &mut *self;
+        let r = Pin::new(&mut this.stream).poll_write(cx, buf);
+        if matches!(r, Poll::Ready(Ok(n)) if n > 0) {
+            // A slow client downloading a large answer is not idle.
+            let deadline = tokio::time::Instant::now() + IDLE_TIMEOUT;
+            this.idle.as_mut().reset(deadline);
+        }
+        r
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stream).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stream).poll_shutdown(cx)
     }
 }
 
@@ -174,6 +286,7 @@ mod tests {
             r.header("content-type")
                 .is_some_and(|c| c.starts_with("text/csv"))
         );
+        assert!(r.body.starts_with(b"timestamp,unix_ms"), "streamed in full");
 
         let r = get(&server, "/api/v1/status", &[])?;
         assert_eq!(json_body(&r)["device"]["status"], "ready");
@@ -441,6 +554,22 @@ mod tests {
     }
 
     #[test]
+    fn mcp_batches_are_bounded() -> std::io::Result<()> {
+        let (server, _) = start(open_policy())?;
+        let ping = |id: u32| json!({"jsonrpc":"2.0","id":id,"method":"ping"});
+        let legacy = [("MCP-Protocol-Version", "2025-03-26")];
+        let r = mcp_post(&server, &json!([ping(1), ping(2)]), &legacy)?;
+        assert_eq!(r.status, 200);
+        assert_eq!(json_body(&r).as_array().map(Vec::len), Some(2));
+        let r = mcp_post(&server, &json!([]), &legacy)?;
+        assert_eq!(r.status, 400, "an empty batch is invalid");
+        let many: Vec<Value> = (0..33).map(ping).collect();
+        let r = mcp_post(&server, &Value::Array(many), &legacy)?;
+        assert_eq!(r.status, 400, "a batch too long to queue on the bridge");
+        Ok(())
+    }
+
+    #[test]
     fn mcp_over_http() -> std::io::Result<()> {
         let (server, backend) = start(open_policy())?;
         // Legacy client.
@@ -544,5 +673,32 @@ mod tests {
 
     mod mcp_codes {
         pub use crate::api::mcp::HEADER_MISMATCH;
+    }
+
+    #[test]
+    fn idle_connections_are_closed_and_requests_still_served() -> std::io::Result<()> {
+        use std::io::{Read, Write};
+        let (mut server, _) = start(Policy {
+            token: "tok".into(),
+            allow_control: false,
+            mcp: false,
+        })?;
+        let addr = server.local_addr();
+        // Says nothing: closed after the idle timeout.
+        let mut idle = std::net::TcpStream::connect(addr)?;
+        idle.set_read_timeout(Some(Duration::from_secs(8)))?;
+        let started = std::time::Instant::now();
+        let mut buf = [0u8; 64];
+        let n = idle.read(&mut buf).unwrap_or(0);
+        assert_eq!(n, 0, "closed without a response");
+        assert!(started.elapsed() < Duration::from_secs(6));
+        // A real request is answered.
+        let mut client = std::net::TcpStream::connect(addr)?;
+        client.write_all(b"GET /api/v1/status HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer tok\r\nConnection: close\r\n\r\n")?;
+        let mut response = String::new();
+        client.read_to_string(&mut response)?;
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        server.stop();
+        Ok(())
     }
 }

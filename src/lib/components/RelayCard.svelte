@@ -93,6 +93,7 @@
   <div class="head">
     <h2><Icon name="power" size={16} /> {m.title}</h2>
     <span class="state" class:on={relay.state === true} class:off={relay.state === false} role="status">
+      <span class="state-label">{m.stateLabel}</span>
       <span class="dot"></span>{relay.state === null ? m.unknown : name(relay.state)}
     </span>
     <span class="spacer"></span>
@@ -194,6 +195,10 @@
     font-size: 12.5px;
     font-weight: 500;
     color: var(--text-2);
+  }
+  .state-label {
+    color: var(--text-muted);
+    font-weight: 400;
   }
   /* Dot in the colour of the module's LED: green TRUE, red FALSE. */
   .dot {
@@ -308,6 +313,6 @@
     font-variant-numeric: tabular-nums;
   }
   .detail.error {
-    color: var(--warning);
+    color: var(--warning-text);
   }
 </style>

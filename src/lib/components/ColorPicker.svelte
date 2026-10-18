@@ -18,7 +18,20 @@
   const name = $derived(label ?? t().chart.lineColor);
 
   let open = $state(false);
+  /** Open to the right: there is no room to the left (a swatch in a legend). */
+  let rightward = $state(false);
   let root: HTMLElement;
+  /** Four 22 px swatches, three 8 px gaps, padding and border. */
+  const PALETTE_WIDTH = 4 * 22 + 3 * 8 + 2 * 10 + 2;
+
+  function toggle() {
+    if (!open) {
+      // The page scrolls inside <main>, which clips what sticks out of it.
+      const bounds = root.closest("main")?.getBoundingClientRect() ?? { left: 0 };
+      rightward = root.getBoundingClientRect().right - PALETTE_WIDTH < bounds.left + 8;
+    }
+    open = !open;
+  }
   const dark = $derived(theme.effective === "dark");
 
   $effect(() => {
@@ -46,12 +59,12 @@
     aria-label={name}
     aria-haspopup="true"
     aria-expanded={open}
-    onclick={() => (open = !open)}
+    onclick={toggle}
   >
     <span class="swatch" style:background={lineColor(value, dark)}></span>
   </button>
   {#if open}
-    <div class="palette" role="radiogroup" aria-label={t().chart.lineColor}>
+    <div class="palette" class:rightward role="radiogroup" aria-label={t().chart.lineColor}>
       {#each CHART_COLORS as c (c)}
         <button
           type="button"
@@ -116,6 +129,10 @@
     border: 1px solid var(--border-strong);
     background: var(--surface);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+  .palette.rightward {
+    right: auto;
+    left: 0;
   }
   .choice {
     width: 22px;

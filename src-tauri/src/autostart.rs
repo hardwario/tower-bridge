@@ -1,10 +1,25 @@
 //! Open at login. The OS registration is the source of truth.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 use tracing::{info, warn};
 
 use crate::state::AppState;
+
+/// A development instance (simulated bridge or another data folder) must
+/// never become the login item: at the next login it would start in place of
+/// the installed copy, with the real data and the bridge.
+static ISOLATED: AtomicBool = AtomicBool::new(false);
+
+pub fn set_isolated(isolated: bool) {
+    ISOLATED.store(isolated, Ordering::Relaxed);
+}
+
+fn isolated() -> bool {
+    ISOLATED.load(Ordering::Relaxed)
+}
 
 pub fn is_enabled(app: &AppHandle) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)
@@ -13,6 +28,7 @@ pub fn is_enabled(app: &AppHandle) -> bool {
 /// Re-register on start so a moved executable or AppImage keeps working.
 pub fn refresh(app: &AppHandle) {
     if is_enabled(app)
+        && !isolated()
         && !translocated()
         && let Err(e) = app.autolaunch().enable()
     {
@@ -33,6 +49,10 @@ pub fn set(app: &AppHandle, enabled: bool) -> Result<bool, String> {
     if enabled && translocated() {
         sync(app);
         return Err(crate::i18n::current(app).tr().move_to_applications.into());
+    }
+    if isolated() {
+        sync(app);
+        return Err(crate::i18n::current(app).tr().login_in_dev_instance.into());
     }
     let r = if enabled {
         app.autolaunch().enable()

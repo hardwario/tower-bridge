@@ -1,26 +1,44 @@
 <script lang="ts">
-  import { fill, t } from "../i18n/index.svelte";
-  import { hexAddress, sourceText, type Source } from "../source";
+  import { t } from "../i18n/index.svelte";
+  import { sourcePath, sourceText, type Source } from "../source";
   import Icon from "./Icon.svelte";
 
   /** "i" icon that shows where the values come from on hover or focus (one entry per I²C channel). */
   let { sources }: { sources: Source[] } = $props();
 
-  const bus = (s: Source) => (s.backend === "hid" ? "FT260" : "i2c-dev");
+  let info: HTMLElement;
+  /** Open to the right when the icon is in the left half of the page: to the
+      left the scrolling <main> would clip it. */
+  let rightward = $state(false);
+
+  function place() {
+    const main = info.closest("main")?.getBoundingClientRect();
+    if (main) rightward = info.getBoundingClientRect().left < main.left + main.width / 2;
+  }
+
 </script>
 
-<span class="info" tabindex="0" role="button" aria-label="{t().common.source}: {sources.map(sourceText).join('; ')}">
+<span
+  class="info"
+  tabindex="0"
+  role="button"
+  aria-label="{t().common.source}: {sources.map(sourceText).join('; ')}"
+  bind:this={info}
+  onmouseenter={place}
+  onfocus={place}
+>
   <Icon name="info" size={14} />
-  <span class="popover" role="tooltip">
+  <span class="popover" class:rightward role="tooltip">
     <span class="title">{t().common.source}</span>
     {#each sources as source (source.channel)}
       <span class="entry">
         <span class="module">{source.module}</span>
-        <span class="path">
-          I²C ({bus(source)}) → {fill(t().common.channel, { n: source.channel })} →
-          <span class="mono">{hexAddress(source.address)}</span>
-          {source.part}
-        </span>
+        <!-- Wraps only between the steps, never inside one. -->
+        <span class="path"
+          >{#each sourcePath(source).split(" → ") as step, i (i)}{#if i}{" "}{/if}<span class="step"
+              >{i ? "→ " : ""}{step}</span
+            >{/each}</span
+        >
       </span>
     {/each}
   </span>
@@ -58,7 +76,7 @@
     flex-direction: column;
     gap: 2px;
     width: max-content;
-    max-width: 320px;
+    max-width: 440px;
     padding: 8px 11px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-strong);
@@ -68,6 +86,10 @@
     font-size: 12.5px;
     line-height: 1.4;
     cursor: default;
+  }
+  .popover.rightward {
+    right: auto;
+    left: 0;
   }
   .info:hover .popover,
   .info:focus-visible .popover {
@@ -92,9 +114,8 @@
   }
   .path {
     color: var(--text-2);
-    white-space: nowrap;
   }
-  .mono {
-    font-size: 12px;
+  .step {
+    white-space: nowrap;
   }
 </style>

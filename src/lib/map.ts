@@ -10,7 +10,7 @@
 import type { Lang } from "./i18n/index.svelte";
 
 export const MIN_ZOOM = 1;
-export const MAX_ZOOM = 10;
+export const MAX_ZOOM = 9;
 const MAX_LAT = 85.0511287798;
 const EARTH_CIRCUMFERENCE = 40_075_016.686;
 
@@ -22,6 +22,16 @@ export function mercator(lon: number, lat: number): [number, number] {
 
 /** CSS pixels per world unit. */
 export const scaleOf = (zoom: number) => 256 * 2 ** zoom;
+
+/**
+ * The centre's y for a view `height` px high at `zoom`, so the view never
+ * shows what is beyond the top or bottom of the map (past the poles there is
+ * nothing to draw); sideways the map repeats.
+ */
+export function clampY(y: number, zoom: number, height: number): number {
+  const half = height / 2 / scaleOf(zoom);
+  return half >= 0.5 ? 0.5 : Math.min(Math.max(y, half), 1 - half);
+}
 
 type Box = [number, number, number, number];
 type Props = Record<string, string | number>;
@@ -42,6 +52,8 @@ type Geometry =
 /** A polygon (rings) or a set of lines, as arc references: `~i` is arc i reversed. */
 export interface Shape {
   parts: number[][];
+  /** Per part, the world widths it is moved by: see `shape()`. */
+  shifts: number[];
   box: Box;
   minZoom: number;
 }
@@ -67,16 +79,47 @@ export interface MapData {
 
 const arcIndex = (ref: number) => (ref < 0 ? ~ref : ref);
 
-function union(boxes: Box[], refs: Iterable<number>): Box {
+/**
+ * A shape whose parts are continued across the 180th meridian: an outline
+ * that crosses it (Russia, Fiji) jumps from one edge of the map to the other,
+ * and is drawn on with x a world width further instead. Each part is then
+ * moved by whole world widths so that it starts in the first world, and the
+ * box covers it as drawn.
+ */
+function shape(arcs: Float32Array[], boxes: Box[], parts: number[][], minZoom: number): Shape {
   const box: Box = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const ref of refs) {
-    const b = boxes[arcIndex(ref)];
-    box[0] = Math.min(box[0], b[0]);
-    box[1] = Math.min(box[1], b[1]);
-    box[2] = Math.max(box[2], b[2]);
-    box[3] = Math.max(box[3], b[3]);
-  }
-  return box;
+  const shifts = parts.map((part) => {
+    let wrap = 0;
+    let prev = NaN;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const ref of part) {
+      const pts = arcs[arcIndex(ref)];
+      const n = pts.length / 2;
+      for (let j = 0; j < n; j++) {
+        const i = ref < 0 ? n - 1 - j : j;
+        let x = pts[2 * i] + wrap;
+        if (x - prev > 0.5) {
+          wrap -= 1;
+          x -= 1;
+        } else if (x - prev < -0.5) {
+          wrap += 1;
+          x += 1;
+        }
+        prev = x;
+        lo = Math.min(lo, x);
+        hi = Math.max(hi, x);
+      }
+      const b = boxes[arcIndex(ref)];
+      box[1] = Math.min(box[1], b[1]);
+      box[3] = Math.max(box[3], b[3]);
+    }
+    const shift = Number.isFinite(lo) ? -Math.floor(lo) : 0;
+    box[0] = Math.min(box[0], lo + shift);
+    box[2] = Math.max(box[2], hi + shift);
+    return shift;
+  });
+  return { parts, shifts, box, minZoom };
 }
 
 /** Decode the topology into world units, with a bounding box per arc and shape for culling. */
@@ -111,12 +154,12 @@ export function decode(topology: Topology): MapData {
   // One shape per polygon, so culling can skip the far islands of a country.
   const areas = (name: string): Shape[] =>
     (topology.objects[name]?.geometries ?? []).flatMap((g) =>
-      polygons(g).map((rings) => ({ parts: rings, box: union(boxes, rings.flat()), minZoom: zoomOf(g) })),
+      polygons(g).map((rings) => shape(arcs, boxes, rings, zoomOf(g))),
     );
   const lines = (name: string): Shape[] =>
     (topology.objects[name]?.geometries ?? []).flatMap((g) => {
       const parts = g.type === "LineString" ? [g.arcs] : g.type === "MultiLineString" ? g.arcs : [];
-      return parts.length ? [{ parts, box: union(boxes, parts.flat()), minZoom: zoomOf(g) }] : [];
+      return parts.length ? [shape(arcs, boxes, parts, zoomOf(g))] : [];
     });
 
   // An arc used by two different countries is a border; one used once is coast.
@@ -141,7 +184,7 @@ export function decode(topology: Topology): MapData {
     arcs,
     boxes,
     land: areas("countries"),
-    borders: [...border].map((i) => ({ parts: [[i]], box: boxes[i], minZoom: 0 })),
+    borders: [...border].map((i) => shape(arcs, boxes, [[i]], 0)),
     lakes: areas("lakes"),
     rivers: lines("rivers"),
     places,
@@ -223,20 +266,36 @@ function trace(data: MapData, shapes: Shape[], view: View, close: boolean, shown
       if (shape.minZoom > shownFrom) continue;
       const b = shape.box;
       if (b[0] > maxX || b[2] < minX || b[1] > maxY || b[3] < minY) continue;
-      for (const part of shape.parts) {
+      shape.parts.forEach((part, p) => {
         let first = true;
         let lx = 0;
         let ly = 0;
+        // Continued across the 180th meridian as `shape()` measured it.
+        let wrap = shape.shifts[p];
+        let prev = 0;
+        let startX = 0;
+        let startY = 0;
         for (const ref of part) {
           const pts = data.arcs[arcIndex(ref)];
           const n = pts.length / 2;
           for (let j = 0; j < n; j++) {
             const i = ref < 0 ? n - 1 - j : j;
-            const px = ox + pts[2 * i] * s;
+            let x = pts[2 * i] + wrap;
+            if (!first && x - prev > 0.5) {
+              wrap -= 1;
+              x -= 1;
+            } else if (!first && x - prev < -0.5) {
+              wrap += 1;
+              x += 1;
+            }
+            prev = x;
+            const px = ox + x * s;
             const py = cy + pts[2 * i + 1] * s;
             if (first) {
               path.moveTo(px, py);
               first = false;
+              startX = px;
+              startY = py;
             } else if (Math.abs(px - lx) + Math.abs(py - ly) < 0.8 && j < n - 1) {
               continue;
             } else {
@@ -246,8 +305,15 @@ function trace(data: MapData, shapes: Shape[], view: View, close: boolean, shown
             ly = py;
           }
         }
+        if (close && wrap !== shape.shifts[p]) {
+          // A ring around a pole (Antarctica) ends a world width from where
+          // it started: close it along the map's edge at that pole.
+          const pole = cy + (startY > cy + 0.5 * s ? 1 : 0) * s;
+          path.lineTo(lx, pole);
+          path.lineTo(startX, pole);
+        }
         if (close) path.closePath();
-      }
+      });
     }
   }
   return path;

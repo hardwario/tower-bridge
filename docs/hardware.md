@@ -1,9 +1,11 @@
 # Hardware reference
 
 TOWER Bridge talks to the HARDWARIO **TOWER Bridge Module** over USB HID and
-reads the sensors of the **TOWER Climate Module** and the TOWER sensor tags
-(Humidity, Temperature, Lux Meter and Barometer Tag) over I2C, on both channels
-of the bridge's I2C switch. It also switches the **TOWER Relay Module**. The protocol was
+reads the sensors of the **TOWER Climate Module**, the TOWER sensor tags
+(Humidity, Temperature, Lux Meter and Barometer Tag), the **TOWER CO2 Module**
+and the VOC-LP Tag over I2C, on both channels of the bridge's I2C switch. It
+also switches the **TOWER Relay Module**, reads the **TOWER GPS Module** and
+writes the **TOWER NFC Tag**. The protocol was
 ported from [hardwario/enmon](https://github.com/hardwario/enmon) (MIT) and the
 Climate Module layout from
 [hardwario/twr-sdk](https://github.com/hardwario/twr-sdk)

@@ -5,7 +5,7 @@
   import { api } from "./lib/api";
   import Icon from "./lib/components/Icon.svelte";
   import PrefsSwitcher from "./lib/components/PrefsSwitcher.svelte";
-  import { fill, plural, t } from "./lib/i18n/index.svelte";
+  import { fill, i18n, plural, t } from "./lib/i18n/index.svelte";
   import { theme } from "./lib/theme.svelte";
   import StatusPill from "./lib/components/StatusPill.svelte";
   import { live } from "./lib/live.svelte";
@@ -28,22 +28,44 @@
   let tab = $state<Tab>("overview");
   let failed = $state<string | null>(null);
 
+  /** The sidebar folded to its icons; remembered (the user, 2026-10-18). */
+  const COLLAPSED_KEY = "tower-bridge.sidebar.collapsed";
+  let collapsed = $state(readCollapsed());
+
+  function readCollapsed(): boolean {
+    try {
+      return localStorage.getItem(COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  function toggleSidebar() {
+    collapsed = !collapsed;
+    try {
+      localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");
+    } catch {
+      // Private mode: the sidebar opens expanded next time.
+    }
+  }
+
   onMount(() => {
     live.init().catch((e) => (failed = String(e)));
   });
 
-  /** Every module, one per line as in the Bridge Module card, without the brand (too long here). */
+  /** Every module, one per line, without the brand (too long here), A to Z (the user, 2026-10-18). */
   const devices = $derived(
-    moduleLines(sourcesOf(live.device), live.relay, live.nfc, live.gps).map((m) => ({
-      key: `${m.channel}:${m.product}`,
-      channel: m.channel,
-      name: m.product.replace(/^(TOWER|HARDWARIO) /, "") + (m.revision ? ` ${m.revision}` : ""),
-      relay: m.product.endsWith("Relay Module"),
-    })),
+    moduleLines(sourcesOf(live.device), live.relay, live.nfc, live.gps)
+      .map((m) => ({
+        key: `${m.channel}:${m.product}`,
+        channel: m.channel,
+        name: m.product.replace(/^(TOWER|HARDWARIO) /, "") + (m.revision ? ` ${m.revision}` : ""),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, i18n.locale) || a.channel - b.channel),
   );
 </script>
 
-<div class="app">
+<div class="app" class:collapsed>
   <aside class="sidebar">
     <a
       class="brand"
@@ -56,10 +78,12 @@
       }}
     >
       <img src={theme.effective === "dark" ? symbolReversed : symbol} alt="" width="22" height="28" />
-      <div>
-        <div class="name">TOWER Bridge</div>
-        <div class="sub">HARDWARIO</div>
-      </div>
+      {#if !collapsed}
+        <div>
+          <div class="name">TOWER Bridge</div>
+          <div class="sub">HARDWARIO</div>
+        </div>
+      {/if}
     </a>
     <nav>
       {#each TABS as tab_ (tab_.key)}
@@ -67,10 +91,12 @@
           data-tab={tab_.key}
           class:active={tab === tab_.key}
           aria-current={tab === tab_.key ? "page" : undefined}
+          title={collapsed ? t().nav[tab_.key] : undefined}
+          aria-label={collapsed ? t().nav[tab_.key] : undefined}
           onclick={() => (tab = tab_.key)}
         >
           <Icon name={tab_.icon} size={16} />
-          <span>{t().nav[tab_.key]}</span>
+          {#if !collapsed}<span>{t().nav[tab_.key]}</span>{/if}
           {#if tab_.key === "alerts" && live.activeAlerts.length}
             <span class="count" aria-label={plural(t().nav.activeAlerts, live.activeAlerts.length)}
               >{live.activeAlerts.length}</span
@@ -79,46 +105,53 @@
         </button>
       {/each}
     </nav>
-    <div class="bottom">
-      <PrefsSwitcher />
-    </div>
-    <div class="status">
-      <!-- While searching, unplugged or without sensors: what is wrong. -->
-      {#if live.device.status !== "ready"}<StatusPill device={live.device} />{/if}
-      {#each devices as d (d.key)}
-        <span class="relay-status" title={fill(t().common.channel, { n: d.channel })}>
-          <span class="dot"></span>
-          <span class="label"
-            >{d.name}{#if d.relay && live.relay}{" "}<span class="muted"
-                >· {live.relay.state === null
-                  ? t().relay.unknown
-                  : live.relay.state
-                    ? t().relay.stateTrue
-                    : t().relay.stateFalse}</span
-              >{/if}</span
-          >
-        </span>
-      {/each}
-    </div>
-    <div class="about">
-      <div class="links">
-        <a
-          href="https://docs.hardwario.com/tower/"
-          onclick={(e) => {
-            e.preventDefault();
-            api.openLink("docs");
-          }}>{t().nav.documentation} <Icon name="external" size={11} /></a
-        >
-        <a
-          href="https://www.hardwario.store/"
-          onclick={(e) => {
-            e.preventDefault();
-            api.openLink("store");
-          }}>{t().nav.store} <Icon name="external" size={11} /></a
-        >
+    {#if !collapsed}
+      <div class="bottom">
+        <PrefsSwitcher />
       </div>
-      {#if live.app}<div class="version">{fill(t().nav.version, { version: live.app.version })}</div>{/if}
-    </div>
+      <div class="status">
+        <!-- While searching, unplugged or without sensors: what is wrong. -->
+        {#if live.device.status !== "ready"}<StatusPill device={live.device} />{/if}
+        {#each devices as d (d.key)}
+          <!-- Just the modules: the relay state is in its card (the user, 2026-10-18). -->
+          <span class="module" title={fill(t().common.channel, { n: d.channel })}>
+            <span class="dot"></span>
+            <span class="label">{d.name}</span>
+          </span>
+        {/each}
+      </div>
+      <div class="about">
+        <div class="links">
+          <a
+            href="https://docs.hardwario.com/tower/"
+            onclick={(e) => {
+              e.preventDefault();
+              api.openLink("docs");
+            }}>{t().nav.documentation} <Icon name="external" size={11} /></a
+          >
+          <a
+            href="https://www.hardwario.store/"
+            onclick={(e) => {
+              e.preventDefault();
+              api.openLink("store");
+            }}>{t().nav.store} <Icon name="external" size={11} /></a
+          >
+        </div>
+        {#if live.app}<div class="version">{fill(t().nav.version, { version: live.app.version })}</div>{/if}
+      </div>
+    {/if}
+    <!-- At the very bottom (the user, 2026-10-18): "‹ Collapse", and on the rail "›". -->
+    <button
+      class="fold"
+      type="button"
+      title={collapsed ? t().nav.expand : undefined}
+      aria-label={collapsed ? t().nav.expand : undefined}
+      aria-expanded={!collapsed}
+      onclick={toggleSidebar}
+    >
+      <Icon name={collapsed ? "chevron-right" : "chevron-left"} size={14} />
+      {#if !collapsed}<span>{t().nav.collapse}</span>{/if}
+    </button>
   </aside>
 
   <main>
@@ -145,14 +178,47 @@
     display: grid;
     grid-template-columns: 208px 1fr;
     height: 100%;
+    /* The grid row must not grow with a long module list. */
+    grid-template-rows: minmax(0, 1fr);
   }
   .sidebar {
     display: flex;
     flex-direction: column;
     gap: 18px;
+    min-height: 0;
+    /* Many modules in a small window: the sidebar scrolls, not the page. */
+    overflow-y: auto;
     padding: 18px 12px 14px;
     background: var(--sidebar);
     border-right: 1px solid var(--border);
+  }
+  .app.collapsed {
+    grid-template-columns: 60px 1fr;
+  }
+  .fold {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    height: 28px;
+    margin: -8px 0 0;
+    padding: 0 8px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .fold:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  /* On the rail: the arrow alone, at the bottom. */
+  .collapsed .fold {
+    justify-content: center;
+    margin-top: auto;
+    padding: 0;
   }
   .brand {
     display: flex;
@@ -165,7 +231,7 @@
     text-decoration: none;
   }
   .brand:hover {
-    background: var(--accent-weak);
+    background: var(--hover);
   }
   .brand img {
     display: block;
@@ -174,6 +240,7 @@
     font-weight: 700;
     font-size: 15px;
     letter-spacing: -0.01em;
+    white-space: nowrap;
   }
   .sub {
     font-size: 10.5px;
@@ -201,7 +268,7 @@
     cursor: pointer;
   }
   nav button:hover {
-    background: var(--accent-weak);
+    background: var(--hover);
     color: var(--text);
   }
   nav button.active {
@@ -211,6 +278,25 @@
   }
   nav button.active :global(svg) {
     color: var(--accent);
+  }
+  /* Folded: the icons alone, the alert count on the bell. */
+  .collapsed nav button {
+    position: relative;
+    justify-content: center;
+    padding: 0;
+  }
+  .collapsed .count {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
+    font-size: 9.5px;
+    line-height: 15px;
+  }
+  .collapsed .sidebar {
+    padding: 18px 10px 14px;
   }
   nav span:not(.count) {
     flex: 1;
@@ -238,7 +324,7 @@
     flex-direction: column;
     gap: 3px;
   }
-  .relay-status {
+  .module {
     display: flex;
     align-items: center;
     gap: 7px;
@@ -249,20 +335,17 @@
     white-space: nowrap;
   }
   /* Long labels end with an ellipsis instead of squeezing the dot. */
-  .relay-status .label {
+  .module .label {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .relay-status .dot {
+  .module .dot {
     flex-shrink: 0;
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: var(--good);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 20%, transparent);
-  }
-  .relay-status .muted {
-    font-weight: 400;
   }
   .about {
     display: flex;

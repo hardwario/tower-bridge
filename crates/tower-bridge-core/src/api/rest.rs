@@ -273,7 +273,46 @@ async fn readings_csv(
     let Query(q) = q?;
     let (from, to) = range(&q)?;
     let backend = ctx.backend.clone();
-    let csv = blocking(move || backend.csv(from, to)).await?;
+    // Streamed in chunks as the rows are read: a long range would otherwise
+    // be held in memory whole, once per request.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<std::io::Result<Bytes>>(4);
+    let export = tokio::task::spawn_blocking(move || {
+        let mut out = ChunkWriter {
+            buf: Vec::with_capacity(ChunkWriter::SIZE),
+            tx,
+            sent: false,
+        };
+        let r = backend.csv(from, to, &mut out);
+        match &r {
+            Ok(()) => {
+                let _ = std::io::Write::flush(&mut out);
+            }
+            Err(e) => {
+                tracing::warn!("CSV export failed: {e}");
+                // Already streaming: end the response with an error, so the
+                // client sees a broken download rather than a short file.
+                // Otherwise nothing is sent and the request gets the error.
+                if out.sent {
+                    let _ = out
+                        .tx
+                        .blocking_send(Err(std::io::Error::other(e.to_string())));
+                }
+            }
+        }
+        r
+    });
+    let Some(first) = rx.recv().await else {
+        // Nothing written: it failed before the first row.
+        let result = export.await.map_err(|e| {
+            HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", e.to_string())
+        })?;
+        result?;
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    };
+    use futures_util::StreamExt as _;
+    let rest =
+        futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|c| (c, rx)) });
+    let body = axum::body::Body::from_stream(futures_util::stream::iter([first]).chain(rest));
     Ok((
         [
             (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
@@ -282,9 +321,46 @@ async fn readings_csv(
                 "attachment; filename=\"tower-bridge.csv\"",
             ),
         ],
-        csv,
+        body,
     )
         .into_response())
+}
+
+/// Hands what is written to the response in chunks; fails once the client
+/// went away, which ends the export.
+struct ChunkWriter {
+    buf: Vec<u8>,
+    tx: tokio::sync::mpsc::Sender<std::io::Result<Bytes>>,
+    /// A chunk went out: the response has started.
+    sent: bool,
+}
+
+impl ChunkWriter {
+    const SIZE: usize = 64 * 1024;
+}
+
+impl std::io::Write for ChunkWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        self.buf.extend_from_slice(data);
+        if self.buf.len() >= Self::SIZE {
+            self.flush()?;
+        }
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if self.buf.is_empty() {
+            return Ok(());
+        }
+        let chunk = Bytes::from(std::mem::replace(
+            &mut self.buf,
+            Vec::with_capacity(Self::SIZE),
+        ));
+        self.sent = true;
+        self.tx
+            .blocking_send(Ok(chunk))
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::BrokenPipe))
+    }
 }
 
 async fn alerts(State(ctx): State<Ctx>) -> Json<Value> {
@@ -470,7 +546,7 @@ async fn metrics(State(ctx): State<Ctx>) -> Response {
     let ready = device.is_ready();
     let _ = writeln!(
         out,
-        "# HELP tower_bridge_device_ready Whether the bridge and Climate Module are working."
+        "# HELP tower_bridge_device_ready Whether the bridge and sensors are working."
     );
     let _ = writeln!(out, "# TYPE tower_bridge_device_ready gauge");
     let _ = writeln!(out, "tower_bridge_device_ready {}", u8::from(ready));
@@ -583,6 +659,9 @@ async fn mcp_method_not_allowed(State(ctx): State<Ctx>) -> Response {
     (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, "POST")]).into_response()
 }
 
+/// Calls in one JSON-RPC batch.
+const MAX_BATCH: usize = 32;
+
 async fn mcp_post(State(ctx): State<Ctx>, headers: HeaderMap, body: Bytes) -> Response {
     if !ctx.backend.policy().mcp {
         return not_found().await.into_response();
@@ -599,8 +678,40 @@ async fn mcp_post(State(ctx): State<Ctx>, headers: HeaderMap, body: Bytes) -> Re
         }
     };
     let server = ctx.mcp.clone();
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from)
+    };
     if let Value::Array(items) = msg {
-        // JSON-RPC batch (legacy protocol versions).
+        // JSON-RPC batch (legacy protocol versions). Bounded: every call may
+        // wait for the bridge, and relay calls take at least 300 ms each.
+        let invalid = |why: &str| {
+            let err = RpcError::new(mcp::INVALID_REQUEST, why.to_string());
+            (
+                StatusCode::BAD_REQUEST,
+                Json(mcp::error_response(Value::Null, &err)),
+            )
+                .into_response()
+        };
+        if items.is_empty() {
+            return invalid("empty batch");
+        }
+        if items.len() > MAX_BATCH {
+            return invalid("batch too long");
+        }
+        if let Some(Err(e)) = items
+            .iter()
+            .map(|m| mcp::validate_http_headers(m, header))
+            .find(Result::is_err)
+        {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(mcp::error_response(Value::Null, &e)),
+            )
+                .into_response();
+        }
         let replies = tokio::task::spawn_blocking(move || {
             items
                 .iter()
@@ -615,12 +726,6 @@ async fn mcp_post(State(ctx): State<Ctx>, headers: HeaderMap, body: Bytes) -> Re
             Json(Value::Array(replies)).into_response()
         };
     }
-    let header = |name: &str| {
-        headers
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .map(String::from)
-    };
     if let Err(e) = mcp::validate_http_headers(&msg, header) {
         let id = msg.get("id").cloned().unwrap_or(Value::Null);
         return (StatusCode::BAD_REQUEST, Json(mcp::error_response(id, &e))).into_response();

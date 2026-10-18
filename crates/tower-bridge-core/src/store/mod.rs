@@ -42,6 +42,17 @@ pub enum StoreError {
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+impl StoreError {
+    /// The file is damaged or not a database at all.
+    pub fn is_corrupt(&self) -> bool {
+        matches!(
+            self,
+            StoreError::Sqlite(rusqlite::Error::SqliteFailure(e, _))
+                if matches!(e.code, rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt)
+        )
+    }
+}
+
 /// Read-write handle.
 pub struct Store {
     conn: Connection,
@@ -54,6 +65,35 @@ impl Store {
             std::fs::create_dir_all(dir)?;
         }
         Self::from_connection(Connection::open(path)?)
+    }
+
+    /// Open the database; a damaged one is moved aside (with its journal)
+    /// and a new one created, rather than running without history. Returns
+    /// where the damaged file went.
+    pub fn open_or_replace(path: &Path) -> Result<(Self, Option<std::path::PathBuf>)> {
+        match Self::open(path) {
+            Err(e) if e.is_corrupt() => {
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let mut aside = path.as_os_str().to_owned();
+                aside.push(format!(".corrupt-{stamp}"));
+                let aside = std::path::PathBuf::from(aside);
+                std::fs::rename(path, &aside)?;
+                // The write-ahead log goes along: it may hold the newest
+                // transactions, for whoever tries to rescue the copy.
+                let with = |p: &Path, suffix: &str| {
+                    let mut name = p.as_os_str().to_owned();
+                    name.push(suffix);
+                    std::path::PathBuf::from(name)
+                };
+                let _ = std::fs::rename(with(path, "-wal"), with(&aside, "-wal"));
+                let _ = std::fs::remove_file(with(path, "-shm"));
+                Ok((Self::open(path)?, Some(aside)))
+            }
+            other => other.map(|s| (s, None)),
+        }
     }
 
     pub fn open_in_memory() -> Result<Self> {
@@ -228,10 +268,13 @@ pub fn first_ts(conn: &Connection) -> Result<Option<i64>> {
 
 /// Oldest and newest reading (Unix ms).
 pub fn data_range(conn: &Connection) -> Result<Option<(i64, i64)>> {
-    let (first, last): (Option<i64>, Option<i64>) =
-        conn.query_row("SELECT MIN(ts), MAX(ts) FROM readings", [], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })?;
+    // Two subqueries: SQLite answers each MIN or MAX from the index, but
+    // scans the whole table for both in one.
+    let (first, last): (Option<i64>, Option<i64>) = conn.query_row(
+        "SELECT (SELECT MIN(ts) FROM readings), (SELECT MAX(ts) FROM readings)",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
     Ok(first.zip(last))
 }
 
@@ -309,6 +352,28 @@ mod tests {
         assert_eq!(log[0].metric, "temperature");
         assert_eq!(log[0].bound, "high");
         assert_eq!(log[0].channel, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn a_damaged_database_is_moved_aside() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("tower-bridge.db");
+        std::fs::write(
+            &path,
+            b"this is not a database, just text that is long enough",
+        )?;
+        let (mut store, aside) = Store::open_or_replace(&path)?;
+        store.insert(&reading(1000, 21.0))?;
+        let Some(aside) = aside else {
+            panic!("not moved aside");
+        };
+        assert!(aside.to_string_lossy().contains(".corrupt-"));
+        assert!(std::fs::read(&aside)?.starts_with(b"this is not"));
+        // A good database is just opened.
+        drop(store);
+        let (_, aside) = Store::open_or_replace(&path)?;
+        assert!(aside.is_none());
         Ok(())
     }
 }

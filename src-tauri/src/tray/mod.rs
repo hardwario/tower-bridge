@@ -81,14 +81,18 @@ struct Shown {
     /// Language of the static menu labels.
     lang: Option<Lang>,
     mqtt: Option<(bool, String)>,
+    /// The reading lines in the menu.
+    metrics: Vec<Metric>,
+    /// The status line is in the menu.
+    status: bool,
 }
 
 struct Inner {
     tray: TrayIcon,
-    temperature: MenuItem<tauri::Wry>,
-    humidity: MenuItem<tauri::Wry>,
-    illuminance: MenuItem<tauri::Wry>,
-    pressure: MenuItem<tauri::Wry>,
+    menu: Menu<tauri::Wry>,
+    /// A line per metric, in `Metric::ALL` order; only the measured ones
+    /// are in the menu.
+    metrics: Vec<(Metric, MenuItem<tauri::Wry>)>,
     status: MenuItem<tauri::Wry>,
     open: MenuItem<tauri::Wry>,
     open_at_login: CheckMenuItem<tauri::Wry>,
@@ -111,10 +115,10 @@ fn image(bytes: &[u8]) -> Option<Image<'static>> {
 impl TrayController {
     pub fn build(app: &AppHandle) -> tauri::Result<Self> {
         let none = None::<&str>;
-        let temperature = MenuItem::with_id(app, "temperature", "Temperature: -", false, none)?;
-        let humidity = MenuItem::with_id(app, "humidity", "Humidity: -", false, none)?;
-        let illuminance = MenuItem::with_id(app, "illuminance", "Illuminance: -", false, none)?;
-        let pressure = MenuItem::with_id(app, "pressure", "Pressure: -", false, none)?;
+        let metrics = Metric::ALL
+            .iter()
+            .map(|&m| Ok((m, MenuItem::with_id(app, m.as_str(), "", false, none)?)))
+            .collect::<tauri::Result<Vec<_>>>()?;
         let status = MenuItem::with_id(app, "status", "Searching for TOWER Bridge…", false, none)?;
         let open = MenuItem::with_id(app, "open", "Open Dashboard…", true, none)?;
         let open_at_login =
@@ -126,11 +130,8 @@ impl TrayController {
             &[
                 &open,
                 &PredefinedMenuItem::separator(app)?,
-                &temperature,
-                &humidity,
-                &illuminance,
-                &pressure,
-                &status,
+                // The reading lines and, when something is wrong, the
+                // status line come here at run time.
                 &PredefinedMenuItem::separator(app)?,
                 &open_at_login,
                 &mqtt,
@@ -166,10 +167,8 @@ impl TrayController {
         Ok(Self {
             inner: Arc::new(Inner {
                 tray,
-                temperature,
-                humidity,
-                illuminance,
-                pressure,
+                menu,
+                metrics,
                 status,
                 open,
                 open_at_login,
@@ -203,24 +202,27 @@ impl TrayController {
         // The first channel's value goes into the menu bar.
         let value = |m: Metric| readings.iter().find_map(|r| r.values.get(m));
 
-        for (metric, item) in [
-            (Metric::Temperature, &i.temperature),
-            (Metric::Humidity, &i.humidity),
-            (Metric::Illuminance, &i.illuminance),
-            (Metric::Pressure, &i.pressure),
-        ] {
-            let _ = item.set_text(metric_line(metric, readings, alerts, unit, lang, dec));
+        // A line for each metric a sensor measures (a CO2 Module adds CO2),
+        // none while there is no bridge: the status line says why.
+        let shown_metrics = shown_metrics(device, readings);
+        for (metric, item) in &i.metrics {
+            if shown_metrics.contains(metric) {
+                let _ = item.set_text(metric_line(*metric, readings, alerts, unit, lang, dec));
+            }
         }
         let newest = readings.iter().max_by_key(|r| r.ts);
-        let status = status_text(device, newest, settings, lang);
-        let _ = i.status.set_text(&status);
+        let now = chrono::Utc::now().timestamp_millis();
+        let status = status_text(device, newest, settings, lang, now);
+        if let Some(text) = &status {
+            let _ = i.status.set_text(text);
+        }
 
         let summary: Vec<String> = Metric::ALL
             .iter()
             .filter_map(|m| joined(*m, readings, unit, dec))
             .collect();
         let tooltip = if summary.is_empty() {
-            format!("TOWER Bridge\n{status}")
+            format!("TOWER Bridge\n{}", status.as_deref().unwrap_or_default())
         } else {
             format!("TOWER Bridge\n{}", summary.join(" · "))
         };
@@ -240,8 +242,33 @@ impl TrayController {
             tooltip,
             lang: Some(lang),
             mqtt: Some(mqtt_item.clone()),
+            metrics: shown_metrics,
+            status: status.is_some(),
         };
         let mut shown = i.shown.lock();
+        if shown.metrics != next.metrics || shown.status != next.status {
+            for (metric, item) in &i.metrics {
+                if shown.metrics.contains(metric) {
+                    let _ = i.menu.remove(item);
+                }
+            }
+            if shown.status {
+                let _ = i.menu.remove(&i.status);
+            }
+            // After "Open Dashboard" and its separator: the readings, then the status.
+            let mut at = 2;
+            for (_, item) in i.metrics.iter().filter(|(m, _)| next.metrics.contains(m)) {
+                if let Err(e) = i.menu.insert(item, at) {
+                    warn!("tray menu update failed: {e}");
+                }
+                at += 1;
+            }
+            if next.status
+                && let Err(e) = i.menu.insert(&i.status, at)
+            {
+                warn!("tray menu update failed: {e}");
+            }
+        }
         if shown.lang != next.lang {
             let _ = i.open.set_text(tr.open_dashboard);
             let _ = i.open_at_login.set_text(tr.open_at_login);
@@ -325,6 +352,22 @@ impl TrayController {
     }
 }
 
+/// The metrics with a line in the menu: those a sensor measures, in the
+/// order of `Metric::ALL`.
+fn shown_metrics(device: &DeviceState, readings: &[Reading]) -> Vec<Metric> {
+    // The last readings outlive an unplugged bridge: no lines without one.
+    if !device.is_ready() {
+        return Vec::new();
+    }
+    Metric::ALL
+        .into_iter()
+        .filter(|&m| {
+            device.sources().iter().any(|s| s.metric == m)
+                || readings.iter().any(|r| r.values.get(m).is_some())
+        })
+        .collect()
+}
+
 /// The values of `metric` on each channel, in channel order: "23.4 °C / 19.5 °C".
 fn joined(
     metric: Metric,
@@ -363,26 +406,36 @@ fn metric_line(
     }
 }
 
+/// The status line, when there is something to say: what is wrong, or the
+/// time of the last reading once it is overdue (the readings above are old).
+/// With fresh readings there is none (the user, 2026-10-18).
 fn status_text(
     device: &DeviceState,
     reading: Option<&Reading>,
     settings: &Settings,
     lang: Lang,
-) -> String {
+    now_ms: i64,
+) -> Option<String> {
     let tr = lang.tr();
     // Which one is read is a guess: more important than the time.
     if device.device().is_some_and(|d| d.bridges_connected > 1) {
-        return tr.several_bridges.into();
+        return Some(tr.several_bridges.into());
     }
-    match device {
-        DeviceState::Ready { .. } => reading
-            .and_then(|r| chrono::DateTime::from_timestamp_millis(r.ts))
-            .map(|t| {
+    // Two intervals and a minute: a slow cycle or a CO2 measurement is no stall.
+    let interval_ms =
+        i64::try_from(settings.sample_interval_s.saturating_mul(1000)).unwrap_or(i64::MAX / 4);
+    let overdue_ms = 2 * interval_ms + 60_000;
+    Some(match device {
+        DeviceState::Ready { .. } => match reading {
+            None => tr.measuring.into(),
+            Some(r) if now_ms - r.ts <= overdue_ms => return None,
+            Some(r) => {
+                let t = chrono::DateTime::from_timestamp_millis(r.ts)?;
                 let time =
                     format::clock(t.with_timezone(&chrono::Local), settings.time_format, lang);
                 fill(tr.updated, &[("time", &time)])
-            })
-            .unwrap_or_else(|| tr.measuring.into()),
+            }
+        },
         DeviceState::Searching => tr.searching.into(),
         DeviceState::NoModule { .. } => tr.no_module.into(),
         DeviceState::Error { kind, .. } => match kind {
@@ -393,7 +446,7 @@ fn status_text(
             DeviceErrorKind::Failed => tr.bridge_error,
         }
         .into(),
-    }
+    })
 }
 
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
@@ -543,12 +596,20 @@ mod tests {
             device: info.clone(),
             sources: Vec::new(),
         };
+        let r = reading(0, Some(1.0));
+        let at = |offset_ms: i64| r.ts + offset_ms;
         assert_eq!(
-            status_text(&ready, None, &settings, Lang::En),
-            Lang::En.tr().measuring
+            status_text(&ready, None, &settings, Lang::En, at(0)).as_deref(),
+            Some(Lang::En.tr().measuring)
+        );
+        // Fresh readings: nothing to say. Overdue: the time of the last one.
+        assert_eq!(
+            status_text(&ready, Some(&r), &settings, Lang::En, at(5_000)),
+            None
         );
         assert!(
-            status_text(&ready, Some(&reading(0, Some(1.0))), &settings, Lang::En).contains(':')
+            status_text(&ready, Some(&r), &settings, Lang::En, at(600_000))
+                .is_some_and(|s| s.contains(':'))
         );
         assert_eq!(
             status_text(
@@ -557,9 +618,11 @@ mod tests {
                 },
                 None,
                 &settings,
-                Lang::En
-            ),
-            "No sensors found"
+                Lang::En,
+                at(0)
+            )
+            .as_deref(),
+            Some("No sensors found")
         );
         let several = DeviceState::Ready {
             device: DeviceInfo {
@@ -569,8 +632,8 @@ mod tests {
             sources: Vec::new(),
         };
         assert_eq!(
-            status_text(&several, Some(&reading(0, Some(1.0))), &settings, Lang::En),
-            Lang::En.tr().several_bridges,
+            status_text(&several, Some(&r), &settings, Lang::En, at(5_000)).as_deref(),
+            Some(Lang::En.tr().several_bridges),
             "the warning wins over the time"
         );
         let busy = DeviceState::Error {
@@ -578,8 +641,36 @@ mod tests {
             message: String::new(),
         };
         assert_eq!(
-            status_text(&busy, None, &settings, Lang::En),
-            Lang::En.tr().busy
+            status_text(&busy, None, &settings, Lang::En, at(0)).as_deref(),
+            Some(Lang::En.tr().busy)
         );
+    }
+
+    #[test]
+    fn the_menu_lists_the_measured_metrics() {
+        use tower_bridge_core::model::{ModuleKind, SensorSource};
+        let source = |metric| SensorSource {
+            metric,
+            channel: 0,
+            module: ModuleKind::Co2Module,
+            sensor: "LP8".into(),
+            address: 0x4D,
+        };
+        let device = DeviceState::Ready {
+            device: DeviceInfo {
+                backend: Backend::Hid,
+                serial: "SN".into(),
+                path: "p".into(),
+                chip: None,
+                bridges_connected: 1,
+            },
+            sources: vec![source(Metric::Co2), source(Metric::Temperature)],
+        };
+        // CO2 before its first value still has its line, in the usual order.
+        assert_eq!(
+            shown_metrics(&device, &[reading(0, Some(21.0))]),
+            vec![Metric::Temperature, Metric::Co2]
+        );
+        assert!(shown_metrics(&DeviceState::Searching, &[reading(0, Some(21.0))]).is_empty());
     }
 }

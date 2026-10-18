@@ -139,6 +139,15 @@ impl Sgpc3 {
         self.failures >= GIVE_UP
     }
 
+    /// A measurement slot that could not be served (the channel could not
+    /// be selected): counts as a failure, and the grid moves on.
+    pub fn missed(&mut self, now: Duration) {
+        self.failures = self.failures.saturating_add(1);
+        while self.next <= now {
+            self.next += PERIOD;
+        }
+    }
+
     pub fn value(&self, now: Duration, max_age: Duration) -> Option<f64> {
         self.value
             .filter(|(_, at)| now.saturating_sub(*at) <= max_age)

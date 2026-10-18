@@ -263,8 +263,15 @@ pub fn modules(sources: &[SensorSource]) -> Vec<(u8, ModuleKind)> {
 /// Which source of `metric` an alert on `channel` comes from, for a
 /// notification: `None` while only one channel measures the metric, else the
 /// module names (`Humidity Tag`), with the channel when both channels carry
-/// the same modules (`Humidity Tag, channel 1`).
-pub fn source_label(sources: &[SensorSource], metric: Metric, channel: u8) -> Option<String> {
+/// the same modules (`Humidity Tag, channel 1`). `channel_name` is the
+/// channel in the reader's language, with `{n}` for its number.
+pub fn source_label(
+    sources: &[SensorSource],
+    metric: Metric,
+    channel: u8,
+    channel_name: &str,
+) -> Option<String> {
+    let channel_text = channel_name.replace("{n}", &channel.to_string());
     let names = |c: u8| -> Vec<&str> {
         let mut n: Vec<&str> = sources
             .iter()
@@ -286,12 +293,12 @@ pub fn source_label(sources: &[SensorSource], metric: Metric, channel: u8) -> Op
     }
     let mine = names(channel);
     if mine.is_empty() {
-        return Some(format!("channel {channel}"));
+        return Some(channel_text);
     }
     let same = channels.iter().any(|&c| c != channel && names(c) == mine);
     let label = mine.join(", ");
     Some(if same {
-        format!("{label}, channel {channel}")
+        format!("{label}, {channel_text}")
     } else {
         label
     })
@@ -376,7 +383,7 @@ mod tests {
         let t = Metric::Temperature;
         let one = [source(t, 0, ModuleKind::ClimateModuleR1)];
         assert_eq!(
-            source_label(&one, t, 0),
+            source_label(&one, t, 0, "channel {n}"),
             None,
             "a single source needs no label"
         );
@@ -384,9 +391,12 @@ mod tests {
             source(t, 0, ModuleKind::ClimateModuleR1),
             source(t, 1, ModuleKind::HumidityTag),
         ];
-        assert_eq!(source_label(&two, t, 1).as_deref(), Some("Humidity Tag"));
         assert_eq!(
-            source_label(&two, t, 0).as_deref(),
+            source_label(&two, t, 1, "channel {n}").as_deref(),
+            Some("Humidity Tag")
+        );
+        assert_eq!(
+            source_label(&two, t, 0, "channel {n}").as_deref(),
             Some("Climate Module R1")
         );
         let twins = [
@@ -394,10 +404,13 @@ mod tests {
             source(t, 1, ModuleKind::HumidityTag),
         ];
         assert_eq!(
-            source_label(&twins, t, 1).as_deref(),
+            source_label(&twins, t, 1, "channel {n}").as_deref(),
             Some("Humidity Tag, channel 1")
         );
-        assert_eq!(source_label(&two, t, 5).as_deref(), Some("channel 5"));
+        assert_eq!(
+            source_label(&two, t, 5, "channel {n}").as_deref(),
+            Some("channel 5")
+        );
     }
 
     #[test]
