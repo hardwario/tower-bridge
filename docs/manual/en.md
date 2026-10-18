@@ -153,9 +153,20 @@ With **Allow relay control** switched on, the relay accepts `true` or `false` on
 
 The optional local server offers a REST API, Prometheus metrics and an MCP server for AI assistants; it is off by default. Changes such as alert limits or switching the relay need **Allow changes**. Other computers must send the access token shown in the settings.
 
+## Command line {#cli}
+
+`tower-bridge-cli` is the headless sibling of this app, for a terminal or a computer without a desktop, such as a Raspberry Pi next to the bridge. It shares this app's settings and history:
+
+- `tower-bridge-cli` alone opens a dashboard in the terminal: the values with charts, the relay, GPS, NFC, alerts and the log;
+- `status`, `watch`, `relay`, `gps`, `nfc` and `export` print what the app shows, as text or as JSON for scripts;
+- `tower-bridge-cli run` does what this app does, without a window: it records the history, checks the alert limits, publishes to MQTT and serves the [API](#api).
+
+Only one of them runs at a time, because only one program can use the bridge. While this app runs, the commands go through its API server, so turn it on in [API and MCP](#api); switching the relay from there needs **Allow changes**. The full description is in docs/cli.md in the source code.
+
 ## Troubleshooting {#troubleshooting}
 
 - **Bridge not connected:** check the USB cable. Only one program can use the bridge at a time, so quit other tools that may hold it.
+- **Another TOWER Bridge is already running:** `tower-bridge-cli run` or its dashboard holds the bridge and this app's data. Stop it, then start the app again.
 - **No permission (Linux):** install the [udev rule](#install) and reconnect the bridge.
 - **No sensors found:** check that the modules and tags are seated properly and press **Rescan**. Leave the I²C channels on Automatic, or set the channel they are connected to.
 - **Relay state unknown:** switch the relay once with Activate TRUE or Activate FALSE.

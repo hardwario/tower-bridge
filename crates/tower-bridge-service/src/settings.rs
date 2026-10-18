@@ -398,16 +398,6 @@ impl Default for Settings {
 
 impl Settings {
     /// Clamp values into supported ranges.
-    /// The decimal separator to show numbers with.
-    pub fn decimal(&self, lang: crate::i18n::Lang) -> crate::format::Decimal {
-        use crate::format::Decimal;
-        match self.decimal_separator {
-            DecimalSeparator::Auto => lang.into(),
-            DecimalSeparator::Point => Decimal::Point,
-            DecimalSeparator::Comma => Decimal::Comma,
-        }
-    }
-
     pub fn validated(mut self) -> Self {
         self.version = SETTINGS_VERSION;
         self.sample_interval_ms = self.sample_interval_ms.clamp(2_000, 3_600_000);

@@ -1,6 +1,6 @@
 [package]
 name = "tower-bridge-cli"
-description = "Command-line diagnostics for the HARDWARIO TOWER Bridge Module"
+description = "Command line, terminal dashboard and headless service for the HARDWARIO TOWER Bridge Module: the sibling of the TOWER Bridge desktop app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,12 +13,34 @@ name = "tower-bridge-cli"
 path = "src/main.rs"
 
 [dependencies]
-tower-bridge-core.workspace = true
+tower-bridge-core = { workspace = true, features = ["store", "api", "xlsx"] }
+tower-bridge-service.workspace = true
 anyhow.workspace = true
-clap.workspace = true
+chrono.workspace = true
+clap = { workspace = true, features = ["env"] }
 crossbeam-channel.workspace = true
+# SIGINT, SIGTERM and SIGHUP (or Ctrl+C and closing the console on Windows):
+# `run` and `watch` stop cleanly, so the sensors' state is saved and MQTT
+# says goodbye.
+ctrlc = { version = "3.4", features = ["termination"] }
+parking_lot.workspace = true
+# The terminal dashboard, with crossterm through ratatui's re-export.
+ratatui = "0.30"
+serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# Only to restore the default SIGPIPE disposition (see main.rs).
+libc = "0.2"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+serde_json.workspace = true
+tempfile.workspace = true
+tower-bridge-service.workspace = true
 
 [lints]
 workspace = true

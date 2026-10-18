@@ -76,9 +76,19 @@ hardwario/enmon.
   unless "Allow changes" is on; network access needs a token.
 - JSON keys are lowercase with underscores everywhere; durations are integer
   milliseconds (`_ms`).
+- The REST API reads and writes the NFC Tag (`/api/v1/nfc`) and reports the
+  MQTT connection in `/api/v1/status`.
 
 ### Command line
 
-- `tower-bridge-cli` for bringing up hardware: `scan`, `probe`, `watch`,
-  `led`, `i2c-scan`, `i2c-identify`, `i2c-read`, `i2c-write`, `relay`, `co2`,
-  `voc`, `gps`, `nfc`, each also with a simulated bridge (`--simulate`).
+- `tower-bridge-cli`, the headless sibling of the app, sharing its settings
+  and history: a terminal dashboard (values with charts, relay, GPS, NFC,
+  alerts, log); `status`, `watch`, `relay`, `gps`, `nfc`, `identify`,
+  `rescan`, `export`, `alerts` and `config` as text or JSON; `run`, the
+  service without a window (history, alerts, MQTT, REST, MCP) for a
+  Raspberry Pi or a server; `mcp`; and the bring-up tools under `toolbox`.
+  While the app or the service holds the bridge, the commands go through its
+  API server. Documented exit codes; release archives for Linux (x86_64 and
+  64-bit ARM), macOS and Windows.
+- One instance per data folder: the app says so when `tower-bridge-cli run`
+  already holds it.

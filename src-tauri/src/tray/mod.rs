@@ -5,15 +5,16 @@ pub mod render;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::AppHandle;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Manager};
 use tower_bridge_core::alerts::ActiveAlert;
 use tower_bridge_core::model::{DeviceErrorKind, DeviceState, Metric, Reading};
 use tracing::warn;
 
 use crate::format;
+use crate::format::SettingsExt;
 use crate::i18n::{Lang, fill};
 use crate::settings::{Settings, TemperatureUnit};
 use crate::state::MqttState;
@@ -448,11 +449,22 @@ fn status_text(
     })
 }
 
+fn toggle_mqtt(app: &AppHandle) {
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return;
+    };
+    if let Err(e) = state.update_settings(|s| s.mqtt.enabled = !s.mqtt.enabled) {
+        let tr = crate::i18n::current(app).tr();
+        let msg = crate::i18n::fill(tr.cannot_save_settings, &[("error", &e.to_string())]);
+        crate::notify::send(app, "MQTT", &msg);
+    }
+}
+
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
         "open" => crate::window::show_dashboard(app),
         "open_at_login" => crate::autostart::toggle(app),
-        "mqtt" => crate::actions::toggle_mqtt(app),
+        "mqtt" => toggle_mqtt(app),
         "quit" => app.exit(0),
         _ => {}
     }

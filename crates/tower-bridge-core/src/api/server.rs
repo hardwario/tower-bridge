@@ -433,6 +433,52 @@ mod tests {
     }
 
     #[test]
+    fn nfc_endpoints() -> std::io::Result<()> {
+        let (server, backend) = start(open_policy())?;
+        let addr = server.local_addr();
+        let ct = [("Content-Type", "application/json")];
+        let put = |body: &[u8]| {
+            request(
+                addr,
+                "PUT",
+                "/api/v1/nfc",
+                &ct,
+                body,
+                Duration::from_secs(5),
+            )
+        };
+
+        let r = get(&server, "/api/v1/nfc", &[])?;
+        assert_eq!(r.status, 200);
+        assert_eq!(json_body(&r)["url"], Value::Null);
+        let status = json_body(&get(&server, "/api/v1/status", &[])?);
+        assert_eq!(status["nfc"]["address"], 0x08);
+        assert_eq!(status["mqtt"]["status"], "disabled");
+
+        // Writing needs "Allow changes", like the relay.
+        assert_eq!(put(br#"{"url":"hardwario.com"}"#)?.status, 403);
+        if let Ok(mut p) = backend.policy.lock() {
+            p.allow_control = true;
+        }
+        let r = put(br#"{"url":" hardwario.com "}"#)?;
+        assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+        assert_eq!(
+            json_body(&r)["url"],
+            "https://hardwario.com",
+            "the scheme is added"
+        );
+        assert_eq!(put(br#"{"url":""}"#)?.status, 400);
+        assert_eq!(put(br#"{}"#)?.status, 400);
+
+        if let Ok(mut n) = backend.nfc.lock() {
+            *n = None;
+        }
+        assert_eq!(get(&server, "/api/v1/nfc", &[])?.status, 404);
+        assert_eq!(put(br#"{"url":"x.io"}"#)?.status, 404);
+        Ok(())
+    }
+
+    #[test]
     fn relay_endpoints() -> std::io::Result<()> {
         let (server, backend) = start(open_policy())?;
         let addr = server.local_addr();

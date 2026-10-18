@@ -1,7 +1,7 @@
 //! Downsampled history for charts.
 
 use rusqlite::{Connection, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::Result;
 
@@ -38,7 +38,7 @@ pub struct HistoryQuery {
     pub sample_interval_ms: i64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Series {
     pub avg: Vec<Option<f64>>,
     pub min: Vec<Option<f64>>,
@@ -64,7 +64,7 @@ impl Series {
 /// Columnar history, ready for uPlot (`t` in seconds). Each metric has one
 /// series per entry of `channels`, all aligned with `t`; a channel without a
 /// value in a bucket has `null` there.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct History {
     pub from: i64,

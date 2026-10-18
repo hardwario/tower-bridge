@@ -122,6 +122,7 @@ pub(crate) fn router(ctx: Ctx) -> Router {
         .route("/api/v1/device/rescan", post(rescan))
         .route("/api/v1/relay", get(relay).put(set_relay))
         .route("/api/v1/gps", get(gps))
+        .route("/api/v1/nfc", get(nfc).put(write_nfc))
         .route("/api/v1/relay/pulse", post(pulse_relay))
         .route("/api/v1/openapi.json", get(openapi))
         .route("/metrics", get(metrics))
@@ -176,6 +177,7 @@ async fn index(State(ctx): State<Ctx>) -> Json<Value> {
             "alert_log": "/api/v1/alerts/log",
             "relay": "/api/v1/relay",
             "gps": "/api/v1/gps",
+            "nfc": "/api/v1/nfc",
             "metrics": "/metrics",
             "openapi": "/api/v1/openapi.json",
             "mcp": if policy.mcp { Some("/mcp") } else { None },
@@ -192,6 +194,8 @@ async fn status(State(ctx): State<Ctx>) -> Json<Value> {
         "version": info.version,
         "device": ctx.backend.device(),
         "relay": ctx.backend.relay(),
+        "nfc": ctx.backend.nfc(),
+        "mqtt": ctx.backend.mqtt(),
         "latest_ts": ctx.backend.latest().iter().map(|r| r.ts).max(),
         "sample_interval_ms": ctx.backend.sample_interval_ms(),
         "active_alerts": ctx.backend.active_alerts(),
@@ -474,6 +478,35 @@ async fn gps(State(ctx): State<Ctx>) -> HttpResult<Json<crate::gps::GpsInfo>> {
             "no GPS Module is connected",
         )
     })
+}
+
+fn no_nfc() -> HttpError {
+    HttpError::new(StatusCode::NOT_FOUND, "no_nfc", "no NFC Tag is connected")
+}
+
+async fn nfc(State(ctx): State<Ctx>) -> HttpResult<Json<crate::nfc::NfcInfo>> {
+    ctx.backend.nfc().map(Json).ok_or_else(no_nfc)
+}
+
+/// `{"url": "https://..."}`; `https://` is added when the scheme is missing.
+async fn write_nfc(
+    State(ctx): State<Ctx>,
+    body: Result<Json<Value>, JsonRejection>,
+) -> HttpResult<Json<crate::nfc::NfcInfo>> {
+    require_control(&ctx)?;
+    let Json(body) = body?;
+    let url = body
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .map(crate::nfc::with_scheme)
+        .ok_or_else(|| HttpError::bad_request("'url' (a web address) is required"))?;
+    if ctx.backend.nfc().is_none() {
+        return Err(no_nfc());
+    }
+    let backend = ctx.backend.clone();
+    Ok(Json(blocking(move || backend.write_nfc(url)).await?))
 }
 
 async fn relay(State(ctx): State<Ctx>) -> HttpResult<Json<RelayInfo>> {

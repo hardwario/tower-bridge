@@ -94,6 +94,20 @@ pub trait ApiBackend: Send + Sync + 'static {
     fn gps(&self) -> Option<crate::gps::GpsInfo> {
         None
     }
+    /// The NFC Tag and its URL, when one is connected.
+    fn nfc(&self) -> Option<crate::nfc::NfcInfo> {
+        None
+    }
+    /// Write a URL to the NFC Tag; returns what it holds afterwards.
+    fn write_nfc(&self, url: String) -> Result<crate::nfc::NfcInfo, ApiError> {
+        let _ = url;
+        Err(ApiError::Unavailable("no NFC Tag is connected".into()))
+    }
+    /// The connection to the MQTT broker, as the front ends show it
+    /// (`{"status": "connected", "address": ...}`); `null` when unknown.
+    fn mqtt(&self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
     /// Switch the relay to `true` or `false`.
     fn set_relay(&self, state: bool) -> Result<RelayInfo, ApiError>;
     /// Timed pulse; `None` fields take the app's defaults (opposite of the
@@ -149,6 +163,7 @@ pub(crate) mod testing {
         pub pulsed: Mutex<Option<(Option<bool>, Option<Duration>)>>,
         /// How long a rescan takes.
         pub rescan_time: Mutex<Duration>,
+        pub nfc: Mutex<Option<crate::nfc::NfcInfo>>,
     }
 
     impl FakeBackend {
@@ -165,6 +180,13 @@ pub(crate) mod testing {
                 })),
                 pulsed: Mutex::new(None),
                 rescan_time: Mutex::new(Duration::ZERO),
+                nfc: Mutex::new(Some(crate::nfc::NfcInfo {
+                    channel: 1,
+                    address: 0x08,
+                    part: "NT3H2111".into(),
+                    url: None,
+                    formatted: true,
+                })),
             }
         }
 
@@ -311,6 +333,23 @@ pub(crate) mod testing {
         }
         fn relay(&self) -> Option<RelayInfo> {
             self.relay.lock().ok().and_then(|r| *r)
+        }
+        fn nfc(&self) -> Option<crate::nfc::NfcInfo> {
+            self.nfc.lock().ok().and_then(|n| n.clone())
+        }
+        fn write_nfc(&self, url: String) -> Result<crate::nfc::NfcInfo, ApiError> {
+            let mut nfc = self
+                .nfc
+                .lock()
+                .map_err(|_| ApiError::Internal("poisoned".into()))?;
+            let tag = nfc
+                .as_mut()
+                .ok_or_else(|| ApiError::Unavailable("no NFC Tag".into()))?;
+            tag.url = Some(url);
+            Ok(tag.clone())
+        }
+        fn mqtt(&self) -> serde_json::Value {
+            serde_json::json!({ "status": "disabled" })
         }
         fn set_relay(&self, state: bool) -> Result<RelayInfo, ApiError> {
             self.update_relay(|r| {

@@ -145,6 +145,8 @@ pub struct Tr {
     pub login_in_dev_instance: &'static str,
     pub cannot_save_settings: &'static str,
     pub cannot_start: &'static str,
+    /// Another instance (the CLI's service) holds the data folder.
+    pub already_running: &'static str,
 }
 
 impl Tr {
@@ -225,6 +227,7 @@ The tray icon keeps working. Download WebView2 now?",
     login_in_dev_instance: "A development instance (simulated TOWER Bridge or another data folder) cannot open at login.",
     cannot_save_settings: "Cannot save settings: {error}",
     cannot_start: "TOWER Bridge cannot start.\n\n{error}",
+    already_running: "Another TOWER Bridge is already running: {holder}. Stop it and start the app again.",
 };
 
 static CS: Tr = Tr {
@@ -284,6 +287,7 @@ Ikona v oznamovací oblasti funguje dál. Stáhnout WebView2 nyní?",
     login_in_dev_instance: "Vývojová instance (simulovaný TOWER Bridge nebo jiná složka dat) se nemůže spouštět po přihlášení.",
     cannot_save_settings: "Nastavení nelze uložit: {error}",
     cannot_start: "TOWER Bridge nelze spustit.\n\n{error}",
+    already_running: "Už běží jiný TOWER Bridge: {holder}. Ukončete ho a spusťte aplikaci znovu.",
 };
 
 static SK: Tr = Tr {
@@ -343,6 +347,7 @@ Ikona v oblasti oznámení funguje ďalej. Stiahnuť WebView2 teraz?",
     login_in_dev_instance: "Vývojová inštancia (simulovaný TOWER Bridge alebo iný priečinok údajov) sa nemôže spúšťať po prihlásení.",
     cannot_save_settings: "Nastavenia nie je možné uložiť: {error}",
     cannot_start: "TOWER Bridge sa nedá spustiť.\n\n{error}",
+    already_running: "Už beží iný TOWER Bridge: {holder}. Ukončite ho a spustite aplikáciu znova.",
 };
 
 static DE: Tr = Tr {
@@ -409,6 +414,7 @@ Das Symbol im Infobereich funktioniert weiterhin. WebView2 jetzt herunterladen?"
     login_in_dev_instance: "Eine Entwicklungsinstanz (simuliert oder mit anderem Datenordner) kann nicht bei der Anmeldung starten.",
     cannot_save_settings: "Einstellungen können nicht gespeichert werden: {error}",
     cannot_start: "TOWER Bridge kann nicht starten.\n\n{error}",
+    already_running: "Es läuft bereits ein anderes TOWER Bridge: {holder}. Beenden Sie es und starten Sie die App erneut.",
 };
 
 static PL: Tr = Tr {
@@ -475,6 +481,7 @@ Ikona w zasobniku działa dalej. Pobrać WebView2 teraz?",
     login_in_dev_instance: "Instancja deweloperska (symulowany TOWER Bridge lub inny folder danych) nie może uruchamiać się po zalogowaniu.",
     cannot_save_settings: "Nie można zapisać ustawień: {error}",
     cannot_start: "Nie można uruchomić TOWER Bridge.\n\n{error}",
+    already_running: "Działa już inny TOWER Bridge: {holder}. Zakończ go i uruchom aplikację ponownie.",
 };
 
 #[cfg(test)]

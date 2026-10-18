@@ -1,0 +1,16 @@
+# Used by `cross` for the Linux release builds of tower-bridge-cli (see
+# .github/workflows/release.yml). hidapi links against libudev, so the target
+# architecture's development package must be in the build container;
+# $CROSS_DEB_ARCH is set by cross (amd64, arm64, ...).
+
+[target.x86_64-unknown-linux-gnu]
+pre-build = [
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
+    "apt-get update && apt-get install --assume-yes libudev-dev:$CROSS_DEB_ARCH pkg-config",
+]
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
+    "apt-get update && apt-get install --assume-yes libudev-dev:$CROSS_DEB_ARCH pkg-config",
+]

@@ -3,6 +3,8 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # A dry run: everything is built and checked, nothing is published.
+  workflow_dispatch:
 
 # Read-only by default; only the final job writes the release.
 permissions:
@@ -23,7 +25,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: node scripts/check-version.mjs "$GITHUB_REF_NAME"
+      # The tag must match every version (a dry run checks only that they agree).
+      - run: node scripts/check-version.mjs
       - run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libudev-dev patchelf
@@ -131,10 +134,108 @@ jobs:
           name: ${{ matrix.name }}
           path: out/*
 
+  # tower-bridge-cli: an archive per target. Linux builds run in the `cross`
+  # images (Cross.toml adds libudev), so the binaries need only an old glibc.
+  cli:
+    name: CLI (${{ matrix.target }})
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: universal-apple-darwin
+            os: macos-latest
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust-targets }}
+      - name: Install cross
+        if: runner.os == 'Linux'
+        run: cargo install cross --version 0.2.5 --locked
+      - name: Build
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          set -euo pipefail
+          target="${{ matrix.target }}"
+          case "$target" in
+            universal-apple-darwin)
+              for t in aarch64-apple-darwin x86_64-apple-darwin; do
+                cargo build --release --locked -p tower-bridge-cli --target "$t"
+              done
+              mkdir -p target/universal-apple-darwin/release
+              lipo -create -output target/universal-apple-darwin/release/tower-bridge-cli \
+                target/aarch64-apple-darwin/release/tower-bridge-cli target/x86_64-apple-darwin/release/tower-bridge-cli ;;
+            *-linux-*) cross build --release --locked -p tower-bridge-cli --target "$target" ;;
+            *) cargo build --release --locked -p tower-bridge-cli --target "$target" ;;
+          esac
+      # Runs on any glibc distribution from 2018 on (Debian 10, Ubuntu 20.04,
+      # Raspberry Pi OS Buster).
+      - name: Check the glibc floor
+        if: runner.os == 'Linux'
+        run: |
+          newest=$(readelf --version-info "target/${{ matrix.target }}/release/tower-bridge-cli" | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -n 1)
+          echo "newest glibc symbol: $newest"
+          if [ "$(printf '%s\nGLIBC_2.28\n' "$newest" | sort -V | tail -n 1)" != "GLIBC_2.28" ]; then
+            echo "::error::tower-bridge-cli needs $newest, newer than glibc 2.28"; exit 1
+          fi
+      - name: Check that the exe needs no Visual C++ runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -Last 1
+          if (-not $dumpbin) { Write-Error "dumpbin.exe not found"; exit 1 }
+          $deps = & $dumpbin.FullName /nologo /dependents target\x86_64-pc-windows-msvc\release\tower-bridge-cli.exe
+          $deps
+          $crt = $deps -match 'vcruntime|msvcp|api-ms-win-crt|ucrtbase'
+          if ($crt) { Write-Error "tower-bridge-cli.exe depends on the C runtime: $crt"; exit 1 }
+      - name: Package
+        run: |
+          set -euo pipefail
+          target="${{ matrix.target }}"
+          name="tower-bridge-cli-${GITHUB_REF_NAME#v}-$target"
+          mkdir -p "out/$name"
+          cp docs/cli.md "out/$name/README.md"
+          cp LICENSE THIRD-PARTY-NOTICES.md "out/$name/"
+          case "$target" in
+            *-windows-*) cp "target/$target/release/tower-bridge-cli.exe" "out/$name/" ;;
+            *-linux-*) cp "target/$target/release/tower-bridge-cli" packaging/linux/70-hardwario-tower-bridge.rules "out/$name/" ;;
+            *) cp "target/$target/release/tower-bridge-cli" "out/$name/" ;;
+          esac
+          cd out
+          case "$target" in
+            *-windows-*) 7z a -bd "$name.zip" "$name" > /dev/null; archive="$name.zip" ;;
+            *) tar czf "$name.tar.gz" "$name"; archive="$name.tar.gz" ;;
+          esac
+          rm -r "$name"
+          if command -v sha256sum >/dev/null; then sha256sum "$archive" > "$archive.sha256"; else shasum -a 256 "$archive" > "$archive.sha256"; fi
+          ls -la
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-${{ matrix.target }}
+          path: out/*
+
   # One job creates the draft release, so the builds cannot race to make two.
   publish:
     name: Draft release
-    needs: build
+    needs: [build, cli]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write

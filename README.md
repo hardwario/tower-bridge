@@ -38,6 +38,9 @@ glance.
 - English, Čeština, Slovenčina, Deutsch and Polski (follows the system language
   by default), including the tray menu and notifications
 - One file per platform, no installer on Windows
+- `tower-bridge-cli`, the headless sibling: a terminal dashboard, commands for
+  scripts (text or JSON), and a service without a window for a Raspberry Pi
+  or a server, sharing the app's settings and history ([docs/cli.md](docs/cli.md))
 
 It continues [hardwario/enmon](https://github.com/hardwario/enmon), the
 command-line reader for the same hardware.
@@ -49,6 +52,7 @@ command-line reader for the same hardware.
 | Windows 10/11 (x64) | `TOWER-Bridge-<version>-windows-x64-portable.exe` |
 | macOS 11+ with Safari 16.2+ (Apple silicon and Intel) | `TOWER-Bridge-<version>-macos-universal.dmg` |
 | Linux (x86_64) | `TOWER-Bridge-<version>-linux-x86_64.AppImage` |
+| Command line, every platform (Linux also on 64-bit ARM) | `tower-bridge-cli-<version>-<target>.tar.gz` (`.zip` on Windows), see [docs/cli.md](docs/cli.md) |
 
 ### First run
 
@@ -83,6 +87,10 @@ notifications (`HKCU\Software\Classes\AppUserModelId\com.hardwario.tower-bridge`
   shown in *Settings → Data*.
 - MQTT is described in [docs/mqtt.md](docs/mqtt.md), the REST API,
   metrics and MCP server in [docs/api.md](docs/api.md).
+- Without a desktop, `tower-bridge-cli run` does what the app does, and
+  `tower-bridge-cli` alone opens a terminal dashboard ([docs/cli.md](docs/cli.md)).
+  Only one of them runs per data folder; the other commands then go through
+  its API server.
 - The user manual is built in: open *Manual* in the sidebar. Its source, in all
   five languages, is in [docs/manual](docs/manual/en.md).
 
@@ -140,10 +148,11 @@ npm run test:ui:webkit   # the same in WebKit (npx playwright-core install webki
 | Path | Contents |
 |---|---|
 | `crates/tower-bridge-core` | FT260 transport (hidapi, Linux i2c-dev), sensor drivers, sensor detection on both I²C channels, acquisition thread, alert engine, SQLite store, MQTT client, REST/MCP server |
-| `crates/tower-bridge-cli` | `tower-bridge-cli` diagnostics tool (`scan`, `probe`, `watch`, `led`, `i2c-scan`, `i2c-identify`, `i2c-read`, `i2c-write`, `relay`, `co2`, `voc`, `gps`, `nfc`) |
-| `src-tauri` | Desktop app: tray, dashboard window, settings, notifications, commands |
+| `crates/tower-bridge-service` | The service the app and the CLI share: data folder and settings, the hub (storage, alerts, MQTT), commands to the bridge, the API server; one instance per data folder |
+| `crates/tower-bridge-cli` | `tower-bridge-cli`: terminal dashboard, commands, the service without a window (`run`), MCP bridge, and the bring-up `toolbox` |
+| `src-tauri` | Desktop app: tray, dashboard window, notifications, Tauri commands |
 | `src` | Dashboard UI (Svelte 5, uPlot); translations in `src/lib/i18n/` |
-| `docs` | [Hardware protocol](docs/hardware.md), [Linux](docs/linux.md), [MQTT](docs/mqtt.md), [REST API & MCP](docs/api.md), [user manual](docs/manual/en.md) |
+| `docs` | [Command line](docs/cli.md), [Hardware protocol](docs/hardware.md), [Linux](docs/linux.md), [MQTT](docs/mqtt.md), [REST API & MCP](docs/api.md), [user manual](docs/manual/en.md) |
 | `packaging/linux` | udev rule |
 
 ## Contributing

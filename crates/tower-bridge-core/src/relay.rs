@@ -17,7 +17,7 @@
 
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
 use crate::bus::{BusError, Clock, I2cBus};
@@ -85,7 +85,7 @@ fn state_led(state: bool) -> u8 {
 }
 
 /// A detected Relay Module.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct RelayInfo {
     /// I2C switch channel on the Bridge Module.

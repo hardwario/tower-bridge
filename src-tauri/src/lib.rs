@@ -1,43 +1,28 @@
 //! TOWER Bridge desktop app.
 
-mod actions;
-mod api_ctl;
 mod autostart;
 mod commands;
 mod format;
-mod hub;
 mod i18n;
 mod logging;
 mod notify;
-mod paths;
-mod settings;
+mod observer;
 mod state;
 mod tray;
 mod window;
 
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use std::time::Duration;
 
-use parking_lot::{Mutex, RwLock};
 use tauri::{App, AppHandle, Manager, RunEvent};
-use tower_bridge_core::acquisition::{self, AcqConfig, Acquisition};
-use tower_bridge_core::bus::SystemClock;
-use tower_bridge_core::model::DeviceState;
-use tower_bridge_core::store::Store;
-use tracing::{error, info, warn};
+use tower_bridge_core::api::ApiInfo;
+use tower_bridge_service::{Paths, Service, ServiceConfig, StartError, settings};
+use tracing::error;
 
-use crate::hub::HubMsg;
-use crate::paths::Paths;
-use crate::settings::Settings;
-use crate::state::{ApiState, AppState, MqttState};
+use crate::state::AppState;
 
-/// Background threads, stopped on exit.
-struct Workers {
-    acquisition: Mutex<Option<Acquisition>>,
-    hub: Mutex<Option<JoinHandle<()>>>,
-    _log_guard: Option<tracing_appender::non_blocking::WorkerGuard>,
-}
+/// Kept for the life of the app: the log file writer flushes on drop.
+struct LogGuard(#[allow(dead_code)] Option<tracing_appender::non_blocking::WorkerGuard>);
 
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
@@ -46,7 +31,7 @@ pub fn run() {
     let autostarted = args.iter().any(|a| a == "--autostart");
     if args.iter().any(|a| a == "--mcp-stdio") {
         // MCP bridge for clients that launch a local process; no GUI.
-        std::process::exit(api_ctl::run_mcp_stdio(simulated));
+        std::process::exit(mcp_stdio(simulated));
     }
 
     // Development instances (simulated bridge or a custom data folder) may run
@@ -141,95 +126,45 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
     let handle = app.handle().clone();
-    let paths = Paths::resolve(&handle, simulated)?;
-    let log_guard = logging::init(&paths.logs_dir());
-    info!(
-        "TOWER Bridge {} starting (data: {}{}{})",
-        handle.package_info().version,
-        paths.data_dir.display(),
-        if paths.portable { ", portable" } else { "" },
-        if simulated { ", simulated bridge" } else { "" },
-    );
-
-    let (settings, first_run) = Settings::load(&paths.settings_file());
-    // Persist defaults added by newer versions (and the generated API token).
-    if let Err(e) = settings.save(&paths.settings_file()) {
-        error!("cannot write settings: {e}");
-    }
-    let settings = Arc::new(settings);
-
-    let store = match Store::open_or_replace(&paths.db_file()) {
-        Ok((mut s, aside)) => {
-            if let Some(aside) = aside {
-                warn!(
-                    "the database was damaged; moved to {} and started anew",
-                    aside.display()
-                );
-            }
-            if simulated {
-                seed_simulated_history(&mut s, settings.sample_interval_ms);
-            }
-            Some(s)
-        }
-        Err(e) => {
-            error!("cannot open the database, history is disabled: {e}");
-            None
-        }
-    };
+    let paths =
+        Paths::resolve(None, simulated).ok_or_else(|| anyhow::anyhow!("no local data folder"))?;
+    paths.create()?;
+    app.manage(LogGuard(logging::init(&paths.logs_dir())));
 
     let tray = tray::TrayController::build(&handle)?;
-
-    let (acq_tx, acq_rx) = crossbeam_channel::unbounded();
-    let (hub_tx, hub_rx) = crossbeam_channel::unbounded();
-    let (mqtt_cmd_tx, mqtt_cmd_rx) = crossbeam_channel::unbounded();
-    let opener = if simulated {
-        acquisition::simulated_opener()
-    } else {
-        acquisition::hardware_opener(settings.backend)
-    };
-    let acq = Acquisition::spawn(
-        AcqConfig {
-            interval: Duration::from_millis(settings.sample_interval_ms),
-            channel: settings.i2c_channel,
-            state_dir: Some(paths.data_dir.clone()),
-        },
-        opener,
-        Box::new(SystemClock::new()),
-        acq_tx,
-    )?;
-
-    app.manage(AppState {
-        settings: RwLock::new(settings.clone()),
-        settings_lock: parking_lot::Mutex::new(()),
-        latest: RwLock::new(Vec::new()),
-        device: RwLock::new(DeviceState::Searching),
-        relay: RwLock::new(None),
-        nfc: RwLock::new(None),
-        gps: RwLock::new(None),
-        alerts: RwLock::new(Vec::new()),
-        mqtt: RwLock::new(MqttState::Disabled),
-        api: RwLock::new(ApiState::Disabled),
-        paths: paths.clone(),
-        simulated,
-        acq_tx: acq.sender(),
-        hub_tx: hub_tx.clone(),
+    let observer = observer::AppObserver {
+        app: handle.clone(),
         tray: tray.clone(),
-    });
-    app.manage(api_ctl::ApiController::default());
-    api_ctl::apply(&handle, &settings);
-    actions::spawn_mqtt_commands(handle.clone(), mqtt_cmd_rx)?;
-    let hub = hub::spawn(handle.clone(), acq_rx, hub_rx, store, settings, mqtt_cmd_tx)?;
-    app.manage(Workers {
-        acquisition: Mutex::new(Some(acq)),
-        hub: Mutex::new(Some(hub)),
-        _log_guard: log_guard,
+    };
+    let service = Service::start(ServiceConfig {
+        paths: paths.clone(),
+        mode: tower_bridge_service::Mode::Full,
+        simulated,
+        program: "tower-bridge".into(),
+        version: handle.package_info().version.to_string(),
+        observer: Arc::new(observer),
+    })
+    .map_err(|e| match e {
+        // The CLI's service runs with the same data folder.
+        StartError::AlreadyRunning(holder, _) => {
+            let tr = i18n::Lang::effective(settings::LanguagePref::System).tr();
+            anyhow::anyhow!(i18n::fill(
+                tr.already_running,
+                &[("holder", &holder.to_string())]
+            ))
+        }
+        e => e.into(),
+    })?;
+    let first_run = service.first_run;
+    app.manage(AppState {
+        service,
+        tray: tray.clone(),
     });
 
     autostart::refresh(&handle);
     tray.set_open_at_login(autostart::is_enabled(&handle));
     #[cfg(windows)]
     notify::register_aumid(&handle, &paths.data_dir);
-    let _ = hub_tx.send(HubMsg::Init);
 
     if first_run && !autostarted {
         window::show_dashboard(&handle);
@@ -237,80 +172,29 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
     Ok(())
 }
 
-/// Development aid: with `TOWER_BRIDGE_SEED_DAYS=<n>` in simulation mode,
-/// fill an empty database with `n` days of generated readings.
-fn seed_simulated_history(store: &mut Store, interval_ms: u64) {
-    let Some(days) = std::env::var("TOWER_BRIDGE_SEED_DAYS")
-        .ok()
-        .and_then(|v| v.parse::<i64>().ok())
-        .filter(|d| (1..=400).contains(d))
-    else {
-        return;
+/// `tower-bridge --mcp-stdio`: MCP over stdin/stdout, forwarding to the
+/// running app. Runs without starting the GUI.
+fn mcp_stdio(simulated: bool) -> i32 {
+    let Some(paths) = Paths::resolve(None, simulated) else {
+        eprintln!("tower-bridge: cannot determine the data folder");
+        return 1;
     };
-    if !matches!(tower_bridge_core::store::first_ts(store.conn()), Ok(None)) {
-        return;
-    }
-    let step = i64::try_from(interval_ms.max(2_000)).unwrap_or(i64::MAX);
-    let now = tower_bridge_core::acquisition::unix_ms();
-    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
-    let mut noise = || {
-        seed ^= seed << 13;
-        seed ^= seed >> 7;
-        seed ^= seed << 17;
-        (seed >> 11) as f64 / (1u64 << 53) as f64 - 0.5
+    let info = ApiInfo {
+        name: "tower-bridge".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
     };
-    let mut batch = Vec::with_capacity(10_000);
-    let mut ts = now - days * 86_400_000;
-    while ts < now {
-        // The simulated Climate Module on channel 0 and tags on channel 1.
-        for channel in [0u8, 1] {
-            let n = [noise(), noise(), noise(), noise()];
-            let wall = ts as f64 / 1000.0;
-            let mut values = tower_bridge_core::bus::mock::simulated_values(
-                wall - 1800.0 * f64::from(channel),
-                n,
-            );
-            if channel == 1 {
-                values.temperature = values.temperature.map(|t| t - 3.5);
-                values.humidity = values.humidity.map(|h| (h + 9.0).min(100.0));
-                values.illuminance = values.illuminance.map(|l| l * 1.8);
-                values.pressure = values.pressure.map(|p| p + 12.0);
-            }
-            batch.push(tower_bridge_core::model::Reading {
-                ts,
-                device: "SIMULATED".into(),
-                channel,
-                values,
-                altitude: None,
-            });
+    match tower_bridge_service::api::mcp_stdio(&paths, info) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("tower-bridge: {e}");
+            1
         }
-        if batch.len() == 10_000 {
-            let _ = store.insert_many(&batch);
-            batch.clear();
-        }
-        ts += step;
     }
-    let _ = store.insert_many(&batch);
-    info!("seeded {days} days of simulated history");
 }
 
 /// Stop background threads (LED off, device closed).
 pub(crate) fn shutdown(app: &AppHandle, timeout: Duration) {
-    let Some(workers) = app.try_state::<Workers>() else {
-        return;
-    };
     if let Some(state) = app.try_state::<AppState>() {
-        let _ = state.hub_tx.send(HubMsg::Shutdown);
+        state.service.shutdown(timeout);
     }
-    api_ctl::stop(app);
-    if let Some(acq) = workers.acquisition.lock().take() {
-        acq.shutdown(timeout);
-    }
-    if let Some(hub) = workers.hub.lock().take() {
-        let deadline = std::time::Instant::now() + timeout;
-        while !hub.is_finished() && std::time::Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-    info!("stopped");
 }

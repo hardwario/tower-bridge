@@ -4,7 +4,27 @@ Work in progress and open items, kept current so anyone (person or agent) can pi
 
 ## In progress
 
-Nothing. The decisions of 2026-10-18 (below) are done and committed (6b8f2d6).
+**tower-bridge-cli as the headless sibling of the desktop app** (asked for on 2026-10-18). Decided with the user:
+
+- Scope: everyday commands plus `run`, a service without a window (history, alerts, MQTT, REST, MCP), and a terminal dashboard (ratatui), the default of a bare `tower-bridge-cli` in a terminal.
+- Name stays `tower-bridge-cli`; settings, database and data folder are shared with the app; the bring-up commands move under `toolbox`.
+- Commands: `dashboard`, `run`, `status`, `watch`, `relay` (`true`, `false`, `pulse [--ms]`), `gps`, `nfc` (`nfc write <url>`), `identify`, `rescan`, `export` (`--from --to` or `--last 7d`), `alerts`, `config` (`show`, `get`, `set`), `mcp`, `toolbox`. Global `--data-dir`, `--simulate`, `--json`, `--color`. Exit codes 0 ok, 1 error, 2 usage, 3 bridge busy, 4 not found.
+- The REST API gains `GET`/`PUT /api/v1/nfc` and `nfc` and `mqtt` in `/api/v1/status`; MCP gains `read_nfc`.
+
+Steps:
+
+1. Done: `crates/tower-bridge-service`, the app's hub, settings, paths, state, control and API backend, shared by the app and the CLI; an instance lock per data folder.
+2. Done: `Mode::Session` for short CLI commands (nothing recorded, published or served; settings only read).
+3. Done: NFC and MQTT in the API (`GET`/`PUT /api/v1/nfc`, `nfc` and `mqtt` in the status, OpenAPI, api.md). MCP shows the NFC Tag in `get_device_status`, next to the relay and GPS, instead of a separate `read_nfc` tool.
+4. Done: the CLI in modules (`access.rs` decides between a running instance and the bridge; `remote.rs` is the API client); text or NDJSON output; exit codes. Checked against a simulated desktop app holding the bridge.
+5. Done: the terminal dashboard (`tui/`), checked in a pseudo-terminal.
+6. Done: tests (unit, TestBackend renders, assert_cmd contract against the simulated bridge); docs/cli.md (with systemd and launchd examples), README, CHANGELOG, AGENTS, a "Command line" chapter and a troubleshooting entry in all five manuals; release archives of the CLI in release.yml (Linux x86_64 and aarch64 through `cross` with a glibc 2.28 floor, macOS universal, Windows with the static CRT check), a `workflow_dispatch` dry run, and the third-party notices covering the CLI.
+
+Not committed yet. Waiting:
+
+- The release workflow's CLI jobs have never run: start a dry run (Actions, Release, Run workflow) once the repository is on GitHub. The `cross` images may need more packages for aws-lc (cmake, clang) if the Linux builds fail.
+- A 32-bit Raspberry Pi build (`armv7-unknown-linux-gnueabihf`) is not in the matrix yet.
+- Not tried on real hardware: the CLI against the bridge itself (only the simulated bridge, and the desktop app's refusal on the real data folder).
 
 Everything is committed on the branch `feature/channels-manual-mqtt` (not merged into `main` yet).
 

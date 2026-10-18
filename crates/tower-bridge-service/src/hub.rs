@@ -1,34 +1,32 @@
 //! The hub thread: receives readings and device state from the acquisition
-//! thread and fans them out to the database, alert engine, MQTT broker, tray
-//! and dashboard. A single consumer keeps ordering simple.
+//! thread and fans them out to the database, alert engine, MQTT broker and
+//! the front end (through its `Observer`). A single consumer keeps ordering
+//! simple.
 
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select, tick};
-use tauri::{AppHandle, Emitter, Manager};
 use tower_bridge_core::acquisition::AcqEvent;
-use tower_bridge_core::alerts::{AlertEngine, AlertEvent, AlertKind, Bound};
+use tower_bridge_core::alerts::{AlertEngine, AlertEvent};
 use tower_bridge_core::gps::GpsInfo;
-use tower_bridge_core::model::{DeviceState, Metric, Reading, altitude, source_label};
+use tower_bridge_core::model::{DeviceState, Metric, Reading, altitude};
 use tower_bridge_core::mqtt::{self, ClientConfig, LinkEvent, MqttCommand, Publisher};
 use tower_bridge_core::nfc::NfcInfo;
 use tower_bridge_core::relay::RelayInfo;
 use tower_bridge_core::store::Store;
 use tracing::{error, info, warn};
 
-use crate::format;
-use crate::i18n::{Lang, fill};
-use crate::notify;
+use crate::service::Mode;
 use crate::settings::Settings;
-use crate::state::{AppState, MqttState};
+use crate::state::{MqttState, ServiceState};
 
 const RETENTION_EVERY: Duration = Duration::from_secs(3600);
 const DEVICE_LOST_AFTER: Duration = Duration::from_secs(60);
 
 pub enum HubMsg {
-    /// Apply initial settings (MQTT, tray) once the app is set up.
+    /// Apply initial settings (MQTT, retention) once the service is set up.
     Init,
     SettingsChanged {
         old: Arc<Settings>,
@@ -105,7 +103,7 @@ struct MqttClient {
 }
 
 struct Hub {
-    app: AppHandle,
+    state: Arc<ServiceState>,
     store: Option<Store>,
     engine: AlertEngine,
     /// The MQTT broker connection, replaced whenever its settings change.
@@ -117,32 +115,32 @@ struct Hub {
 }
 
 pub fn spawn(
-    app: AppHandle,
+    state: Arc<ServiceState>,
     acq_rx: Receiver<AcqEvent>,
     hub_rx: Receiver<HubMsg>,
     store: Option<Store>,
-    settings: Arc<Settings>,
     mqtt_commands: Sender<MqttCommand>,
 ) -> std::io::Result<JoinHandle<()>> {
     std::thread::Builder::new()
         .name("hub".into())
         .spawn(move || {
+            let engine = AlertEngine::new(state.settings().alerts.clone());
             let mut hub = Hub {
-                app,
+                state,
                 store,
-                engine: AlertEngine::new(settings.alerts.clone()),
+                engine,
                 mqtt: None,
                 mqtt_commands,
                 last_retention: None,
                 presence: Presence::default(),
             };
             // A panic must not silently end storage, alerts and MQTT while
-            // the app looks alive.
+            // the front end looks alive.
             let mut panics = 0u32;
             loop {
                 let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     // After a panic: connect MQTT again (its client went with
-                    // the panic) and refresh what the UI and tray show. Not
+                    // the panic) and refresh what the front end shows. Not
                     // forever, should that panic itself.
                     if (1..=3).contains(&panics) {
                         hub.on_init();
@@ -162,10 +160,6 @@ pub fn spawn(
 }
 
 impl Hub {
-    fn state(&self) -> tauri::State<'_, AppState> {
-        self.app.state::<AppState>()
-    }
-
     fn run(&mut self, acq_rx: &Receiver<AcqEvent>, hub_rx: &Receiver<HubMsg>) {
         let ticker = tick(Duration::from_secs(5));
         loop {
@@ -204,27 +198,19 @@ impl Hub {
         info!("hub stopped");
     }
 
-    fn refresh_tray(&self) {
-        let state = self.state();
-        let settings = state.settings();
-        let device = state.device.read().clone();
-        let latest = state.latest.read().clone();
-        let alerts = state.alerts.read().clone();
-        let mqtt = state.mqtt.read().clone();
-        state
-            .tray
-            .update(&device, &latest, &settings, &alerts, &mqtt);
+    fn refresh(&self) {
+        self.state.observer().refresh(&self.state);
     }
 
     fn on_init(&mut self) {
-        let settings = self.state().settings();
+        let settings = self.state.settings();
         self.apply_mqtt(&settings);
         self.run_retention(&settings);
-        self.refresh_tray();
+        self.refresh();
     }
 
     fn on_reading(&mut self, mut r: Reading) {
-        let settings = self.state().settings();
+        let settings = self.state.settings();
         r.altitude = r
             .values
             .pressure
@@ -238,7 +224,7 @@ impl Hub {
 
         let events = self.engine.evaluate(r.ts, r.channel, &r.values);
         for ev in &events {
-            self.on_alert(ev, &settings);
+            self.on_alert(ev);
         }
         // Also while alerts stay active: their values follow the readings.
         self.publish_active_alerts();
@@ -249,71 +235,38 @@ impl Hub {
             warn!("MQTT publish failed: {e}");
         }
 
-        self.state().set_latest(r.clone());
-        self.refresh_tray();
-        let _ = self.app.emit("reading", &r);
+        self.state.set_latest(r.clone());
+        self.refresh();
+        self.state.observer().reading(&self.state, &r);
     }
 
-    fn on_alert(&mut self, ev: &AlertEvent, settings: &Settings) {
+    fn on_alert(&mut self, ev: &AlertEvent) {
         if let Some(store) = self.store.as_mut()
             && let Err(e) = store.log_alert(ev)
         {
             error!("cannot log alert: {e}");
         }
-        let _ = self.app.emit("alert", ev);
-        if !ev.notify {
-            return;
-        }
-        let unit = settings.temperature_unit;
-        let lang = Lang::effective(settings.language);
-        let tr = lang.tr();
-        let dec = settings.decimal(lang);
-        let value = format::full(ev.metric, ev.value, unit, dec);
-        let limit = format::full(ev.metric, ev.threshold, unit, dec);
-        let vars = [("value", value.as_str()), ("limit", limit.as_str())];
-        let (title, body) = match (ev.kind, ev.bound) {
-            (AlertKind::Triggered, Bound::High) => {
-                (tr.high(ev.metric).to_string(), fill(tr.above_limit, &vars))
-            }
-            (AlertKind::Triggered, Bound::Low) => {
-                (tr.low(ev.metric).to_string(), fill(tr.below_limit, &vars))
-            }
-            (AlertKind::Recovered, _) => (
-                fill(tr.back_to_normal, &[("metric", tr.metric(ev.metric))]),
-                fill(tr.within_limits, &vars),
-            ),
-        };
-        // With the metric measured on several channels, say which one.
-        let device = self.state().device.read().clone();
-        let title = match source_label(device.sources(), ev.metric, ev.channel, tr.channel_n) {
-            Some(source) => format!("{title} · {source}"),
-            None => title,
-        };
-        notify::send(&self.app, &title, &body);
+        self.state.observer().alert(&self.state, ev);
     }
 
     /// Store and announce the active alerts when they changed.
     fn publish_active_alerts(&self) {
         let active = self.engine.active();
-        let state = self.state();
-        if *state.alerts.read() == active {
+        if *self.state.alerts.read() == active {
             return;
         }
-        *state.alerts.write() = active.clone();
-        let _ = self.app.emit("alerts-active", &active);
+        *self.state.alerts.write() = active.clone();
+        self.state.observer().alerts_active(&self.state, &active);
     }
 
     fn on_device(&mut self, d: DeviceState) {
-        if self.presence.device(&d, Instant::now()) {
-            let tr = self.lang().tr();
-            notify::send(&self.app, tr.reconnected_title, tr.reconnected_body);
-        }
+        let back = self.presence.device(&d, Instant::now());
         if let DeviceState::Ready { sources, .. } = &d {
             // A metric no longer measured on a channel (a sensor gone) has no
             // current value, alert or MQTT topic any more.
             let measured: Vec<(Metric, u8)> =
                 sources.iter().map(|s| (s.metric, s.channel)).collect();
-            self.state()
+            self.state
                 .latest
                 .write()
                 .retain(|r| measured.iter().any(|(_, c)| *c == r.channel));
@@ -326,30 +279,33 @@ impl Hub {
                 warn!("MQTT publish failed: {e}");
             }
         }
-        *self.state().device.write() = d.clone();
-        self.refresh_tray();
-        let _ = self.app.emit("device-state", &d);
+        *self.state.device.write() = d.clone();
+        if back {
+            self.state.observer().bridge_back(&self.state);
+        }
+        self.refresh();
+        self.state.observer().device(&self.state, &d);
     }
 
     fn on_relay(&mut self, relay: Option<RelayInfo>) {
-        *self.state().relay.write() = relay;
+        *self.state.relay.write() = relay;
         self.publish_relay();
-        let _ = self.app.emit("relay-state", relay);
+        self.state.observer().relay(&self.state, relay.as_ref());
     }
 
     fn on_nfc(&mut self, nfc: Option<NfcInfo>) {
-        *self.state().nfc.write() = nfc.clone();
-        let _ = self.app.emit("nfc-state", nfc);
+        *self.state.nfc.write() = nfc.clone();
+        self.state.observer().nfc(&self.state, nfc.as_ref());
     }
 
     fn on_gps(&mut self, gps: Option<GpsInfo>) {
-        *self.state().gps.write() = gps.clone();
+        *self.state.gps.write() = gps.clone();
         self.publish_gps();
-        let _ = self.app.emit("gps-state", gps);
+        self.state.observer().gps(&self.state, gps.as_ref());
     }
 
     fn publish_gps(&mut self) {
-        let gps = self.state().gps.read().clone();
+        let gps = self.state.gps.read().clone();
         if let Some(publisher) = self.publisher()
             && let Err(e) = publisher.publish_gps(gps.as_ref())
         {
@@ -358,7 +314,7 @@ impl Hub {
     }
 
     fn publish_relay(&mut self) {
-        let relay = *self.state().relay.read();
+        let relay = *self.state.relay.read();
         if let Some(publisher) = self.publisher()
             && let Err(e) = publisher.publish_relay(relay.as_ref())
         {
@@ -377,7 +333,7 @@ impl Hub {
     /// Everything current, after (re)connecting or a prefix change: the
     /// broker may have lost the retained values.
     fn republish(&mut self) {
-        let latest = self.state().latest.read().clone();
+        let latest = self.state.latest.read().clone();
         if let Some(publisher) = self.publisher() {
             let mut result = publisher.publish_status(true);
             for r in &latest {
@@ -450,13 +406,12 @@ impl Hub {
     }
 
     fn on_tick(&mut self) {
-        let settings = self.state().settings();
+        let settings = self.state.settings();
         if self
             .presence
             .tick(Instant::now(), settings.notify_device_lost)
         {
-            let tr = Lang::effective(settings.language).tr();
-            notify::send(&self.app, tr.lost_title, tr.lost_body);
+            self.state.observer().bridge_lost(&self.state);
         }
         if self
             .last_retention
@@ -464,9 +419,9 @@ impl Hub {
         {
             self.run_retention(&settings);
         }
-        // Readings that stop coming send no event: the tray notices them
-        // getting old here (an unchanged menu is not touched).
-        self.refresh_tray();
+        // Readings that stop coming send no event: summaries notice them
+        // getting old here.
+        self.refresh();
     }
 
     fn run_retention(&mut self, settings: &Settings) {
@@ -487,8 +442,8 @@ impl Hub {
         if old.alerts != new.alerts {
             self.engine.set_rules(new.alerts.clone());
             let active = self.engine.active();
-            *self.state().alerts.write() = active.clone();
-            let _ = self.app.emit("alerts-active", &active);
+            *self.state.alerts.write() = active.clone();
+            self.state.observer().alerts_active(&self.state, &active);
         }
         if old.retention_days != new.retention_days {
             self.run_retention(new);
@@ -497,10 +452,9 @@ impl Hub {
             self.apply_mqtt(new);
         }
         if old.sea_level_pressure_pa != new.sea_level_pressure_pa {
-            // Recompute the altitude of the latest readings for the UI.
+            // Recompute the altitude of the latest readings.
             let latest = {
-                let state = self.state();
-                let mut guard = state.latest.write();
+                let mut guard = self.state.latest.write();
                 for r in guard.iter_mut() {
                     r.altitude = r
                         .values
@@ -510,32 +464,28 @@ impl Hub {
                 guard.clone()
             };
             for r in latest {
-                let _ = self.app.emit("reading", &r);
+                self.state.observer().reading(&self.state, &r);
             }
         }
-        self.refresh_tray();
-    }
-
-    fn lang(&self) -> Lang {
-        Lang::effective(self.state().settings().language)
+        self.refresh();
     }
 
     fn set_mqtt_state(&self, s: MqttState) {
-        *self.state().mqtt.write() = s.clone();
-        self.refresh_tray();
-        let _ = self.app.emit("mqtt-state", &s);
+        *self.state.mqtt.write() = s.clone();
+        self.refresh();
+        self.state.observer().mqtt(&self.state, &s);
     }
 
     fn apply_mqtt(&mut self, settings: &Settings) {
         let m = &settings.mqtt;
-        if !m.enabled {
+        if !m.enabled || self.state.mode != Mode::Full {
             self.stop_mqtt();
             self.set_mqtt_state(MqttState::Disabled);
             return;
         }
         let Some(config) = m.client_config() else {
             self.stop_mqtt();
-            // The dashboard translates this code.
+            // Front ends translate this code.
             self.set_mqtt_state(MqttState::Error {
                 message: "no_host".into(),
             });

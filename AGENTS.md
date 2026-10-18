@@ -34,8 +34,8 @@ npm run dev                                  # browser preview, open http://loca
 npm run tauri dev                            # the real app with hot reload
 TOWER_BRIDGE_SIMULATE=1 npm run tauri dev    # no hardware needed: a simulated bridge with every module
                                              # (Climate Module, tags, relay, CO2, VOC-LP, GPS, NFC)
-cargo run -p tower-bridge-cli -- --help      # hardware CLI: scan, probe, watch, led, i2c-scan, i2c-identify,
-                                             # i2c-read, i2c-write, relay, co2, voc, gps, nfc
+cargo run -p tower-bridge-cli -- --simulate  # the terminal dashboard on the simulated bridge
+cargo run -p tower-bridge-cli -- --help      # status, watch, relay, gps, nfc, export, config, run, toolbox, ...
 ```
 
 A debug binary that embeds the built frontend and needs no dev server:
@@ -85,13 +85,23 @@ crates/tower-bridge-core/   hardware, data and protocols; no Tauri dependency
   store/                    SQLite schema, bucketed history, retention, CSV and XLSX export
   mqtt.rs                   client of the user's broker (rumqttc), publishing, relay commands
   api/                      REST, OpenAPI, MCP (HTTP and stdio), security
-crates/tower-bridge-cli/    command line tool for hardware bring-up
+crates/tower-bridge-service/ the service the app and the CLI share; no Tauri dependency
+  service.rs                start and stop: instance lock, settings, store, acquisition, hub, API (Mode::Full or Session)
+  hub.rs                    fans out acquisition events to the store, alerts, MQTT and the Observer
+  observer.rs               what the service reports to its front end (app: webview, tray, notifications)
+  control.rs                actions shared by the front ends, REST, MCP and MQTT; settings changes
+  state.rs, api.rs          shared state; the API server and its backend; the MCP stdio bridge
+  settings.rs, paths.rs     settings.json with versioned migrations; the data folder
+  lock.rs                   one running instance per data folder (tower-bridge.lock)
+crates/tower-bridge-cli/    tower-bridge-cli: the headless sibling (docs/cli.md)
+  access.rs, remote.rs      reach the bridge: the service here, or a running instance through its API
+  cmd/                      the commands; toolbox.rs holds the bring-up tools
+  tui/                      the terminal dashboard (ratatui): app.rs state and keys, ui.rs drawing, tests.rs
 src-tauri/                  the desktop app (package "tower-bridge")
   lib.rs                    startup, plugins, single instance, flags
-  hub.rs                    fans out acquisition events
-  actions.rs                user actions shared by the UI, tray, REST, MCP and MQTT
+  observer.rs               the service's events as webview events, tray updates and notifications
+  state.rs                  AppState: the Service plus the tray, dereferencing to the service state
   commands.rs               Tauri commands for the webview
-  settings.rs               settings.json with versioned migrations
   tray/, window.rs          tray menu and icon, the dashboard window
   i18n.rs                   tray and notification texts
 src/                        Svelte 5 frontend, no router
@@ -118,6 +128,8 @@ FT260 ─USB HID─> bus ─> acquisition thread ──AcqEvent──> hub threa
 ```
 
 - **Several bridges.** Only the first bridge found is opened. The acquisition thread counts the plugged-in bridges (`Bridges::count`, on its own thread, since it owns the HID access) when one opens, every minute and on Rescan, and reports `DeviceInfo.bridges_connected`; the card and the tray warn above one.
+- **One instance per data folder.** The desktop app, `tower-bridge-cli run` and the CLI dashboard each run the service (`tower-bridge-service`) and take the data folder's lock (`tower-bridge.lock`, an OS file lock that dies with the process). Short CLI commands take it too while they run a `Mode::Session` (nothing recorded, published or served). When the lock is held, CLI commands go through the holder's API server, or stop with exit code 3 when it is off; `config set` always refuses then, since the holder would overwrite the file.
+- **Front ends through an Observer.** The hub reports to an `Observer` after updating the state: the app turns it into webview events, the tray and notifications (`src-tauri/src/observer.rs`), the CLI into its dashboard or log lines. Notification texts and translations stay in the app.
 - **One device owner.** Only the acquisition thread touches the bus. Everything else sends an `AcqCommand` over a channel; replies come back on a one-shot channel. This covers identify, rescan, interval and channel changes, and relay set and pulse.
 - **Sensors on two channels.** The bridge's I²C switch has channels 0 and 1, and both may carry sensors (for example a Climate Module on 0 and tags on 1). `climate::Sensors` probes each part on each channel and names the module from the parts found. Every reading, sensor source, alert, export row and history series carries its channel; channels measured in one cycle share the timestamp. Parts are probed again every minute, and a part that fails three times in a row is dropped.
 - **Measurement cycle.** A channel takes about 1 s because its sensors convert in parallel; channels are measured one after the other. `ClimateModule::measure_with` calls an idle hook while it waits, so relay commands run within about 25 ms instead of after the cycle. When the hook used the bus, the cycle re-selects the I²C switch channel.
@@ -155,6 +167,7 @@ FT260 ─USB HID─> bus ─> acquisition thread ──AcqEvent──> hub threa
 - **Rust:** edition 2024; `unwrap` and `expect` are denied by clippy outside tests. The core crate must not depend on Tauri.
 - **Comments** explain why, not what, at the density of the surrounding code.
 - **Settings migrations:** when a default or a format changes for existing users, bump `SETTINGS_VERSION`, add an upgrade step and test it with a file from the previous version.
+- **The CLI:** English only. Data on stdout, messages on stderr as `error: ...` with an optional `hint: ...` saying the way out. Exit codes 0 ok, 1 error, 2 usage, 3 busy, 4 not found, defined in `main.rs` (`exit`) and listed in `docs/cli.md`; return them with `crate::failure(code, message, hint)`. `--json` prints the API's JSON (one object, or NDJSON with a `type` field for streams). Full product names in text output, short ones in the dashboard. Every new command gets an assert_cmd case in `crates/tower-bridge-cli/tests/cli.rs`, run against `--simulate` in a temporary `--data-dir`.
 
 ## The user manual
 
@@ -177,9 +190,9 @@ The manual is part of the product. It ships inside the app (the Manual tab) and 
 ## Rules for agents
 
 - **Commit only when the user asks.** End commit messages with the attribution line requested in the session.
-- **Respect the user's running copy.** The user runs TOWER Bridge from `/Applications` or from `./target/debug/tower-bridge` with their real data, and it holds the bridge.
+- **Respect the user's running copy.** The user runs TOWER Bridge from `/Applications` or from `./target/debug/tower-bridge` with their real data, and it holds the bridge and the data folder's lock.
   - Never kill or restart it unless the user asks.
-  - Test with `--simulate` or `TOWER_BRIDGE_DATA_DIR=<temp dir>`, and stop test instances by PID.
+  - Test with `--simulate` or `TOWER_BRIDGE_DATA_DIR=<temp dir>` (the CLI also takes `--data-dir`), and stop test instances by PID. A CLI command on the real data folder goes through the user's app (its API server) or refuses with exit code 3.
 - **Only one program can open the FT260 at a time.** The CLI fails while the app holds the device. Ask before freeing it.
 - **Keep TODO.md current.** List what is in progress, what comes next and what waits on hardware or a decision, so the next person can continue without a handover.
 - **Record key learnings.** When you find a hardware quirk, a library pitfall, or a decision whose reason is not obvious from the code, add a dated bullet below in the same change.
@@ -215,7 +228,7 @@ Newest at the end. One bullet per learning, with the date and the reason.
 - 2026-10-17. Svelte 5 `$state` deep-proxies large objects such as a whole History. Use `$state.raw` for data that is replaced whole, and depend on a derived key rather than an array prop that is rebuilt on every render (uPlot otherwise redraws on every reading).
 - 2026-10-17. macOS and Linux render the app with WebKit, Windows with Chromium. WebKit-only layout bugs (like the flex squeeze above) show up only in `npm run test:ui:webkit` (Playwright's WebKit) or on a Mac.
 - 2026-10-17. uPlot leaves series with `show: false` out of drawing, bands, cursor points and the y auto-range, so hiding a chart line needs no data changes (`TimeChart` `lines[].hidden`).
-- 2026-10-17. There is no prettier config or dependency: the TypeScript, CSS and Markdown style is prettier with `--print-width 120`, and Svelte files are not run through prettier. A plain `npx prettier --write` rewraps everything at 80 columns, and objects it splits stay split even after a later run at 120 (prettier keeps an object expanded when a newline follows its `{`).
+- 2026-10-17. There is no prettier config or dependency: the TypeScript and CSS style is prettier with `--print-width 120`; Svelte files are not run through prettier, and neither is Markdown (hand-written, with compact `|---|---|` tables; prettier would pad every table and re-indent code blocks in lists). A plain `npx prettier --write` rewraps everything at 80 columns, and objects it splits stay split even after a later run at 120 (prettier keeps an object expanded when a newline follows its `{`).
 - 2026-10-17. The FT260 reports no USB serial number (hidapi gives none; `tower-bridge-cli scan` shows `serial=-`), so the app names every bridge "ft260" and cannot tell two apart. Discovery opens the first usable one in enumeration order.
 - 2026-10-17. Charts live on the Dashboard only; the History page duplicated them and became the Data page (table, custom range, export) at the user's request.
 - 2026-10-17. Manual screenshots have no reserved size, so a lazily loaded one grows while the page scrolls to a chapter and pushes the chapter away. They load eagerly, and a jump waits for them. During a jump the contents keep the clicked chapter; letting the scroll spy run would sweep the highlight through every chapter passed. Never change the font weight of the active entry: wider text reflows the menu.
@@ -242,3 +255,7 @@ Newest at the end. One bullet per learning, with the date and the reason.
 - 2026-10-18. GitHub Actions on Node 20 are past end of life: checkout, setup-node, upload-artifact and download-artifact need v7 or later (download v8), action-gh-release v3. Actions are pinned to commit SHAs with the version in a comment; `dtolnay/rust-toolchain` pinned to a commit needs `toolchain: stable` spelled out. Look SHAs up with `git ls-remote https://github.com/<repo> 'refs/tags/<tag>^{}'`.
 - 2026-10-18. The hourly summary is recomputed from the hour's readings on every insert (at most 1800 rows per channel at the 2 s minimum interval, under a millisecond) instead of being updated incrementally: `INSERT OR REPLACE` does not fire delete triggers, and a deleted minimum cannot be undone incrementally. Batches refresh each hour once at the end; a test that inserts thousands of rows one by one is slow for that reason. The 30-day chart query fell to about 1 ms per channel.
 - 2026-10-18. A scroll box with a sticky header or column keeps its scrollbar clear of them with `::-webkit-scrollbar-track { margin-top: ... }` (or `margin-left`), sized from the sticky cell (the Data table). It works in WebKit and Chromium because `app.css` styles `::-webkit-scrollbar`; setting the standard `scrollbar-width` or `scrollbar-color` anywhere would make Chromium ignore all of it. Headless Chrome hides scrollbars: check with Playwright's `ignoreDefaultArgs: ["--hide-scrollbars"]`.
+- 2026-10-18. The instance lock is `std::fs::File::try_lock` (flock on Unix, LockFileEx on Windows): it conflicts per open file, also within one process, and dies with the process. Windows does not let another process read a locked file, so the holder's name in the lock file is shown only on Unix. A test that starts `run` in the background must wait for the lock (`InstanceLock::holder`) before running other commands: one started earlier opens its own session, takes the lock, and the service then refuses to start.
+- 2026-10-18. The CLI dashboard sends tracing into a ring buffer shown in its log pane (`tui::LogBuffer`, a `MakeWriter`): anything on stderr tears a raw-mode screen. The bridge is opened before `ratatui::try_init`, so a failure prints as a normal error; Ctrl+C arrives as a key in raw mode, SIGTERM through `ctrlc`.
+- 2026-10-18. A GPS Module is announced with the receiver's first report, about 5 s after detection, because its expander's address is generic and only the receiver confirms the module. `status` in a short session therefore may not show it; `gps` waits up to 12 s for it.
+- 2026-10-18. `Terminal::new(TestBackend)` cannot fail (its error is `Infallible`): write `let Ok(terminal) = ...;` without `else`, or clippy flags an unreachable branch.

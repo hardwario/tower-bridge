@@ -9,7 +9,9 @@ const tomlVersion = (file) => /^version\s*=\s*"([^"]+)"/m.exec(readFileSync(file
 const workspace = tomlVersion("Cargo.toml");
 const app = tomlVersion("src-tauri/Cargo.toml");
 const heading = /^## (\S+)(.*)$/m.exec(readFileSync("CHANGELOG.md", "utf8"));
-const tag = (process.argv[2] ?? process.env.GITHUB_REF_NAME ?? "").replace(/^v/, "");
+// In GitHub Actions the ref is a tag only for releases; a branch name is no version.
+const fromEnv = process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_REF_NAME : undefined;
+const tag = (process.argv[2] ?? fromEnv ?? "").replace(/^v/, "");
 
 const problems = [];
 if (pkg !== workspace) problems.push(`package.json ${pkg} != Cargo.toml (workspace) ${workspace}`);

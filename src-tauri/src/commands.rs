@@ -165,7 +165,7 @@ pub async fn get_alert_log(app: AppHandle, limit: Option<usize>) -> CmdResult<Ve
 
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: Settings) -> CmdResult<Settings> {
-    let saved = crate::actions::apply_settings(&app, settings)?;
+    let saved = app.state::<AppState>().apply_settings(settings)?;
     Ok((*saved).clone())
 }
 
@@ -311,7 +311,7 @@ pub fn send_test_notification(app: AppHandle) {
 /// Blink the bridge LED; resolves when the blinking has finished.
 #[tauri::command]
 pub async fn identify_device(app: AppHandle) -> CmdResult<()> {
-    tauri::async_runtime::spawn_blocking(move || crate::actions::identify(&app))
+    tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().identify())
         .await?
         .map_err(acq_error)
 }
@@ -319,7 +319,7 @@ pub async fn identify_device(app: AppHandle) -> CmdResult<()> {
 /// Switch the Relay Module to `true` or `false`; resolves with its new state.
 #[tauri::command]
 pub async fn set_relay(app: AppHandle, state: bool) -> CmdResult<RelayInfo> {
-    tauri::async_runtime::spawn_blocking(move || crate::actions::set_relay(&app, state))
+    tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().set_relay(state))
         .await?
         .map_err(acq_error)
 }
@@ -344,7 +344,7 @@ pub fn open_map(app: AppHandle, latitude: f64, longitude: f64) -> CmdResult<()> 
 /// Write a URL to the NFC Tag; resolves with what the tag holds afterwards.
 #[tauri::command]
 pub async fn write_nfc_url(app: AppHandle, url: String) -> CmdResult<NfcInfo> {
-    tauri::async_runtime::spawn_blocking(move || crate::actions::write_nfc_url(&app, url))
+    tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().write_nfc_url(url))
         .await?
         .map_err(acq_error)
 }
@@ -358,15 +358,17 @@ pub async fn pulse_relay(
     duration_ms: Option<f64>,
 ) -> CmdResult<RelayInfo> {
     let duration = duration_ms.and_then(tower_bridge_core::relay::pulse_from_ms);
-    tauri::async_runtime::spawn_blocking(move || crate::actions::pulse_relay(&app, state, duration))
-        .await?
-        .map_err(acq_error)
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<AppState>().pulse_relay(state, duration)
+    })
+    .await?
+    .map_err(acq_error)
 }
 
 /// Detect the Climate Module again; resolves with what was found.
 #[tauri::command]
 pub async fn rescan_device(app: AppHandle) -> CmdResult<RescanOutcome> {
-    tauri::async_runtime::spawn_blocking(move || crate::actions::rescan(&app))
+    tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().rescan())
         .await?
         .map_err(acq_error)
 }

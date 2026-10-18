@@ -153,9 +153,20 @@ Se zapnutým **Povolit ovládání relé** přijímá relé `true` nebo `false` 
 
 Volitelný místní server nabízí REST API, metriky pro Prometheus a server MCP pro AI asistenty; ve výchozím stavu je vypnutý. Změny, jako jsou limity upozornění nebo přepínání relé, vyžadují **Povolit změny**. Jiné počítače musí posílat přístupový token uvedený v nastavení.
 
+## Příkazová řádka {#cli}
+
+`tower-bridge-cli` je sourozenec této aplikace bez okna, pro terminál nebo počítač bez plochy, třeba Raspberry Pi vedle bridge. Sdílí nastavení a historii této aplikace:
+
+- samotné `tower-bridge-cli` otevře nástěnku v terminálu: hodnoty s grafy, relé, GPS, NFC, upozornění a protokol;
+- `status`, `watch`, `relay`, `gps`, `nfc` a `export` vypíšou totéž co aplikace, jako text nebo jako JSON pro skripty;
+- `tower-bridge-cli run` dělá totéž co tato aplikace, jen bez okna: ukládá historii, hlídá limity upozornění, publikuje do MQTT a nabízí [API](#api).
+
+Běží vždy jen jedno z nich, protože bridge může používat jen jeden program. Když běží tato aplikace, příkazy jdou přes její API server, proto ho zapněte v části [API a MCP](#api); přepínání relé odtud vyžaduje **Povolit změny**. Úplný popis je v souboru docs/cli.md ve zdrojovém kódu.
+
 ## Řešení potíží {#troubleshooting}
 
 - **Zařízení není připojeno:** zkontrolujte kabel USB. Zařízení může současně používat jen jeden program, ukončete proto jiné nástroje, které ho mohou držet.
+- **Už běží jiný TOWER Bridge:** bridge a data této aplikace drží `tower-bridge-cli run` nebo jeho nástěnka. Ukončete ho a spusťte aplikaci znovu.
 - **Chybí oprávnění (Linux):** nainstalujte [pravidlo udev](#install) a zařízení znovu připojte.
 - **Senzory nenalezeny:** zkontrolujte, že jsou moduly a tagy dobře zasunuté, a stiskněte **Hledat znovu**. Kanály I²C nechte na „Automaticky“, nebo nastavte kanál, ke kterému jsou připojeny.
 - **Stav relé je neznámý:** přepněte relé jednou pomocí Aktivovat TRUE nebo Aktivovat FALSE.

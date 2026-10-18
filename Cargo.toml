@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/tower-bridge-core", "crates/tower-bridge-cli", "src-tauri"]
+members = ["crates/tower-bridge-core", "crates/tower-bridge-service", "crates/tower-bridge-cli", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +12,7 @@ rust-version = "1.99"
 
 [workspace.dependencies]
 tower-bridge-core = { path = "crates/tower-bridge-core" }
+tower-bridge-service = { path = "crates/tower-bridge-service" }
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }

@@ -95,7 +95,8 @@ pub fn document(info: &ApiInfo) -> Value {
             "/api/v1/openapi.json": { "get": { "summary": "This document", "responses": guarded(json!({ "200": { "description": "OpenAPI 3.1" } })) } },
             "/api/v1/status": { "get": {
                 "summary": "App and device status: version, device state with the module, sensor and address behind each value, \
-    the relay, the measurement interval (sample_interval_ms), last reading time, active alerts, whether MCP and changes are on",
+    the relay, the NFC Tag, the MQTT connection (status disabled, connecting, connected or error), the measurement interval \
+    (sample_interval_ms), last reading time, active alerts, whether MCP and changes are on",
                 "responses": guarded(json!({ "200": { "description": "Status" } })) } },
             "/api/v1/readings/latest": { "get": {
                 "summary": "Latest reading of each I2C channel",
@@ -152,6 +153,21 @@ pub fn document(info: &ApiInfo) -> Value {
                 "get": { "summary": "GPS Module: fix, position (WGS 84 degrees), altitude (m above sea level), horizontal accuracy (m), satellites, UTC time (Unix ms)",
                     "responses": guarded(json!({ "200": { "description": "GPS" },
                         "404": { "description": "No GPS Module connected (code no_gps)", "content": error["content"].clone() } })) }
+            },
+            "/api/v1/nfc": {
+                "get": { "summary": "TOWER NFC Tag: I2C channel and address, chip, the URL on it (null when none), whether it is NDEF formatted",
+                    "responses": guarded(json!({ "200": { "description": "NFC Tag" },
+                        "404": { "description": "No NFC Tag connected (code no_nfc)", "content": error["content"].clone() } })) },
+                "put": { "summary": "Write a URL to the NFC Tag, which phones open when they touch it; https:// is added when the \
+    address has no scheme; at most 240 bytes", "description": control,
+                    "requestBody": { "required": true, "content": { "application/json": { "schema": {
+                        "type": "object", "required": ["url"],
+                        "properties": { "url": { "type": "string", "maxLength": 240 } } } } } },
+                    "responses": guarded(json!({ "200": { "description": "What the tag holds afterwards" },
+                        "400": { "description": "No URL given, or longer than 240 bytes", "content": error["content"].clone() },
+                        "404": { "description": "No NFC Tag connected (code no_nfc)", "content": error["content"].clone() },
+                        "500": { "description": "Writing to the tag failed", "content": error["content"].clone() },
+                        "503": unavailable.clone() })) }
             },
             "/api/v1/relay": {
                 "get": { "summary": "Relay Module state (true, false or null when unknown)",

@@ -139,7 +139,7 @@ pub struct AlertEvent {
     pub notify: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ActiveAlert {
     pub metric: Metric,

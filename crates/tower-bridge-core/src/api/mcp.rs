@@ -174,8 +174,8 @@ pub fn tool_definitions(allow_control: bool) -> Vec<Value> {
             "title": "Device status",
             "description": "Connection state of the TOWER Bridge Module, the modules and sensors found on \
         each I2C channel, the measurement interval, the Relay Module state (true, false, or null when \
-        unknown) and the GPS position (fix, latitude, longitude, altitude, satellites) when a GPS Module \
-        is connected.",
+        unknown), the GPS position (fix, latitude, longitude, altitude, satellites) when a GPS Module \
+        is connected, and the URL on the TOWER NFC Tag when one is connected.",
             "inputSchema": empty_schema(),
             "annotations": read_only,
         }),
@@ -807,6 +807,9 @@ impl McpServer {
         }
         out["relay"] = self.backend.relay().map_or(Value::Null, |r| relay_json(&r));
         out["gps"] = self.backend.gps().map_or(Value::Null, |g| json!(g));
+        out["nfc"] = self.backend.nfc().map_or(Value::Null, |n| {
+            json!({ "url": n.url, "i2c_channel": n.channel, "i2c_address": format!("0x{:02X}", n.address) })
+        });
         out
     }
 

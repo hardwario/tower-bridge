@@ -1,0 +1,27 @@
+[package]
+name = "tower-bridge-service"
+description = "The headless TOWER Bridge service shared by the desktop app and the CLI: settings, data folder, storage, alerts, MQTT and the local API"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tower-bridge-core = { workspace = true, features = ["store", "mqtt", "api", "xlsx"] }
+chrono.workspace = true
+crossbeam-channel.workspace = true
+dirs = "7"
+getrandom = "0.4"
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

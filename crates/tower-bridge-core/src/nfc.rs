@@ -277,6 +277,23 @@ fn write_block(
     }
 }
 
+/// A bare host name gets `https://`; anything with a scheme stays as it is
+/// (the rule of the dashboard's NFC card).
+pub fn with_scheme(url: &str) -> String {
+    let url = url.trim();
+    let mut chars = url.chars();
+    let scheme = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && url.split_once(':').is_some_and(|(s, _)| {
+            s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
+        });
+    if url.is_empty() || scheme {
+        url.to_string()
+    } else {
+        format!("https://{url}")
+    }
+}
+
 /// An NDEF message with one URI record, as a TLV with the terminator.
 pub fn ndef_tlv(url: &str) -> Result<Vec<u8>, NfcError> {
     if url.trim().is_empty() {
@@ -418,6 +435,18 @@ mod tests {
     #[test]
     fn rejects_empty_and_long_urls() {
         assert!(matches!(ndef_tlv(" "), Err(NfcError::Empty)));
+        assert_eq!(
+            with_scheme(" hardwario.com/tower "),
+            "https://hardwario.com/tower"
+        );
+        assert_eq!(with_scheme("http://x.io"), "http://x.io");
+        assert_eq!(with_scheme("tel:+420123"), "tel:+420123");
+        assert_eq!(
+            with_scheme("localhost:8080"),
+            "localhost:8080",
+            "reads as a scheme, as in the card"
+        );
+        assert_eq!(with_scheme(""), "");
         let long = format!("https://example.com/{}", "a".repeat(MAX_URL));
         assert!(matches!(ndef_tlv(&long), Err(NfcError::TooLong)));
     }

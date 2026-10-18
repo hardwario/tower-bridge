@@ -5,13 +5,29 @@ use tower_bridge_core::model::{Metric, celsius_to_fahrenheit};
 use std::sync::OnceLock;
 
 use crate::i18n::Lang;
-use crate::settings::{TemperatureUnit, TimeFormat};
+use crate::settings::{DecimalSeparator, Settings, TemperatureUnit, TimeFormat};
 
 /// The decimal separator of displayed numbers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decimal {
     Point,
     Comma,
+}
+
+/// What the app adds to the shared settings.
+pub trait SettingsExt {
+    /// The decimal separator to show numbers with.
+    fn decimal(&self, lang: Lang) -> Decimal;
+}
+
+impl SettingsExt for Settings {
+    fn decimal(&self, lang: Lang) -> Decimal {
+        match self.decimal_separator {
+            DecimalSeparator::Auto => lang.into(),
+            DecimalSeparator::Point => Decimal::Point,
+            DecimalSeparator::Comma => Decimal::Comma,
+        }
+    }
 }
 
 /// The language's usual separator.

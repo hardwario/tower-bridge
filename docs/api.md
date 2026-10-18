@@ -50,7 +50,7 @@ alerts carry their `channel`.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/v1/status` | App version, device state (with the channel, module, sensor and I²C address behind each value), the relay, `sample_interval_ms`, last reading time, active alerts, whether `mcp` and `allow_control` are on |
+| GET | `/api/v1/status` | App version, device state (with the channel, module, sensor and I²C address behind each value), the relay, the NFC Tag (`nfc`), the MQTT connection (`mqtt`: `{"status": "connected", "address": "broker:1883"}`, or `disabled`, `connecting` with the last `error`, `error` with a `message`), `sample_interval_ms`, last reading time, active alerts, whether `mcp` and `allow_control` are on |
 | GET | `/api/v1/readings/latest` | Latest reading of each channel (`stale: true` while the bridge is disconnected); 404 `no_data` before the first measurement |
 | GET | `/api/v1/readings?hours=24&max_points=500` | Averaged history (`from`, `to` also accepted), columnar like the dashboard charts |
 | GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV, one row per measurement and channel |
@@ -64,6 +64,8 @@ alerts carry their `channel`.
 | PUT | `/api/v1/relay` | `{"state": true}` or `false`; ends a running pulse *(changes)* |
 | POST | `/api/v1/relay/pulse` | Switch to a state for a while, then back. Body optional: `{"state": false, "duration_ms": 2000}`; defaults are the opposite state (or, while a pulse runs, extending it) and the configured length *(changes)* |
 | GET | `/api/v1/gps` | GPS Module: `{"channel": 0, "fix": true, "satellites": 9, "latitude": 50.771168, "longitude": 15.056328, "altitude": 374.2, "accuracy": 3.1, "time": 1792245600000}`; position, altitude (m above sea level) and accuracy (m) are `null` without a fix; 404 without a GPS Module |
+| GET | `/api/v1/nfc` | TOWER NFC Tag: `{"channel": 0, "address": 8, "part": "NT3H2111", "url": "https://www.hardwario.com", "formatted": true}`; `url` is `null` when the tag holds none; 404 `no_nfc` without a tag |
+| PUT | `/api/v1/nfc` | `{"url": "https://example.com"}`: write a URL that phones open when they touch the tag, at most 240 bytes; `https://` is added when the address has no scheme. Returns what the tag holds afterwards *(changes)* |
 | GET | `/metrics` | Prometheus text format |
 
 Errors are JSON: `{"error": {"code": "…", "message": "…"}}`.
@@ -129,7 +131,7 @@ The tools use friendly units (°C, %, lx, **hPa**, ppm, ppb):
 | `get_current_readings` | Latest values of each channel with the module that measured them, measurement time, active alerts |
 | `get_history` | Averaged points and min/avg/max per channel for `hours` back or a `from`/`to` range |
 | `get_alerts` | Alert limits, active alerts, recent events (with the channel) |
-| `get_device_status` | Bridge status, the modules and sensors on each channel with their I²C addresses, interval, relay state, GPS position |
+| `get_device_status` | Bridge status, the modules and sensors on each channel with their I²C addresses, interval, relay state, GPS position, the URL on the NFC Tag |
 | `set_alert_threshold` | Change one metric's limits *(only with "Allow changes")* |
 | `identify_device` | Blink the bridge LED *(only with "Allow changes")* |
 | `set_relay` | Switch the Relay Module: `state` `true` or `false` *(only with "Allow changes")* |
@@ -172,6 +174,17 @@ The settings page shows the exact snippet. On macOS:
 On Windows, use the path of the portable exe. On Linux, use the path of the
 AppImage. If the app is not running, the tools say so instead of failing
 silently.
+
+`tower-bridge-cli mcp` does the same and suits a computer without the desktop
+app, where `tower-bridge-cli run` is the service ([cli.md](cli.md)):
+
+```json
+{
+  "mcpServers": {
+    "tower-bridge": { "command": "tower-bridge-cli", "args": ["mcp"] }
+  }
+}
+```
 
 ### Testing
 

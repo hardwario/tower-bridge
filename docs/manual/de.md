@@ -153,9 +153,20 @@ Mit eingeschaltetem **Relaissteuerung erlauben** nimmt das Relais `true` oder `f
 
 Der optionale lokale Server bietet eine REST-API, Prometheus-Metriken und einen MCP-Server für KI-Assistenten; standardmäßig ist er aus. Änderungen wie Alarmgrenzen oder das Schalten des Relais erfordern **Änderungen erlauben**. Andere Computer müssen das in den Einstellungen angezeigte Zugriffstoken senden.
 
+## Kommandozeile {#cli}
+
+`tower-bridge-cli` ist das Geschwister dieser App ohne Fenster, für ein Terminal oder einen Rechner ohne Desktop, etwa einen Raspberry Pi neben der Bridge. Es teilt die Einstellungen und den Verlauf dieser App:
+
+- `tower-bridge-cli` allein öffnet ein Dashboard im Terminal: die Werte mit Diagrammen, das Relais, GPS, NFC, Alarme und das Protokoll;
+- `status`, `watch`, `relay`, `gps`, `nfc` und `export` geben aus, was die App zeigt, als Text oder als JSON für Skripte;
+- `tower-bridge-cli run` tut, was diese App tut, nur ohne Fenster: Es speichert den Verlauf, überwacht die Alarmgrenzen, veröffentlicht per MQTT und bietet die [API](#api).
+
+Es läuft immer nur eines davon, denn nur ein Programm kann die Bridge benutzen. Solange diese App läuft, gehen die Befehle über ihren API-Server; schalten Sie ihn deshalb unter [API und MCP](#api) ein. Das Relais von dort zu schalten erfordert **Änderungen erlauben**. Die vollständige Beschreibung steht in docs/cli.md im Quellcode.
+
 ## Fehlerbehebung {#troubleshooting}
 
 - **Gerät nicht verbunden:** Prüfen Sie das USB-Kabel. Nur ein Programm kann das Gerät gleichzeitig nutzen; beenden Sie daher andere Werkzeuge, die es belegen könnten.
+- **Es läuft bereits ein anderes TOWER Bridge:** `tower-bridge-cli run` oder sein Dashboard hält die Bridge und die Daten dieser App. Beenden Sie es und starten Sie die App erneut.
 - **Keine Berechtigung (Linux):** Installieren Sie die [udev-Regel](#install) und schließen Sie das Gerät neu an.
 - **Keine Sensoren gefunden:** Prüfen Sie, ob Module und Tags richtig sitzen, und drücken Sie **Neu suchen**. Lassen Sie die I²C-Kanäle auf „Automatisch“ oder stellen Sie den Kanal ein, an dem sie angeschlossen sind.
 - **Relaiszustand unbekannt:** Schalten Sie das Relais einmal mit TRUE aktivieren oder FALSE aktivieren.
