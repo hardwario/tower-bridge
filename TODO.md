@@ -4,9 +4,9 @@ Work in progress and open items, kept current so anyone (person or agent) can pi
 
 ## In progress
 
-Nothing. The decisions of 2026-10-18 (below) are done but not committed: the JSON duration rename, the limit bands, the third-party notices, the workflow pinning and the hourly summary table.
+Nothing. The decisions of 2026-10-18 (below) are done and committed (6b8f2d6).
 
-The work up to the morning of 2026-10-18 is committed on the branch `feature/channels-manual-mqtt` (a674771, not merged into `main` yet).
+Everything is committed on the branch `feature/channels-manual-mqtt` (not merged into `main` yet).
 
 ## Overnight review, 2026-10-18 (committed)
 
