@@ -69,10 +69,18 @@ pub fn show_dashboard(app: &AppHandle) {
     if let Some(color) = background(theme) {
         builder = builder.background_color(color);
     }
-    if let Some(dir) = app
-        .try_state::<AppState>()
-        .and_then(|s| s.paths.webview_dir())
+    if let Some(state) = app.try_state::<AppState>()
+        && let Some(dir) = state.paths.webview_dir()
     {
+        // WKWebView takes no folder; macOS 14 and newer take a store id.
+        #[cfg(target_os = "macos")]
+        {
+            let mut id = [0u8; 16];
+            for (i, b) in dir.to_string_lossy().bytes().enumerate() {
+                id[i % 16] = id[i % 16].wrapping_mul(31).wrapping_add(b);
+            }
+            builder = builder.data_store_identifier(id);
+        }
         builder = builder.data_directory(dir);
     }
     match builder.build() {

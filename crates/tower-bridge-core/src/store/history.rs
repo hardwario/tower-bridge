@@ -26,6 +26,9 @@ const LADDER: &[i64] = &[
     6 * HOUR,
     12 * HOUR,
     24 * HOUR,
+    2 * 24 * HOUR,
+    7 * 24 * HOUR,
+    30 * 24 * HOUR,
 ];
 
 #[derive(Clone, Debug)]
@@ -116,7 +119,7 @@ pub fn bucket_for(span_ms: i64, max_points: usize, sample_interval_ms: i64) -> i
         .iter()
         .copied()
         .find(|b| *b >= target && *b >= floor)
-        .unwrap_or(24 * HOUR)
+        .unwrap_or(30 * 24 * HOUR)
 }
 
 /// Buckets of the readings themselves.
@@ -133,7 +136,9 @@ const FROM_READINGS: &str = "SELECT (ts / ?1) * ?1 AS b, channel,
 /// Buckets of hours: the whole hours inside the range from the hourly
 /// summary, the parts of the first and last hour from the readings, so a
 /// bucket holds exactly the readings of `[from, to)` as with
-/// `FROM_READINGS`. `?4` is the first whole hour, `?5` the end of the last.
+/// `FROM_READINGS`. `?4` is the first whole hour, `?5` the end of the last;
+/// the edges are `[from, ?6)` and `[?7, to)`, two ranges SQLite looks up by
+/// the index (one condition with an OR inside made it scan the whole range).
 const FROM_HOURS: &str = "SELECT (hour / ?1) * ?1 AS b, channel,
         SUM(temperature_sum) / SUM(temperature_n), MIN(temperature_min), MAX(temperature_max),
         SUM(humidity_sum) / SUM(humidity_n), MIN(humidity_min), MAX(humidity_max),
@@ -152,7 +157,7 @@ const FROM_HOURS: &str = "SELECT (hour / ?1) * ?1 AS b, channel,
                 pressure, pressure IS NOT NULL, pressure, pressure,
                 co2, co2 IS NOT NULL, co2, co2,
                 voc, voc IS NOT NULL, voc, voc
-            FROM readings WHERE ts >= ?2 AND ts < ?3 AND (ts < ?4 OR ts >= ?5)
+            FROM readings WHERE (ts >= ?2 AND ts < ?6) OR (ts >= ?7 AND ts < ?3)
     )
     GROUP BY b, channel ORDER BY b, channel";
 
@@ -166,6 +171,9 @@ fn rows(conn: &Connection, bucket: i64, from: i64, to: i64, hours: bool) -> Resu
         floor.saturating_add(HOUR)
     };
     let whole_end = to.div_euclid(HOUR) * HOUR;
+    // Inside one hour there are no whole hours: the first edge is all of it.
+    let first_edge_end = first_whole.min(to);
+    let last_edge_start = whole_end.max(from).max(first_edge_end);
     let map = |r: &rusqlite::Row<'_>| {
         let mut values = [[None; 3]; METRICS];
         for (m, v) in values.iter_mut().enumerate() {
@@ -180,8 +188,19 @@ fn rows(conn: &Connection, bucket: i64, from: i64, to: i64, hours: bool) -> Resu
         })
     };
     let rows = if hours {
-        stmt.query_map(params![bucket, from, to, first_whole, whole_end], map)?
-            .collect::<rusqlite::Result<_>>()?
+        stmt.query_map(
+            params![
+                bucket,
+                from,
+                to,
+                first_whole,
+                whole_end,
+                first_edge_end,
+                last_edge_start
+            ],
+            map,
+        )?
+        .collect::<rusqlite::Result<_>>()?
     } else {
         stmt.query_map(params![bucket, from, to], map)?
             .collect::<rusqlite::Result<_>>()?
@@ -189,7 +208,16 @@ fn rows(conn: &Connection, bucket: i64, from: i64, to: i64, hours: bool) -> Resu
     Ok(rows)
 }
 
+/// Times a history can ask for: from 1970 to the year 2970, so nothing
+/// near the ends of `i64` overflows in the bucket arithmetic.
+const TIME_RANGE: std::ops::RangeInclusive<i64> = 0..=31_536_000_000_000;
+
 pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
+    let q = &HistoryQuery {
+        from: q.from.clamp(*TIME_RANGE.start(), *TIME_RANGE.end()),
+        to: q.to.clamp(*TIME_RANGE.start(), *TIME_RANGE.end()),
+        ..q.clone()
+    };
     let bucket = bucket_for(
         q.to.saturating_sub(q.from),
         q.max_points,
@@ -441,6 +469,39 @@ mod tests {
         assert_same(s.conn(), HOUR, 0, 4 * 24 * HOUR)?;
         let hours = rows(s.conn(), HOUR, 3 * 24 * HOUR, 4 * 24 * HOUR, true)?;
         assert_eq!(hours.len(), 2, "both hours the older build wrote");
+        Ok(())
+    }
+
+    #[test]
+    fn the_edges_are_looked_up_not_scanned() -> crate::store::Result<()> {
+        let mut s = Store::open_in_memory()?;
+        three_days(&mut s)?;
+        // Inside one hour: all of it is an edge, counted once.
+        assert_same(
+            s.conn(),
+            HOUR,
+            10 * HOUR + 5 * MINUTE,
+            10 * HOUR + 50 * MINUTE,
+        )?;
+        let plan: Vec<String> = s
+            .conn()
+            .prepare(&format!("EXPLAIN QUERY PLAN {FROM_HOURS}"))?
+            .query_map(params![HOUR, 0, 1, 2, 3, 4, 5], |r| r.get::<_, String>(3))?
+            .collect::<rusqlite::Result<_>>()?;
+        assert!(
+            plan.iter().any(|l| l.contains("MULTI-INDEX OR")),
+            "the two edge ranges use the index: {plan:?}"
+        );
+        // Times near the ends of i64 do not overflow.
+        let q = |from: i64, to: i64| HistoryQuery {
+            from,
+            to,
+            max_points: 48,
+            sample_interval_ms: 20_000,
+        };
+        query(s.conn(), &q(i64::MIN, i64::MAX))?;
+        let h = query(s.conn(), &q(0, 400 * 24 * HOUR))?;
+        assert!(h.t.len() <= 48, "{} points for 48", h.t.len());
         Ok(())
     }
 

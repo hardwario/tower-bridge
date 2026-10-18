@@ -61,7 +61,9 @@ export function fmtInput(v: number): string {
 
 /** Parse user input accepting "," or "." as decimal separator. */
 export function parseInput(s: string): number {
-  return Number(s.trim().replace(/\s/g, "").replace(",", "."));
+  const text = s.trim().replace(/\s/g, "").replace(",", ".");
+  // Number("") is 0: an emptied field is no value.
+  return text === "" ? NaN : Number(text);
 }
 
 /** Shown where a value is missing. */
@@ -192,6 +194,8 @@ export function excelDateTimeFormat(): string {
 
 /** Chart axis label: clock time for short ranges, date for long ones. */
 export function fmtAxis(ts: number, spanMs: number): string {
+  // Zoomed into minutes, ticks are seconds apart: show them.
+  if (spanMs <= 600_000) return fmtClock(ts, true);
   return spanMs <= 2 * 86_400_000 ? fmtClock(ts) : fmtDayMonth(ts);
 }
 

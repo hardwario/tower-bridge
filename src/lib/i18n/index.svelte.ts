@@ -59,6 +59,16 @@ export function fill(template: string, vars: Record<string, string | number>): s
 const rulesCache = new Map<string, Intl.PluralRules>();
 
 /** Pick the plural form for `n` and fill `{n}` (locale formatted) and `vars`. */
+/** A number with the chosen decimal separator (as `separated` in format.ts). */
+function number(f: Intl.NumberFormat, v: number): string {
+  if (i18n.decimal === "auto") return f.format(v);
+  const decimal = i18n.decimal === "comma" ? "," : ".";
+  return f
+    .formatToParts(v)
+    .map((p) => (p.type === "decimal" ? decimal : p.type === "group" && p.value === decimal ? "\u202f" : p.value))
+    .join("");
+}
+
 export function plural(forms: Plural, n: number, vars: Record<string, string | number> = {}): string {
   const locale = i18n.locale;
   let rules = rulesCache.get(locale);
@@ -68,7 +78,7 @@ export function plural(forms: Plural, n: number, vars: Record<string, string | n
   }
   const category = rules.select(n) as keyof Plural;
   const template = forms[category] ?? forms.other;
-  return fill(template, { n: new Intl.NumberFormat(locale).format(n), ...vars });
+  return fill(template, { n: number(new Intl.NumberFormat(locale), n), ...vars });
 }
 
 export function resolveLang(pref: LanguagePref, system: Lang | undefined): Lang {

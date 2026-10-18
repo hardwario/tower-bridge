@@ -6,10 +6,11 @@ TOWER Bridge can run a small HTTP server with:
 - **Prometheus metrics** (`/metrics`) for Grafana and friends,
 - an **MCP server** (`/mcp`) so AI assistants can read the sensors.
 
-Everything is off by default: the API server, the MCP endpoint (a separate
-switch) and MQTT. Turn them on in **Settings → API & MCP**. The
-server can be turned off or moved to another port at any time; no restart is
-needed.
+Everything is off by default: the API server and the MCP endpoint (a separate
+switch). Turn them on in **Settings → API & MCP** (MQTT is in **Settings →
+MQTT**), or with `tower-bridge-cli config set api.enabled true` and
+`api.mcp true` for `tower-bridge-cli run`. The server can be turned off or
+moved to another port at any time; no restart is needed.
 
 ## Access
 
@@ -54,7 +55,7 @@ alerts carry their `channel`.
 | GET | `/api/v1/status` | App version, device state (with the channel, module, sensor and I²C address behind each value), the relay, the NFC Tag (`nfc`), the MQTT connection (`mqtt`: `{"status": "connected", "address": "broker:1883"}`, or `disabled`, `connecting` with the last `error`, `error` with a `message`), `sample_interval_ms`, last reading time, active alerts, whether `mcp` and `allow_control` are on |
 | GET | `/api/v1/readings/latest` | Latest reading of each channel (`stale: true` while the bridge is disconnected); 404 `no_data` before the first measurement |
 | GET | `/api/v1/readings?hours=24&max_points=500` | Averaged history (`from`, `to` also accepted), columnar like the dashboard charts |
-| GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV, one row per measurement and channel |
+| GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV, one row per measurement and channel, as the app exports them: the temperature in the unit of the settings (`temperature_c` or `temperature_f`), pressure in hPa; the headers name the units |
 | GET | `/api/v1/alerts` | Alert rules and active alerts |
 | GET | `/api/v1/alerts/log?limit=50` | Recent alert events |
 | GET | `/api/v1/alerts/{metric}` | One rule (`temperature`, `humidity`, `illuminance`, `pressure`, `co2`, `voc`) |

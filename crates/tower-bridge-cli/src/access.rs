@@ -242,6 +242,10 @@ impl Access {
             if done || started.elapsed() > timeout {
                 return Ok(snap);
             }
+            if crate::stop::requested() {
+                self.close();
+                return Err(crate::failure(exit::INTERRUPTED, "stopped", None));
+            }
             std::thread::sleep(Duration::from_millis(100));
         }
     }

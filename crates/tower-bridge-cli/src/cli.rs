@@ -13,7 +13,7 @@ Settings and history are shared with the TOWER Bridge desktop app. While the app
 or `tower-bridge-cli run` holds the bridge, commands reach it through its API
 server (in the app: Settings, API & MCP; here: `config set api.enabled true`).
 
-Exit codes: 0 ok, 1 error, 2 usage, 3 bridge busy, 4 not found.";
+Exit codes: 0 ok, 1 error, 2 usage, 3 bridge busy, 4 not found, 130 stopped (Ctrl+C).";
 
 #[derive(Parser)]
 #[command(
@@ -162,7 +162,8 @@ pub enum ConfigAction {
     Set {
         /// Dotted key, as in settings.json.
         key: String,
-        /// New value: JSON (true, 20000, null, "text") or plain text.
+        /// New value: JSON (true, 20000, -10, null, "text") or plain text.
+        #[arg(allow_hyphen_values = true)]
         value: String,
     },
     /// Print where the settings file is.

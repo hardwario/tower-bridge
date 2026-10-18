@@ -9,7 +9,7 @@ Work in progress and open items, kept current so anyone (person or agent) can pi
 - Scope: everyday commands plus `run`, a service without a window (history, alerts, MQTT, REST, MCP), and a terminal dashboard (ratatui), the default of a bare `tower-bridge-cli` in a terminal.
 - Name stays `tower-bridge-cli`; settings, database and data folder are shared with the app; the bring-up commands move under `toolbox`.
 - Commands: `dashboard`, `run`, `status`, `watch`, `relay` (`true`, `false`, `pulse [--ms]`), `gps`, `nfc` (`nfc write <url>`), `identify`, `rescan`, `export` (`--from --to` or `--last 7d`), `alerts`, `config` (`show`, `get`, `set`), `mcp`, `toolbox`. Global `--data-dir`, `--simulate`, `--json`, `--color`. Exit codes 0 ok, 1 error, 2 usage, 3 bridge busy, 4 not found.
-- The REST API gains `GET`/`PUT /api/v1/nfc` and `nfc` and `mqtt` in `/api/v1/status`; MCP gains `read_nfc`.
+- The REST API gains `GET`/`PUT /api/v1/nfc` and `nfc` and `mqtt` in `/api/v1/status`; MCP shows the NFC Tag in `get_device_status`.
 
 Steps:
 
@@ -26,6 +26,10 @@ Committed (55c999d). A second review the same day found about 40 issues, fixed a
 - A 32-bit Raspberry Pi build (`armv7-unknown-linux-gnueabihf`) is not in the matrix yet.
 - Not tried on real hardware: the CLI against the bridge itself (only the simulated bridge, and the desktop app's refusal on the real data folder).
 - Formatting an unformatted NFC Tag (asked on 2026-10-18): not supported; the app, the CLI and the API (409 `not_formatted`) point to a phone app such as NXP TagWriter. Doing it means writing block 0, which also holds the I²C address and the static lock bytes. Per the NT3H2111 datasheet (to verify): byte 0 written sets the address (as `address << 1`) while a read returns the manufacturer ID 0x04, so a plain read-modify-write moves the chip; the lock bytes must be written back as read (0); the capability container is bytes 12 to 15 (`E1 10 6D 00` on the 1k part), then an empty NDEF TLV `03 00 FE` in block 1. Needs a spare real tag to verify.
+- The release dry run (`workflow_dispatch`) only exists once `release.yml` with it is on the default branch: merge the branch first.
+- The Tauri capability grants `core:default`; the dashboard needs only `core:event:allow-listen` and `allow-unlisten` (and app commands). Narrow it once it can be checked on a running dashboard.
+- Retained MQTT topics of a sensor that left while the app was closed stay on the broker (the published set lives in memory). Clear them by learning the retained topics at connect, or by storing the set.
+- XLSX exports write local wall-clock times only; the repeated hour at the end of daylight saving time cannot be told apart. A UTC or Unix-ms column would fix it (a change of the export's columns: ask first).
 - The Linux AppImage bundles LGPL libraries (WebKitGTK, GTK, GLib); the notices name them and point to the Ubuntu sources. Have someone check that this is enough for LGPL.
 
 Everything is committed on the branch `feature/channels-manual-mqtt` (not merged into `main` yet).

@@ -33,6 +33,8 @@ const RELAY_CHANNELS: [u8; 2] = [0, 1];
 /// A measurement cycle takes about a second; one is not started when a relay
 /// pulse ends sooner than this, so the pulse ends on time.
 const PULSE_GUARD: Duration = Duration::from_millis(1500);
+/// Attempts to switch back after a pulse whose return failed.
+const PULSE_RETRIES: u8 = 5;
 /// How often relay commands are checked while a measurement waits for its
 /// sensors.
 const IDLE_SLICE: Duration = Duration::from_millis(25);
@@ -298,6 +300,8 @@ struct PendingPulse {
     /// Unix ms of `due`, for reporting.
     until_ms: i64,
     back: bool,
+    /// Failed attempts to switch back.
+    retries: u8,
 }
 
 /// What a wait on a connected bridge can act on.
@@ -467,14 +471,18 @@ impl Worker {
             }
         };
         if module.gone() {
-            // Not a GPS Module after all (or unplugged): leave it alone a while.
             let channel = module.channel();
             warn!("no GPS receiver answers on channel {channel}");
+            let confirmed = module.confirmed();
             let _ = module.release(&mut *s.bus);
             *s.gps = None;
-            // Another channel may still have one.
-            self.gps_rejected_until[usize::from(channel) % 2] =
-                Some(clock.now() + Duration::from_secs(600));
+            // Not a GPS Module after all: leave that expander alone a while
+            // (another channel may still have one). A module that answered
+            // before was unplugged: look for it again with the next probe.
+            if !confirmed {
+                self.gps_rejected_until[usize::from(channel) % 2] =
+                    Some(clock.now() + Duration::from_secs(600));
+            }
             self.emit_gps(None);
         } else if changed || self.last_gps.is_none() {
             let info = module.info().cloned();
@@ -606,6 +614,7 @@ impl Worker {
             due: Instant::now() + duration,
             until_ms: unix_ms() + duration.as_millis() as i64,
             back,
+            retries: 0,
         });
         info!("relay pulse {target} for {} ms", duration.as_millis());
         let info = relay
@@ -616,12 +625,28 @@ impl Worker {
         Ok(info)
     }
 
+    /// Switch back at the end of a pulse. A failed switch is tried again
+    /// every second a few times: a latching relay would otherwise stay
+    /// switched over for good.
     fn finish_pulse(&mut self, bus: &mut dyn I2cBus, relay: &mut Option<RelayModule>) {
         let Some(p) = self.pulse.take() else {
             return;
         };
         if let Err(e) = self.move_relay(bus, relay, p.back) {
-            warn!("relay pulse could not switch back: {e}");
+            if relay.is_some() && p.retries < PULSE_RETRIES {
+                warn!("relay pulse could not switch back, trying again: {e}");
+                self.pulse = Some(PendingPulse {
+                    due: Instant::now() + Duration::from_secs(1),
+                    retries: p.retries + 1,
+                    ..p
+                });
+            } else {
+                warn!("relay pulse could not switch back: {e}");
+                // No pulse any more: the state shown loses its end time.
+                if let Some(info) = relay.as_ref().map(|r| self.relay_info(r)) {
+                    self.emit_relay(Some(info));
+                }
+            }
         }
     }
 
@@ -770,6 +795,13 @@ impl Worker {
         let mut probed = self.clock.now();
         let mut failed_cycles = 0u32;
         let mut deadline: Option<Duration> = None;
+        // Unplugged and plugged in again: a GPS Module rejected before may
+        // well be back.
+        self.gps_rejected_until = [None; 2];
+        // Without sensors the loop comes round every 2 s; the NFC Tag, the
+        // GPS Module and the bridge count are looked for once a minute, as
+        // with sensors, so relay commands do not wait behind them.
+        let mut extras: Option<Duration> = None;
 
         loop {
             if sensors.is_empty() {
@@ -778,14 +810,18 @@ impl Worker {
                 {
                     return Exit::Lost(e);
                 }
-                if let Err(e) = self.probe_nfc(bus, &mut nfc) {
-                    return Exit::Lost(e);
+                let now = self.clock.now();
+                if extras.is_none_or(|t| now - t >= PROBE_INTERVAL) {
+                    if let Err(e) = self.probe_nfc(bus, &mut nfc) {
+                        return Exit::Lost(e);
+                    }
+                    if let Err(e) = self.probe_gps(bus, &mut gps) {
+                        return Exit::Lost(e);
+                    }
+                    self.recount(opener, &mut device);
+                    extras = Some(now);
+                    probed = now;
                 }
-                if let Err(e) = self.probe_gps(bus, &mut gps) {
-                    return Exit::Lost(e);
-                }
-                probed = self.clock.now();
-                self.recount(opener, &mut device);
                 match sensors.detect(bus, self.clock.as_ref()) {
                     // Failed cycles keep counting: sensors that are found
                     // again but still fail end in a reopen.
@@ -807,7 +843,9 @@ impl Worker {
                             ticking: false,
                         };
                         match self.wait(NO_MODULE_RETRY, Some(session)) {
-                            Flow::Shutdown => return self.close(bus, &sensors, gps.as_ref()),
+                            Flow::Shutdown => {
+                                return self.close(bus, &sensors, gps.as_ref(), &mut relay);
+                            }
                             Flow::Lost(e) => return Exit::Lost(e),
                             Flow::Elapsed | Flow::Now => continue,
                         }
@@ -826,12 +864,37 @@ impl Worker {
                     ticking: true,
                 };
                 match self.wait(d, Some(session)) {
-                    Flow::Shutdown => return self.close(bus, &sensors, gps.as_ref()),
+                    Flow::Shutdown => return self.close(bus, &sensors, gps.as_ref(), &mut relay),
                     Flow::Lost(e) => return Exit::Lost(e),
                     Flow::Elapsed | Flow::Now => {}
                 }
                 if sensors.is_empty() {
                     continue;
+                }
+            }
+
+            // Let a relay pulse that ends during the probes or the cycle end first.
+            if let Some(p) = self.pulse {
+                let left = p.due.saturating_duration_since(Instant::now());
+                if left < PULSE_GUARD {
+                    let session = Session {
+                        bus: &mut *bus,
+                        sensors: &mut sensors,
+                        relay: &mut relay,
+                        nfc: &mut nfc,
+                        gps: &mut gps,
+                        ticking: false,
+                    };
+                    match self.wait(left, Some(session)) {
+                        Flow::Shutdown => {
+                            return self.close(bus, &sensors, gps.as_ref(), &mut relay);
+                        }
+                        Flow::Lost(e) => return Exit::Lost(e),
+                        Flow::Elapsed | Flow::Now => {}
+                    }
+                    if sensors.is_empty() {
+                        continue;
+                    }
                 }
             }
 
@@ -854,29 +917,6 @@ impl Worker {
                     Err(e) => return Exit::Lost(e),
                 }
                 probed = self.clock.now();
-            }
-
-            // Let a relay pulse that ends during the cycle end first.
-            if let Some(p) = self.pulse {
-                let left = p.due.saturating_duration_since(Instant::now());
-                if left < PULSE_GUARD {
-                    let session = Session {
-                        bus: &mut *bus,
-                        sensors: &mut sensors,
-                        relay: &mut relay,
-                        nfc: &mut nfc,
-                        gps: &mut gps,
-                        ticking: false,
-                    };
-                    match self.wait(left, Some(session)) {
-                        Flow::Shutdown => return self.close(bus, &sensors, gps.as_ref()),
-                        Flow::Lost(e) => return Exit::Lost(e),
-                        Flow::Elapsed | Flow::Now => {}
-                    }
-                    if sensors.is_empty() {
-                        continue;
-                    }
-                }
             }
 
             let ts = unix_ms();
@@ -934,7 +974,21 @@ impl Worker {
         }
     }
 
-    fn close(&mut self, bus: &mut dyn I2cBus, sensors: &Sensors, gps: Option<&GpsModule>) -> Exit {
+    fn close(
+        &mut self,
+        bus: &mut dyn I2cBus,
+        sensors: &Sensors,
+        gps: Option<&GpsModule>,
+        relay: &mut Option<RelayModule>,
+    ) -> Exit {
+        // A pulse ends with the program: a latching relay left switched over
+        // would keep a heater or a pump running.
+        if let Some(p) = self.pulse.take() {
+            info!("stopping during a relay pulse: switching back");
+            if let Err(e) = self.move_relay(bus, relay, p.back) {
+                warn!("relay pulse could not switch back: {e}");
+            }
+        }
         sensors.stop(bus);
         if let Some(gps) = gps {
             let _ = gps.stop(bus);
@@ -1510,6 +1564,45 @@ mod tests {
         assert!(back.is_some());
         assert!(started.elapsed() >= MIN_PULSE);
         acq.shutdown(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn stopping_during_a_pulse_switches_back() {
+        let (acq, rx) = spawn_with(true);
+        assert!(recv_until(&rx, |e| matches!(e, AcqEvent::Relay(Some(_)))).is_some());
+        let (reply, done) = crossbeam_channel::bounded(1);
+        let _ = acq.sender().send(AcqCommand::SetRelay(true, Some(reply)));
+        assert!(matches!(
+            done.recv_timeout(Duration::from_secs(5)),
+            Ok(Ok(_))
+        ));
+        let (reply, done) = crossbeam_channel::bounded(1);
+        let _ = acq.sender().send(AcqCommand::PulseRelay {
+            state: Some(false),
+            duration: Duration::from_secs(600),
+            reply: Some(reply),
+        });
+        assert!(matches!(
+            done.recv_timeout(Duration::from_secs(5)),
+            Ok(Ok(RelayInfo {
+                state: Some(false),
+                ..
+            }))
+        ));
+        // The program stops long before the pulse would end: the latching
+        // relay must not stay switched over.
+        acq.shutdown(Duration::from_secs(3));
+        let back = rx.try_iter().any(|e| {
+            matches!(
+                e,
+                AcqEvent::Relay(Some(RelayInfo {
+                    state: Some(true),
+                    pulse_until: None,
+                    ..
+                }))
+            )
+        });
+        assert!(back, "switched back to true on shutdown");
     }
 
     #[test]

@@ -18,6 +18,8 @@ pub const SETTLE: Duration = Duration::from_secs(15);
 
 /// Open the bridge (or reach the running service) and wait for the values.
 pub fn session(ctx: &Ctx) -> Result<(Access, Snapshot)> {
+    // Ctrl+C while waiting still releases the bridge.
+    crate::stop::install();
     let access = Access::open(ctx, Mode::Session, Arc::new(Silent))?;
     // The first measurement takes a few seconds; say so in a terminal.
     let note = matches!(access, Access::Local(_)) && std::io::stderr().is_terminal();

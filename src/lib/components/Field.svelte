@@ -1,14 +1,28 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   let { label, hint, children }: { label: string; hint?: string; children: Snippet } = $props();
+
+  const id = $props.id();
+  let control = $state<HTMLElement>();
+
+  // The label names the inputs and selects inside that have no name of
+  // their own (toggles carry an aria-label).
+  $effect(() => {
+    for (const el of control?.querySelectorAll("input, select, textarea") ?? []) {
+      if (!el.hasAttribute("aria-label") && !el.hasAttribute("aria-labelledby")) {
+        el.setAttribute("aria-labelledby", `${id}-label`);
+        if (hint) el.setAttribute("aria-describedby", `${id}-hint`);
+      }
+    }
+  });
 </script>
 
 <div class="field">
   <div class="text">
-    <div class="label">{label}</div>
-    {#if hint}<div class="hint muted">{hint}</div>{/if}
+    <div class="label" id="{id}-label">{label}</div>
+    {#if hint}<div class="hint muted" id="{id}-hint">{hint}</div>{/if}
   </div>
-  <div class="control">
+  <div class="control" bind:this={control}>
     {@render children()}
   </div>
 </div>

@@ -101,7 +101,9 @@ jobs:
           fi
           npx tauri build ${{ matrix.args }}
       # The portable exe must start on a Windows without the Visual C++
-      # runtime: .cargo/config.toml links the C runtime statically.
+      # runtime. tauri-build links the VC runtime statically and the
+      # Universal CRT dynamically (staticVCRuntime); the UCRT is part of
+      # every Windows 10 and 11, so only the VC runtime DLLs fail the check.
       - name: Check that the exe needs no Visual C++ runtime
         if: runner.os == 'Windows'
         shell: pwsh
@@ -111,8 +113,8 @@ jobs:
           if (-not $dumpbin) { Write-Error "dumpbin.exe not found"; exit 1 }
           $deps = & $dumpbin.FullName /nologo /dependents target\release\tower-bridge.exe
           $deps
-          $crt = $deps -match 'vcruntime|msvcp|api-ms-win-crt|ucrtbase'
-          if ($crt) { Write-Error "tower-bridge.exe depends on the C runtime: $crt"; exit 1 }
+          $crt = $deps -match 'vcruntime|msvcp'
+          if ($crt) { Write-Error "tower-bridge.exe depends on the Visual C++ runtime: $crt"; exit 1 }
       - name: Collect artifacts
         run: |
           set -euo pipefail

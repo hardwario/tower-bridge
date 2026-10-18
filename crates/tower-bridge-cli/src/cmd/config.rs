@@ -16,6 +16,7 @@ const SECRETS: &[&str] = &["mqtt.password", "api.token"];
 /// Values made up while there is no settings file (a new token on every
 /// read): shown as such until the service first starts and stores them.
 const GENERATED: &[&str] = &["api.token", "mqtt.client_id"];
+const NOT_YET: &str = "(made at the first start)";
 
 /// The settings as JSON, with a warning on stderr when the file has problems.
 fn current(file: &std::path::Path) -> Result<(Value, Option<String>)> {
@@ -30,7 +31,7 @@ fn current(file: &std::path::Path) -> Result<(Value, Option<String>)> {
     if !file.exists() {
         for key in GENERATED {
             if let Some(slot) = lookup_mut(&mut v, key) {
-                *slot = Value::String("(made at the first start)".into());
+                *slot = Value::String(NOT_YET.into());
             }
         }
     }
@@ -48,7 +49,7 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
                 if let Some(secret) = lookup_mut(&mut v, key)
                     && secret
                         .as_str()
-                        .is_some_and(|s| !s.is_empty() && !s.starts_with('('))
+                        .is_some_and(|s| !s.is_empty() && s != NOT_YET)
                 {
                     *secret = Value::String("(set)".into());
                 }
@@ -99,8 +100,9 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
                     ));
                 }
                 // Text stays text: a password of digits is no number.
+                // (`null` clears an optional one, such as tray_metric.)
                 Value::String(_) => match serde_json::from_str::<Value>(&value) {
-                    Ok(Value::String(s)) => Value::String(s),
+                    Ok(v @ (Value::String(_) | Value::Null)) => v,
                     _ => Value::String(value),
                 },
                 // Elsewhere JSON (true, 20000, null), else the text, which

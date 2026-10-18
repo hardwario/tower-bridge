@@ -30,15 +30,25 @@
   const u = $derived(unitLabel(metric, unit));
   const show = (v: number | null) => (v === null ? "" : fmtInput(roundFor(metric, toDisplay(metric, v, unit))));
 
-  function setLimit(which: "min" | "max", text: string) {
+  const hysteresisText = $derived(fmtInput(roundFor(metric, deltaToDisplay(metric, rule.hysteresis, unit))));
+
+  /** An empty field clears the limit; text that is no number puts the limit back. */
+  function setLimit(which: "min" | "max", input: HTMLInputElement) {
+    const text = input.value;
     const v = text.trim() === "" ? null : parseInput(text);
-    if (v !== null && !Number.isFinite(v)) return;
+    if (v !== null && !Number.isFinite(v)) {
+      input.value = show(rule[which]);
+      return;
+    }
     onchange({ ...rule, [which]: v === null ? null : fromDisplay(metric, v, unit) });
   }
 
-  function setHysteresis(text: string) {
-    const v = parseInput(text);
-    if (!Number.isFinite(v) || v < 0) return;
+  function setHysteresis(input: HTMLInputElement) {
+    const v = parseInput(input.value);
+    if (!Number.isFinite(v) || v < 0) {
+      input.value = hysteresisText;
+      return;
+    }
     onchange({ ...rule, hysteresis: deltaFromDisplay(metric, v, unit) });
   }
 </script>
@@ -62,7 +72,7 @@
         placeholder={NO_VALUE}
         value={show(rule.min)}
         disabled={!rule.enabled}
-        onchange={(e) => setLimit("min", e.currentTarget.value)}
+        onchange={(e) => setLimit("min", e.currentTarget)}
       />
       <span class="unit muted">{u}</span>
     </label>
@@ -74,7 +84,7 @@
         placeholder={NO_VALUE}
         value={show(rule.max)}
         disabled={!rule.enabled}
-        onchange={(e) => setLimit("max", e.currentTarget.value)}
+        onchange={(e) => setLimit("max", e.currentTarget)}
       />
       <span class="unit muted">{u}</span>
     </label>
@@ -83,9 +93,9 @@
       <input
         class="input num"
         inputmode="decimal"
-        value={fmtInput(roundFor(metric, deltaToDisplay(metric, rule.hysteresis, unit)))}
+        value={hysteresisText}
         disabled={!rule.enabled}
-        onchange={(e) => setHysteresis(e.currentTarget.value)}
+        onchange={(e) => setHysteresis(e.currentTarget)}
       />
       <span class="unit muted">{u}</span>
     </label>

@@ -21,19 +21,8 @@ use super::Out;
 use crate::access::{Access, Ctx, Event, Snapshot, device_failure, events};
 use crate::output;
 
-/// A channel that fires once on Ctrl+C, SIGTERM or SIGHUP.
-pub fn stop_signal() -> Receiver<()> {
-    let (tx, rx) = crossbeam_channel::bounded(1);
-    if let Err(e) = ctrlc::set_handler(move || {
-        let _ = tx.try_send(());
-    }) {
-        tracing::warn!("cannot catch Ctrl+C: {e}");
-    }
-    rx
-}
-
 pub fn watch(ctx: &Ctx, out: Out, count: Option<u32>) -> Result<()> {
-    let stop = stop_signal();
+    let stop = crate::stop::receiver();
     let (observer, rx) = events();
     let access = Access::open(ctx, Mode::Session, observer)?;
     let unit = ctx.settings()?.temperature_unit;
@@ -52,7 +41,16 @@ pub fn watch(ctx: &Ctx, out: Out, count: Option<u32>) -> Result<()> {
         }
     };
     access.close();
-    result
+    // The reader went away (`watch | head`): done, the bridge released.
+    match result {
+        Err(e)
+            if e.downcast_ref::<std::io::Error>()
+                .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe) =>
+        {
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 /// Prints what `watch` reports.
@@ -222,8 +220,13 @@ fn alert_event(a: &ActiveAlert, kind: AlertKind, ts: i64, value: f64) -> AlertEv
 fn poll(access: &Access, p: &mut Printer, stop: &Receiver<()>) -> Result<()> {
     let ticker = tick(Duration::from_secs(1));
     let mut seen: HashMap<u8, i64> = HashMap::new();
-    // What is there already is not new.
+    // The starting state, as the service here would report it; readings
+    // already there are not new.
     let mut last: Snapshot = access.snapshot()?;
+    p.device(&last.device)?;
+    p.relay(last.relay.as_ref())?;
+    p.nfc(last.nfc.as_ref())?;
+    p.gps(last.gps.as_ref())?;
     for r in &last.latest {
         seen.insert(r.channel, r.ts);
     }

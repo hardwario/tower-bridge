@@ -1,4 +1,4 @@
-import { api, on } from "./api";
+import { api, errorMessage, on } from "./api";
 import { i18n, resolveLang } from "./i18n/index.svelte";
 import { rememberSources } from "./source";
 import { theme } from "./theme.svelte";
@@ -17,8 +17,6 @@ import type {
   Settings,
 } from "./types";
 
-const RECENT_MS = 3_600_000;
-
 /** App state mirrored from the backend and kept current by events. */
 class Live {
   ready = $state(false);
@@ -34,8 +32,12 @@ class Live {
   api = $state<ApiState>({ status: "disabled" });
   activeAlerts = $state<ActiveAlert[]>([]);
   app = $state<AppInfo | null>(null);
-  /** Readings received during this session (last hour), for sparklines. */
-  recent = $state<Reading[]>([]);
+  /** Why the last settings save failed, until the next one works. */
+  saveError = $state<string | null>(null);
+  /** Saves sent and not answered yet; their events and replies are older
+      than what the page shows. */
+  private pending = 0;
+  private saving: Promise<void> = Promise.resolve();
   /** Alert events received during this session, newest first. */
   alertEvents = $state<AlertEvent[]>([]);
   /** Incremented on every reading so views can refresh. */
@@ -63,15 +65,28 @@ class Live {
         fresh.add("gps");
         this.gps = g;
       }),
-      on("settings-changed", (s) => this.setSettings(s)),
-      on("open-at-login-changed", (v) => (this.openAtLogin = v)),
+      on("settings-changed", (s) => {
+        fresh.add("settings");
+        // An echo of a save still under way would undo later changes.
+        if (this.pending === 0) this.setSettings(s);
+      }),
+      on("open-at-login-changed", (v) => {
+        fresh.add("login");
+        this.openAtLogin = v;
+      }),
       on("alerts-active", (a) => {
         fresh.add("alerts");
         this.activeAlerts = a;
       }),
       on("alert", (e) => (this.alertEvents = [e, ...this.alertEvents].slice(0, 100))),
-      on("mqtt-state", (m) => (this.mqtt = m)),
-      on("api-state", (a) => (this.api = a)),
+      on("mqtt-state", (m) => {
+        fresh.add("mqtt");
+        this.mqtt = m;
+      }),
+      on("api-state", (a) => {
+        fresh.add("api");
+        this.api = a;
+      }),
     ]);
     const s = await api.snapshot();
     if (!fresh.has("device")) this.setDevice(s.device);
@@ -79,10 +94,10 @@ class Live {
     if (!fresh.has("nfc")) this.nfc = s.nfc ?? null;
     if (!fresh.has("gps")) this.gps = s.gps ?? null;
     this.app = s.app;
-    this.setSettings(s.settings);
-    this.openAtLogin = s.open_at_login;
-    this.mqtt = s.mqtt;
-    this.api = s.api;
+    if (!fresh.has("settings") || !this.settings) this.setSettings(s.settings);
+    if (!fresh.has("login")) this.openAtLogin = s.open_at_login;
+    if (!fresh.has("mqtt")) this.mqtt = s.mqtt;
+    if (!fresh.has("api")) this.api = s.api;
     if (!fresh.has("alerts")) this.activeAlerts = s.active_alerts;
     for (const r of s.latest ?? []) this.pushReading(r);
     this.ready = true;
@@ -111,20 +126,39 @@ class Live {
     const known = this.latest.find((x) => x.channel === r.channel);
     if (known && known.ts > r.ts) return; // an older reading (the snapshot's) arrived late
     this.latest = [...this.latest.filter((x) => x.channel !== r.channel), r].sort((a, b) => a.channel - b.channel);
-    const cutoff = r.ts - RECENT_MS;
-    const recent = this.recent.filter((x) => x.ts >= cutoff && !(x.ts === r.ts && x.channel === r.channel));
-    recent.push(r);
-    this.recent = recent;
     this.tick++;
   }
 
-  /** Persist settings (optimistic update). */
+  /**
+   * Persist settings: shown at once, saved one after another. Each save
+   * sends what the page shows then, so quick changes in a row all arrive;
+   * only the reply to the last one replaces the page's settings. A failed
+   * save puts back what the backend has and says why.
+   */
   async save(mutate: (s: Settings) => void): Promise<void> {
     if (!this.settings) return;
     const next = structuredClone($state.snapshot(this.settings)) as Settings;
     mutate(next);
     this.setSettings(next);
-    this.setSettings(await api.saveSettings(next));
+    this.pending++;
+    const run = this.saving.then(async () => {
+      try {
+        const saved = await api.saveSettings(structuredClone($state.snapshot(this.settings)) as Settings);
+        this.saveError = null;
+        if (this.pending === 1) this.setSettings(saved);
+      } catch (e) {
+        this.saveError = errorMessage(e);
+        try {
+          this.setSettings((await api.snapshot()).settings);
+        } catch {
+          // The backend is gone; the page shows the error.
+        }
+      } finally {
+        this.pending--;
+      }
+    });
+    this.saving = run;
+    return run;
   }
 
   /** Time of the newest reading on any channel. */

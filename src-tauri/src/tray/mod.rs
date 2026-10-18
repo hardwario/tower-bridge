@@ -124,7 +124,7 @@ impl TrayController {
         let open = MenuItem::with_id(app, "open", "Open Dashboard…", true, none)?;
         let open_at_login =
             CheckMenuItem::with_id(app, "open_at_login", "Open at Login", true, false, none)?;
-        let mqtt = CheckMenuItem::with_id(app, "mqtt", "MQTT Broker", true, false, none)?;
+        let mqtt = CheckMenuItem::with_id(app, "mqtt", "MQTT", true, false, none)?;
         let quit = MenuItem::with_id(app, "quit", "Quit TOWER Bridge", true, none)?;
         let menu = Menu::with_items(
             app,
@@ -185,6 +185,12 @@ impl TrayController {
         let _ = self.inner.open_at_login.set_checked(enabled);
     }
 
+    /// The menu flips a check item by itself when clicked: put it back
+    /// when the change it asked for failed.
+    pub fn set_mqtt_checked(&self, enabled: bool) {
+        let _ = self.inner.mqtt.set_checked(enabled);
+    }
+
     pub fn update(
         &self,
         device: &DeviceState,
@@ -229,11 +235,13 @@ impl TrayController {
         };
         let tray_value = settings.tray_metric.and_then(|m| value(m).map(|v| (m, v)));
         let title = tray_value.map(|(m, v)| format::short(m, v, unit, dec));
+        // Checked when MQTT is on, also while it fails: unchecking turns it off.
+        let on = settings.mqtt.enabled;
         let mqtt_item = match mqtt {
-            MqttState::Disabled => (false, "MQTT".to_string()),
-            MqttState::Error { .. } => (false, format!("MQTT ({})", tr.mqtt_error)),
-            MqttState::Connected { address } => (true, format!("MQTT ({address})")),
-            MqttState::Connecting { .. } => (true, format!("MQTT ({})", tr.mqtt_connecting)),
+            MqttState::Disabled => (on, "MQTT".to_string()),
+            MqttState::Error { .. } => (on, format!("MQTT ({})", tr.mqtt_error)),
+            MqttState::Connected { address } => (on, format!("MQTT ({address})")),
+            MqttState::Connecting { .. } => (on, format!("MQTT ({})", tr.mqtt_connecting)),
         };
 
         let (icon_key, icon) = self.icon_for(ready, tray_value, settings, lang);
@@ -454,6 +462,7 @@ fn toggle_mqtt(app: &AppHandle) {
         return;
     };
     if let Err(e) = state.update_settings(|s| s.mqtt.enabled = !s.mqtt.enabled) {
+        state.tray.set_mqtt_checked(state.settings().mqtt.enabled);
         let tr = crate::i18n::current(app).tr();
         let msg = crate::i18n::fill(tr.cannot_save_settings, &[("error", &e.to_string())]);
         crate::notify::send(app, "MQTT", &msg);

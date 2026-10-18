@@ -174,18 +174,44 @@ fn draw_values(frame: &mut Frame, app: &App, area: Rect) {
     };
     let sources = snap.device.sources();
     let mut current = None;
+    // The line of the selected row, to keep it in view.
+    let mut selected_line = 0;
+    let width = usize::from(area.width.saturating_sub(2));
     for (i, (channel, metric)) in app.rows().into_iter().enumerate() {
         if current != Some(channel) {
             current = Some(channel);
-            lines.push(Line::from(vec![
-                TextSpan::styled(
-                    format!("I²C {channel}  "),
-                    Style::new().fg(CHANNEL[usize::from(channel) % 2]),
-                ),
-                TextSpan::styled(output::modules_short(sources, channel).join(", "), dim()),
-            ]));
+            // The modules, wrapped under the channel rather than cut off.
+            let label = format!("I²C {channel}  ");
+            let indent = label.chars().count();
+            let mut rows: Vec<String> = vec![String::new()];
+            for name in output::modules_short(sources, channel) {
+                let row = rows.last_mut().map(|r| r.chars().count()).unwrap_or(0);
+                if row > 0 && indent + row + 2 + name.chars().count() > width {
+                    rows.push(String::new());
+                }
+                if let Some(r) = rows.last_mut() {
+                    if !r.is_empty() {
+                        r.push_str(", ");
+                    }
+                    r.push_str(name);
+                }
+            }
+            for (k, row) in rows.into_iter().enumerate() {
+                let head = if k == 0 {
+                    label.clone()
+                } else {
+                    " ".repeat(indent)
+                };
+                lines.push(Line::from(vec![
+                    TextSpan::styled(head, Style::new().fg(CHANNEL[usize::from(channel) % 2])),
+                    TextSpan::styled(row, dim()),
+                ]));
+            }
         }
         let selected = i == app.selected;
+        if selected {
+            selected_line = lines.len();
+        }
         let value = snap
             .latest
             .iter()
@@ -216,7 +242,9 @@ fn draw_values(frame: &mut Frame, app: &App, area: Rect) {
     }
     // Keep the selected row in view in a short window.
     let inner = area.height.saturating_sub(2) as usize;
-    let skip = lines.len().saturating_sub(inner).min(app.selected);
+    let skip = (selected_line + 1)
+        .saturating_sub(inner)
+        .min(lines.len().saturating_sub(inner));
     let lines: Vec<Line> = lines.into_iter().skip(skip).collect();
     frame.render_widget(Paragraph::new(lines).block(block("Values")), area);
 }

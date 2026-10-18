@@ -261,9 +261,15 @@ impl Hub {
 
     fn on_device(&mut self, d: DeviceState) {
         let back = self.presence.device(&d, Instant::now());
-        if let DeviceState::Ready { sources, .. } = &d {
-            // A metric no longer measured on a channel (a sensor gone) has no
-            // current value, alert or MQTT topic any more.
+        // A metric no longer measured on a channel (a sensor gone, or the
+        // last module unplugged) has no current value, alert or MQTT topic
+        // any more. While the bridge itself is away nothing is known.
+        let sources = match &d {
+            DeviceState::Ready { sources, .. } => Some(sources.as_slice()),
+            DeviceState::NoModule { .. } => Some(&[][..]),
+            _ => None,
+        };
+        if let Some(sources) = sources {
             let measured: Vec<(Metric, u8)> =
                 sources.iter().map(|s| (s.metric, s.channel)).collect();
             self.state
@@ -334,8 +340,19 @@ impl Hub {
     /// broker may have lost the retained values.
     fn republish(&mut self) {
         let latest = self.state.latest.read().clone();
+        // Sensors that left while the broker was away keep no topics.
+        let measured: Option<Vec<(Metric, u8)>> = match &*self.state.device.read() {
+            DeviceState::Ready { sources, .. } => {
+                Some(sources.iter().map(|s| (s.metric, s.channel)).collect())
+            }
+            DeviceState::NoModule { .. } => Some(Vec::new()),
+            _ => None,
+        };
         if let Some(publisher) = self.publisher() {
             let mut result = publisher.publish_status(true);
+            if let Some(measured) = &measured {
+                result = result.and(publisher.retain_sources(measured));
+            }
             for r in &latest {
                 result = result.and(publisher.publish_reading(r));
             }

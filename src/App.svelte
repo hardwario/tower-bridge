@@ -155,6 +155,15 @@
   </aside>
 
   <main>
+    {#if live.saveError}
+      <div class="save-error" role="alert">
+        <Icon name="warning" size={14} />
+        <span>{fill(t().common.saveFailed, { error: live.saveError })}</span>
+        <button class="close" type="button" aria-label={t().manual.close} onclick={() => (live.saveError = null)}>
+          <Icon name="close" size={14} />
+        </button>
+      </div>
+    {/if}
     {#if failed}
       <div class="center muted">{fill(t().common.backendError, { error: failed })}</div>
     {:else if !live.ready}
@@ -378,6 +387,33 @@
   main {
     overflow-y: auto;
     min-width: 0;
+  }
+  /* A failed settings save, above whatever page is open. */
+  .save-error {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--critical-weak);
+    color: var(--critical);
+    font-size: 13px;
+  }
+  .save-error span {
+    flex: 1;
+  }
+  .save-error .close {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
   }
   main :global(.view) {
     display: flex;

@@ -44,6 +44,8 @@
 <style>
   .seg {
     display: inline-flex;
+    /* Long labels in a narrow window wrap instead of pushing the page wider. */
+    flex-wrap: wrap;
     padding: 2px;
     gap: 2px;
     border-radius: var(--radius-sm);

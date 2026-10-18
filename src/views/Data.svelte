@@ -78,10 +78,20 @@
   });
 
   let stop: (() => void) | null = null;
+  let destroyed = false;
   onMount(async () => {
-    stop = await on("export-progress", (p) => (exporting = p));
+    // Progress after the export returned (events come on their own channel)
+    // must not show it running again.
+    const off = await on("export-progress", (p) => {
+      if (exporting) exporting = p;
+    });
+    if (destroyed) off();
+    else stop = off;
   });
-  onDestroy(() => stop?.());
+  onDestroy(() => {
+    destroyed = true;
+    stop?.();
+  });
 
   async function exportFile(format: "csv" | "xlsx") {
     const [from, to] = bounds();
@@ -227,7 +237,7 @@
         <tbody>
           {#each rows as r (r.t)}
             <tr>
-              <td>{fmtDateTime(r.t, { year: true })}</td>
+              <td>{fmtDateTime(r.t, { year: true, seconds: history.bucket_ms < 60_000 })}</td>
               {#each columns as c (c.key)}
                 <td>{fmtValue(c.m, seriesOf(history, c.m, c.channel)?.avg[r.i] ?? null, unit)}</td>
               {/each}

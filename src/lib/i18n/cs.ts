@@ -17,6 +17,7 @@ export const cs: Messages = {
     error: "Chyba",
     loading: "Načítám…",
     backendError: "Nelze se připojit k jádru aplikace: {error}",
+    saveFailed: "Nastavení nelze uložit: {error}",
     min: "min",
     avg: "průměr",
     max: "max",
@@ -61,11 +62,11 @@ export const cs: Messages = {
   banners: {
     simulationTitle: "Režim simulace",
     simulationBody:
-      "Hodnoty generují simulovaný Climate Module a senzorové tagy; žádný hardware se nepoužívá a historie se ukládá odděleně.",
+      "Hodnoty pocházejí ze simulovaných modulů TOWER; žádný hardware se nepoužívá a historie se ukládá odděleně.",
     connectTitle: "Připojte TOWER Bridge Module",
     connectBody: "Zapojte Bridge Module s Climate Module do portu USB. Rozpozná se automaticky.",
     permissionTitle: "Chybí oprávnění k Bridge Module",
-    permissionLinux: "Povolte svému uživateli přístup k můstku tímto příkazem v terminálu a modul znovu zapojte:",
+    permissionLinux: "Povolte svému uživateli přístup k Bridge Module tímto příkazem v terminálu a modul znovu zapojte:",
     i2cDevTitle: "Modul jádra i2c-dev není načten",
     i2cDevBody:
       "Zařízení obsluhuje linuxový ovladač ft260. Načtěte rozhraní I²C příkazem {load} a trvale ho zapněte příkazem {persist}.",
@@ -91,7 +92,7 @@ export const cs: Messages = {
     identify: "Identifikovat",
     severalBridges:
       "Je připojen více než jeden TOWER Bridge Module. TOWER Bridge čte jen jeden z nich; {identify} rozbliká jeho LED. Ostatní odpojte, jinak se mohou smíchat hodnoty z různých sestav.",
-    identifyHint: "Blikne LED na Bridge Module",
+    identifyHint: "Rozblikat LED na Bridge Module",
     rescan: "Hledat znovu",
     modules: "Moduly",
     i2cChannel: "I²C kanál {n}",
@@ -101,7 +102,7 @@ export const cs: Messages = {
     rescanning: "Hledám…",
     rescanFound: "Nalezeno: {modules}.",
     rescanNone: "Senzory nenalezeny.",
-    notConnectedError: "TOWER Bridge není připojen.",
+    notConnectedError: "TOWER Bridge Module není připojen.",
     actionFailed: "Nezdařilo se: {error}",
   },
   gps: {

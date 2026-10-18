@@ -64,7 +64,7 @@ pub fn relay(ctx: &Ctx, out: Out, action: Option<RelayAction>) -> Result<()> {
                     let left = until - tower_bridge_core::acquisition::unix_ms();
                     if left > 0 {
                         eprintln!("Waiting for the pulse to end; Ctrl+C ends it now.");
-                        let stop = super::watch::stop_signal();
+                        let stop = crate::stop::receiver();
                         let wait = Duration::from_millis(left.unsigned_abs() + 400);
                         if stop.recv_timeout(wait).is_ok()
                             && let Some(back) = info.state.map(|s| !s)

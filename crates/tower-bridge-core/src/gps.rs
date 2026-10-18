@@ -245,6 +245,11 @@ impl GpsModule {
         now >= self.next
     }
 
+    /// The receiver has answered: this is a GPS Module.
+    pub fn confirmed(&self) -> bool {
+        self.confirmed
+    }
+
     pub fn gone(&self) -> bool {
         self.failures >= GIVE_UP
     }

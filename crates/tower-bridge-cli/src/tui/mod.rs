@@ -15,7 +15,6 @@ use std::collections::VecDeque;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -129,11 +128,7 @@ pub fn run(ctx: &Ctx, verbose: u8) -> Result<()> {
     let mut app = App::new(access.describe(), unit);
     // SIGTERM, and SIGHUP when the terminal goes away; in raw mode Ctrl+C
     // arrives as a key.
-    let quit = Arc::new(AtomicBool::new(false));
-    {
-        let quit = quit.clone();
-        let _ = ctrlc::set_handler(move || quit.store(true, Ordering::Relaxed));
-    }
+    crate::stop::install();
 
     install_panic_hook();
     let result = take_terminal().and_then(|mut terminal| {
@@ -145,7 +140,6 @@ pub fn run(ctx: &Ctx, verbose: u8) -> Result<()> {
             &lock_file,
             &events,
             &log,
-            &quit,
         );
         let _ = terminal.show_cursor();
         // Dropped, the terminal prints to stderr when it cannot show the
@@ -297,7 +291,6 @@ fn event_loop(
     lock_file: &std::path::Path,
     events: &Receiver<Event>,
     log: &LogBuffer,
-    quit: &AtomicBool,
 ) -> Result<()> {
     let (tx, updates) = crossbeam_channel::unbounded();
     let (wake_tx, wake) = crossbeam_channel::bounded(1);
@@ -363,7 +356,7 @@ fn event_loop(
         }
         let lines = log.lines();
         terminal.draw(|f| ui::draw(f, app, &lines))?;
-        if quit.load(Ordering::Relaxed) {
+        if crate::stop::requested() {
             return Ok(());
         }
         match keys.recv_timeout(Duration::from_millis(100)) {

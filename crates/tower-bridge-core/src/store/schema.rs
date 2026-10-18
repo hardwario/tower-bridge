@@ -90,6 +90,9 @@ fn apply(conn: &Connection, migrations: &[&str], target: usize) -> rusqlite::Res
     }
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
+    // The WAL keeps its largest size until the last connection closes; the
+    // app runs for weeks, and a retention run moves many pages through it.
+    conn.pragma_update(None, "journal_size_limit", 16 * 1024 * 1024)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     for (i, sql) in migrations.iter().enumerate().take(target).skip(version) {

@@ -66,7 +66,8 @@ command-line reader for the same hardware.
   system's WebKit, so keep Safari updated (16.2 or newer; Software Update
   offers it for macOS 11 too). Unsigned builds must be
   allowed once in *System Settings → Privacy & Security → Open Anyway*.
-- **Linux:** install the udev rule from `packaging/linux/` and see
+- **Linux:** install the udev rule (`70-hardwario-tower-bridge.rules`, a
+  release asset, also in `packaging/linux/`) and see
   [docs/linux.md](docs/linux.md) (kernel driver notes, GNOME tray extension).
 
 ### Portable mode (Windows)
@@ -104,7 +105,7 @@ libudev-dev`).
 ```sh
 npm ci
 npm run tauri dev                         # run with hot reload
-TOWER_BRIDGE_SIMULATE=1 npm run tauri dev # no hardware: simulated Climate Module and tags
+TOWER_BRIDGE_SIMULATE=1 npm run tauri dev # no hardware: a simulated bridge with every module
 npm run tauri build                       # release bundles (dmg / AppImage)
 npm run tauri build -- --no-bundle        # Windows portable exe
 ```
@@ -136,11 +137,14 @@ menu, notification and dialog texts are in `src-tauri/src/i18n.rs`.
 Tests and checks:
 
 ```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo clippy --workspace --all-targets --all-features
 npm run check && npm test
 npm run test:ui          # browser smoke test of every view (needs Google Chrome)
 npm run test:ui:webkit   # the same in WebKit (npx playwright-core install webkit)
+npm run notices -- --check
+npm run build
 ```
 
 ## Project layout

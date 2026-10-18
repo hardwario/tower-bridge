@@ -197,10 +197,18 @@ impl AlertEngine {
     /// Forget alerts of metrics no longer measured on their channel (the
     /// sensor is gone); they could never end otherwise. Returns whether any
     /// was active.
+    /// End the alerts of sensors no longer measured. When a notification was
+    /// shown is kept: a loose connector must not notify on every return.
     pub fn retain_sources(&mut self, measured: &[(Metric, u8)]) -> bool {
         let before = self.active().len();
-        self.state
-            .retain(|(m, c, _), _| measured.contains(&(*m, *c)));
+        for ((m, c, _), s) in &mut self.state {
+            if !measured.contains(&(*m, *c)) {
+                *s = BoundState {
+                    last_notified: s.last_notified,
+                    ..BoundState::default()
+                };
+            }
+        }
         self.active().len() != before
     }
 

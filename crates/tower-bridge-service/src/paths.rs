@@ -24,14 +24,18 @@ pub const IDENTIFIER: &str = "com.hardwario.tower-bridge";
 pub struct Paths {
     pub data_dir: PathBuf,
     pub portable: bool,
+    /// Not the platform's folder (`--data-dir`, `TOWER_BRIDGE_DATA_DIR`, a
+    /// simulated bridge): a development instance next to the real one.
+    #[serde(skip)]
+    pub custom: bool,
 }
 
 impl Paths {
     /// The data folder; `None` only when the platform has no local data folder.
     pub fn resolve(dir: Option<PathBuf>, simulated: bool) -> Option<Self> {
-        let (mut data_dir, portable) = if let Some(dir) =
-            dir.or_else(|| std::env::var_os("TOWER_BRIDGE_DATA_DIR").map(PathBuf::from))
-        {
+        let given = dir.or_else(|| std::env::var_os("TOWER_BRIDGE_DATA_DIR").map(PathBuf::from));
+        let custom = given.is_some() || simulated;
+        let (mut data_dir, portable) = if let Some(dir) = given {
             (dir, false)
         } else if let Some(dir) = portable_dir() {
             (dir, true)
@@ -42,7 +46,11 @@ impl Paths {
             // Keep simulated readings out of the real history.
             data_dir = data_dir.join("simulated");
         }
-        Some(Self { data_dir, portable })
+        Some(Self {
+            data_dir,
+            portable,
+            custom,
+        })
     }
 
     pub fn create(&self) -> std::io::Result<()> {
@@ -66,9 +74,10 @@ impl Paths {
         self.data_dir.join("tower-bridge.lock")
     }
 
-    /// WebView profile directory in portable mode.
+    /// A WebView profile of its own, in portable mode and for development
+    /// instances (which would otherwise share the real one's local storage).
     pub fn webview_dir(&self) -> Option<PathBuf> {
-        self.portable.then(|| self.data_dir.join("webview"))
+        (self.portable || self.custom).then(|| self.data_dir.join("webview"))
     }
 }
 

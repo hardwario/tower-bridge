@@ -69,9 +69,11 @@
     }
   }
 
-  function setNumber(text: string, apply: (n: number) => void, min: number, max: number) {
-    const n = parseInput(text);
+  /** A value out of range is not saved, and the field shows the stored one again. */
+  function setNumber(input: HTMLInputElement, apply: (n: number) => void, min: number, max: number, stored: string) {
+    const n = parseInput(input.value);
     if (Number.isFinite(n) && n >= min && n <= max) apply(n);
+    else input.value = stored;
   }
 
   const subscribe = $derived.by(() => {
@@ -262,7 +264,13 @@
           inputmode="decimal"
           value={fmtInput(Math.round(s.sea_level_pressure_pa) / 100)}
           onchange={(e) =>
-            setNumber(e.currentTarget.value, (n) => live.save((x) => (x.sea_level_pressure_pa = n * 100)), 800, 1100)}
+            setNumber(
+              e.currentTarget,
+              (n) => live.save((x) => (x.sea_level_pressure_pa = n * 100)),
+              800,
+              1100,
+              fmtInput(Math.round(s.sea_level_pressure_pa) / 100),
+            )}
         />
         <span class="muted">hPa</span>
       </Field>
@@ -298,7 +306,8 @@
           class="input num"
           inputmode="numeric"
           value={s.mqtt.port}
-          onchange={(e) => setNumber(e.currentTarget.value, (n) => live.save((x) => (x.mqtt.port = Math.round(n))), 1, 65535)}
+          onchange={(e) =>
+            setNumber(e.currentTarget, (n) => live.save((x) => (x.mqtt.port = Math.round(n))), 1, 65535, String(s.mqtt.port))}
         />
       </Field>
       <Field label={st.mqtt.tls} hint={st.mqtt.tlsHint}>
@@ -383,7 +392,8 @@
           class="input num"
           inputmode="numeric"
           value={s.api.port}
-          onchange={(e) => setNumber(e.currentTarget.value, (n) => live.save((x) => (x.api.port = Math.round(n))), 1, 65535)}
+          onchange={(e) =>
+            setNumber(e.currentTarget, (n) => live.save((x) => (x.api.port = Math.round(n))), 1, 65535, String(s.api.port))}
         />
       </Field>
       <Field label={st.api.allowLan} hint={st.api.allowLanHint}>

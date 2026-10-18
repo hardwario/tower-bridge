@@ -46,8 +46,11 @@ Put the binary somewhere on your `PATH`.
 From source (Rust 1.99 or newer; on Linux also `libudev-dev`):
 
 ```sh
-cargo install --path crates/tower-bridge-cli
+cargo install --locked --path crates/tower-bridge-cli
 ```
+
+It needs a C compiler (SQLite, hidapi and the TLS library are compiled from
+source) and, on Linux, `pkg-config` and `libudev-dev`.
 
 ## Everyday use
 
@@ -78,33 +81,33 @@ With the simulated bridge (`tower-bridge-cli --simulate`), 100 by 30 characters:
 
 ```text
  TOWER Bridge  ● connected over USB   interval 20 s   via this process
-┌ Values ──────────────────────────────┐┌ Temperature · last hour ─────────────────────────────────┐
-│I²C 0  CO2 Module, Climate Module R2, ││24.9   │                                           ┌─────┐│
-│▸Temperature      24.4 °C  ▁▁▅▄▅▄▄▇▆█ ││       │                                     ⡀⣀⣀⣀⣀⣀│I²C 0││
-│ Humidity          41.1 %  ▅▁▆▆▅▆▆█▇▇ ││       │⣀⡀⣀⣀⢀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⠤⠤⡠⠤⠤⠤⠤⠤⠤⠤⠒⠒⠒⠒⠒⠚⠒⠉⠉⠉⠉⠉⠈     │I²C 1││
-│ Illuminance       738 lx  ▄▅▆▅▂▁█▇▇▇ ││       │ ⠈⠈ ⠁                                      └─────┘│
-│ Pressure       999.8 hPa  ▁▃▇▇▂▇█▂▄▇ ││       │                                                  │
-│ CO₂                    …             ││       │                                                  │
-│ VOC                    …             ││       │                                                  │
-│I²C 1  Barometer Tag, Humidity Tag, Lu││22.4 °C│                                                  │
-│ Temperature      20.5 °C  ▁▂▃▅▆▆▅▅█▆ ││       │                                                  │
-│ Humidity          48.9 %  ▁▂▄▄▅▅▆▅█▅ ││       │                                                  │
-│ Illuminance      1338 lx  ▆▄▁▆▇▆▃▇▃█ ││       │                                                  │
-│ Pressure       999.9 hPa  ▄▅▇▄█▄▁▇▄▇ ││       │                                                ⢀⢀│
-│                                      ││       │⠑⠑⠉⠊⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠔⠒⠔⠒⠒⠢⠢⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠒⠊⠓⠉⠉⠉⠉⠉⠉⠉⠁⠁│
-│                                      ││19.8   │                                                  │
-│                                      ││       └──────────────────────────────────────────────────│
-│                                      ││12:08:59                    12:38:59                   now│
+┌ Values ──────────────────────────────┐┌ Temperature (°C) · last hour ────────────────────────────┐
+│I²C 0  CO2 Module, Climate Module R2  ││22.6  │┌─────┐                                            │
+│       VOC-LP Tag                     ││      ││I²C 0│⢄⣀⣀⣀⣀⡀                                      │
+│▸Temperature      21.1 °C  █▇█▇▅▅▄▄▃▁ ││      ││I²C 1│     ⠈⠉⠉⠉⠉⠒⠑⠒⠒⠒⠤⠤⠤⠤⣀⣀⣀⣀⡀                    │
+│ Humidity          47.8 %  ▇▄█▅▄▇▄▄▁▂ ││      │└─────┘                      ⠈⠈⠉⠉⠉⠒⠒⠢⠤⠤⠤⠤⣀⣀⣀⡀      │
+│ Illuminance        26 lx  ▅▁▅▄▂▃█▄▇▆ ││      │                                            ⠈⠉⠉⠉⠒⠒⠒│
+│ Pressure       998.2 hPa  ▄▆▇█▅▅▄▁▃▅ ││      │                                                   │
+│ CO₂                    …             ││      │                                                   │
+│ VOC                    …             ││20.2  │                                                   │
+│I²C 1  Barometer Tag, Humidity Tag    ││      │                                                   │
+│       Lux Meter Tag                  ││      │                                                   │
+│ Temperature      18.2 °C  ████▇▆▃▂▁▁ ││      │⢀⣀⣀⣀⢀⣀⣀⣀⡀⣀⡀⡀⡀⣀                                     │
+│ Humidity          57.5 %  ▆▃██▆█▇▂▅▁ ││      │    ⠁⠈  ⠈ ⠈⠉⠈ ⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠙⠉⠒⠒⠒⠒⠒⠒⠴⠤⠤⠤⠤⢄⢄⣀⣀⡀⣀⡀       │
+│ Illuminance        41 lx  ▂▄▁▅▃▇▁█▃█ ││      │                                         ⠈ ⠈⠉⠉⠉⠑⠒⠒⠒│
+│ Pressure       998.5 hPa  ▆█▇▃▆▁▁▆▃▁ ││17.7  │                                                   │
+│                                      ││      └───────────────────────────────────────────────────│
+│                                      ││-60 min                      -30 min                   now│
 └──────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
 ┌ Relay ────────────────────────┐┌ GPS ───────────────────────────┐┌ NFC ──────────────────────────┐
-│● TRUE                         ││50.77116, 15.05633              ││No URL                         │
+│● TRUE                         ││50.77118, 15.05632              ││No URL                         │
 │t TRUE  f FALSE  p pulse       ││±2 m, 9 satellites              ││n write a URL                  │
 └───────────────────────────────┘└────────────────────────────────┘└───────────────────────────────┘
 ┌ Log ─────────────────────────────────────────────────────────────────────────────────────────────┐
-│13:08:43  INFO bridge connected over USB                                                          │
-│13:08:46  INFO GPS receiver on channel 1 ready                                                    │
-│13:08:51  INFO relay switched true                                                                │
-│13:08:51  INFO TOWER GPS Module found on I2C channel 1                                            │
+│21:04:09  INFO bridge connected over USB                                                          │
+│21:04:13  INFO GPS receiver on channel 1 ready                                                    │
+│21:04:17  INFO relay switched true                                                                │
+│21:04:18  INFO TOWER GPS Module found on I2C channel 1                                            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
  ↑↓  value  1 2 3  span  t f p  relay  i  identify  r  rescan  n  NFC  q  quit
 ```
@@ -166,7 +169,9 @@ example:
 ```sh
 tower-bridge-cli config set mqtt.enabled true
 tower-bridge-cli config set mqtt.host broker.local
-tower-bridge-cli config set api.enabled true
+tower-bridge-cli config set api.enabled true          # the other commands, the dashboard, REST
+tower-bridge-cli config set api.mcp true              # MCP for AI assistants
+tower-bridge-cli config set api.allow_control true    # switching the relay, writing the NFC Tag
 ```
 
 ### systemd (Linux, Raspberry Pi)
@@ -230,7 +235,9 @@ Start `tower-bridge-cli.exe run` from a Task Scheduler task with the trigger
 ## MCP for AI assistants
 
 `tower-bridge-cli mcp` is an MCP server over stdin and stdout. It forwards to
-the running instance's API server (see [api.md](api.md)):
+the running instance's API server, which needs `api.enabled` and `api.mcp`
+(and `api.allow_control` for the tools that change things; see
+[api.md](https://github.com/hardwario/tower-bridge/blob/main/docs/api.md)):
 
 ```json
 { "mcpServers": { "tower-bridge": { "command": "tower-bridge-cli", "args": ["mcp"] } } }
@@ -243,7 +250,7 @@ With `--json`:
 - `status` prints `{"via": ..., "status": {"device", "latest", "relay", "nfc",
   "gps", "active_alerts", "mqtt", "sample_interval_ms"}}`;
 - `relay`, `gps` and `nfc` print their objects as in the REST API
-  ([api.md](api.md));
+  ([api.md](https://github.com/hardwario/tower-bridge/blob/main/docs/api.md));
 - `watch` prints one object per line. Readings have `"type": "reading"`;
   changes of the bridge, the relay, the NFC Tag and alerts have `"type":
   "device"`, `"relay"`, `"nfc"` and `"alert"`, and the GPS position
@@ -262,6 +269,7 @@ Unix milliseconds.
 | 2 | Usage: an unknown command or option, an invalid value, or no terminal for the dashboard |
 | 3 | Busy: another instance or program holds the bridge, or a setting cannot change while the service runs |
 | 4 | Not found: no bridge, or not the module the command needs, or no history yet |
+| 130 | Stopped with Ctrl+C; the bridge was released cleanly |
 
 Errors go to stderr as `error: ...`, often with a `hint: ...` line that says
 the way out.

@@ -183,6 +183,12 @@ pub fn run(ctx: &Ctx, args: ToolboxArgs) -> Result<()> {
         ));
     }
     match args.tool {
+        Tool::Scan if cli.simulate => {
+            println!(
+                "Simulated  simulated  serial=-  interface=0  usage_page=0xff00  product=TOWER Bridge Module  usable"
+            );
+            Ok(())
+        }
         Tool::Scan => scan(cli.backend.into()),
         Tool::Probe { cycles } => probe(&cli, cycles),
         Tool::Led { state } => {
@@ -469,8 +475,11 @@ fn scan(pref: BackendPref) -> Result<()> {
     let mut discovery = Discovery::new(pref);
     let candidates = discovery.scan()?;
     if candidates.is_empty() {
-        println!("No TOWER Bridge Module found.");
-        return Ok(());
+        return Err(crate::failure(
+            exit::NOT_FOUND,
+            "no TOWER Bridge Module found",
+            Some("check the USB cable; on Linux, the udev rule (see docs/linux.md)"),
+        ));
     }
     for c in candidates {
         println!(

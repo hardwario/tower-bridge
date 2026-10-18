@@ -47,7 +47,9 @@
     busy = true;
     error = null;
     try {
-      await api.writeNfcUrl(target);
+      // What the tag holds now, before its event comes round through the
+      // service: the field would flick back to the old URL meanwhile.
+      live.nfc = await api.writeNfcUrl(target);
       edited = false;
       written = true;
       clearTimeout(writtenTimer);

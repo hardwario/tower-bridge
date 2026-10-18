@@ -164,17 +164,23 @@ pub async fn get_alert_log(app: AppHandle, limit: Option<usize>) -> CmdResult<Ve
 }
 
 #[tauri::command]
-pub fn save_settings(app: AppHandle, settings: Settings) -> CmdResult<Settings> {
-    let saved = app.state::<AppState>().apply_settings(settings)?;
+pub async fn save_settings(app: AppHandle, settings: Settings) -> CmdResult<Settings> {
+    // Off the main thread: re-binding the API server waits for its requests.
+    let saved = tauri::async_runtime::spawn_blocking(move || {
+        app.state::<AppState>().apply_settings(settings)
+    })
+    .await??;
     Ok((*saved).clone())
 }
 
 #[tauri::command]
-pub fn set_open_at_login(app: AppHandle, enabled: bool) -> CmdResult<bool> {
-    crate::autostart::set(&app, enabled).map_err(|message| CmdError {
-        code: None,
-        message,
-    })
+pub async fn set_open_at_login(app: AppHandle, enabled: bool) -> CmdResult<bool> {
+    tauri::async_runtime::spawn_blocking(move || crate::autostart::set(&app, enabled))
+        .await?
+        .map_err(|message| CmdError {
+            code: None,
+            message,
+        })
 }
 
 #[derive(Clone, Serialize)]

@@ -275,3 +275,36 @@ fn config_keeps_text_text_and_refuses_damaged_files() {
         "untouched"
     );
 }
+
+#[test]
+fn config_takes_negative_numbers_null_and_masks_every_secret() {
+    let d = data();
+    cli(&d)
+        .args(["config", "set", "alerts.temperature.min", "-10"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("-10"));
+    cli(&d)
+        .args(["config", "set", "tray_metric", "null"])
+        .assert()
+        .success();
+    cli(&d)
+        .args(["config", "get", "tray_metric"])
+        .assert()
+        .success()
+        .stdout("null\n");
+    cli(&d)
+        .args(["config", "set", "mqtt.password", "(my-secret"])
+        .assert()
+        .success();
+    cli(&d)
+        .args(["--json", "config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("my-secret").not());
+    cli(&d)
+        .args(["--simulate", "toolbox", "scan"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Simulated"));
+}

@@ -174,7 +174,7 @@ fn on_message(
 ) {
     if retain {
         if parse_command(prefix, topic, &[]).is_some() {
-            warn!("ignored retained MQTT command on {topic}");
+            warn_rarely(&format!("ignored retained MQTT command on {topic}"));
         }
         return;
     }
@@ -182,8 +182,21 @@ fn on_message(
         Some(Ok(cmd)) => {
             let _ = commands.send(cmd);
         }
-        Some(Err(e)) => warn!("ignored MQTT message on {topic}: {e}"),
+        Some(Err(e)) => warn_rarely(&format!("ignored MQTT message on {topic}: {e}")),
         None => {}
+    }
+}
+
+/// A warning about a message from the broker, at most one a minute: anyone
+/// who can publish there could otherwise fill the log.
+pub fn warn_rarely(message: &str) {
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    let Ok(mut last) = LAST.lock() else {
+        return;
+    };
+    if last.is_none_or(|t| t.elapsed() >= Duration::from_secs(60)) {
+        *last = Some(Instant::now());
+        warn!("{message} (more such messages are not logged for a minute)");
     }
 }
 
@@ -197,6 +210,9 @@ pub struct ClientConfig {
     pub tls: bool,
     pub credentials: Option<(String, String)>,
     pub client_id: String,
+    /// Subscribe to the relay command topics: only while relay control over
+    /// MQTT is allowed, so others on the broker cannot fill the log.
+    pub commands: bool,
 }
 
 /// News from the connection to the broker.
@@ -291,6 +307,7 @@ pub fn connect(
 
     let thread_client = client.clone();
     let thread_prefix = prefix.clone();
+    let subscribe = cfg.commands;
     let thread_stopping = stopping.clone();
     let address = format!("{}:{}", cfg.host, cfg.port);
     std::thread::Builder::new()
@@ -309,10 +326,12 @@ pub fn connect(
                         backoff = Duration::from_secs(1);
                         // A clean session forgets subscriptions: subscribe on
                         // every connect.
-                        let _ = thread_client.try_subscribe(
-                            command_filter(&thread_prefix),
-                            rumqttc::QoS::AtMostOnce,
-                        );
+                        if subscribe {
+                            let _ = thread_client.try_subscribe(
+                                command_filter(&thread_prefix),
+                                rumqttc::QoS::AtMostOnce,
+                            );
+                        }
                         info!("connected to the MQTT broker at {address}");
                         let _ = events.send(LinkEvent::Connected);
                     }
@@ -834,6 +853,7 @@ mod tests {
                 tls: false,
                 credentials: Some(("ha".into(), "secret".into())),
                 client_id: "tower-bridge-test".into(),
+                commands: true,
             },
             prefix,
             commands,

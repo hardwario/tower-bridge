@@ -17,6 +17,7 @@ export const de: Messages = {
     error: "Fehler",
     loading: "Wird geladen…",
     backendError: "Keine Verbindung zum App-Backend: {error}",
+    saveFailed: "Die Einstellungen können nicht gespeichert werden: {error}",
     min: "Min.",
     avg: "Ø",
     max: "Max.",
@@ -51,12 +52,12 @@ export const de: Messages = {
     noModule: "Keine Sensoren",
     searching: "Suche…",
     notConnected: "Nicht verbunden",
-    attention: "Aufmerksamkeit erforderlich",
+    attention: "Handlungsbedarf",
   },
   banners: {
     simulationTitle: "Simulationsmodus",
     simulationBody:
-      "Die Werte stammen von einem simulierten Climate Module und Sensor-Tags; es wird keine Hardware verwendet und der Verlauf wird getrennt gespeichert.",
+      "Die Werte stammen von simulierten TOWER-Modulen; es wird keine Hardware verwendet und der Verlauf wird getrennt gespeichert.",
     connectTitle: "TOWER Bridge Module anschließen",
     connectBody:
       "Stecken Sie das Bridge Module mit einem Climate Module an einen USB-Anschluss. Es wird automatisch erkannt.",
@@ -97,7 +98,7 @@ export const de: Messages = {
     rescanning: "Suche…",
     rescanFound: "Gefunden: {modules}.",
     rescanNone: "Keine Sensoren gefunden.",
-    notConnectedError: "TOWER Bridge ist nicht verbunden.",
+    notConnectedError: "Das TOWER Bridge Module ist nicht verbunden.",
     actionFailed: "Fehlgeschlagen: {error}",
   },
   gps: {
@@ -121,7 +122,7 @@ export const de: Messages = {
     title: "NFC",
     current: "Auf dem Tag",
     none: "Noch keine URL",
-    notFormatted: "Der Tag ist nicht für NDEF formatiert. Formatieren Sie ihn mit einer App auf dem Telefon (zum Beispiel NXP TagWriter) und schreiben Sie dann die URL hier.",
+    notFormatted: "Der Tag ist nicht für NDEF formatiert. Formatieren Sie ihn mit einer App auf dem Telefon (zum Beispiel NXP TagWriter) und schreiben Sie die URL dann hier auf den Tag.",
     url: "URL",
     write: "Schreiben",
     writing: "Wird geschrieben…",
@@ -294,7 +295,7 @@ export const de: Messages = {
     keepHistory: "Verlauf aufbewahren",
     dataFolder: "Datenordner",
     portable: "Portabel",
-    about: "Über",
+    about: "Info",
     version: "Version {version}",
     legal:
       "© 2026 HARDWARIO a.s. Veröffentlicht unter der MIT-Lizenz. HARDWARIO und TOWER sind Marken der HARDWARIO a.s.",

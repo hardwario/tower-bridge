@@ -82,7 +82,10 @@ impl Service {
         // A session takes no lock: an instance starting meanwhile waits for
         // the bridge instead of refusing to start (the app at login next to
         // a script calling `status`).
-        if let Some(holder) = InstanceLock::holder(&paths.lock_file()) {
+        // A full instance finds out by taking the lock (which retries past
+        // another program's probe); a probe of its own could be the one
+        // that collides.
+        if !full && let Some(holder) = InstanceLock::holder(&paths.lock_file()) {
             return Err(StartError::AlreadyRunning(holder, paths.data_dir.clone()));
         }
         let lock = match full.then(|| InstanceLock::acquire(&paths.lock_file(), &config.program)) {
@@ -296,6 +299,7 @@ mod tests {
             paths: Paths {
                 data_dir: dir.to_path_buf(),
                 portable: false,
+                custom: true,
             },
             mode,
             simulated: true,

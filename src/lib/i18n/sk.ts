@@ -17,6 +17,7 @@ export const sk: Messages = {
     error: "Chyba",
     loading: "Načítavam…",
     backendError: "Nedá sa pripojiť k jadru aplikácie: {error}",
+    saveFailed: "Nastavenia sa nedajú uložiť: {error}",
     min: "min",
     avg: "priemer",
     max: "max",
@@ -61,11 +62,11 @@ export const sk: Messages = {
   banners: {
     simulationTitle: "Režim simulácie",
     simulationBody:
-      "Hodnoty generujú simulovaný Climate Module a senzorové tagy; žiadny hardvér sa nepoužíva a história sa ukladá oddelene.",
+      "Hodnoty pochádzajú zo simulovaných modulov TOWER; žiadny hardvér sa nepoužíva a história sa ukladá oddelene.",
     connectTitle: "Pripojte TOWER Bridge Module",
     connectBody: "Zapojte Bridge Module s Climate Module do portu USB. Rozpozná sa automaticky.",
     permissionTitle: "Chýba oprávnenie k Bridge Module",
-    permissionLinux: "Povoľte svojmu používateľovi prístup k mostíku týmto príkazom v termináli a modul znova zapojte:",
+    permissionLinux: "Povoľte svojmu používateľovi prístup k Bridge Module týmto príkazom v termináli a modul znova zapojte:",
     i2cDevTitle: "Modul jadra i2c-dev nie je načítaný",
     i2cDevBody:
       "Zariadenie obsluhuje linuxový ovládač ft260. Načítajte rozhranie I²C príkazom {load} a natrvalo ho zapnite príkazom {persist}.",
@@ -91,7 +92,7 @@ export const sk: Messages = {
     identify: "Identifikovať",
     severalBridges:
       "Je pripojený viac ako jeden TOWER Bridge Module. TOWER Bridge číta len jeden z nich; {identify} rozbliká jeho LED. Ostatné odpojte, inak sa môžu zmiešať hodnoty z rôznych zostáv.",
-    identifyHint: "Blikne LED na Bridge Module",
+    identifyHint: "Rozblikať LED na Bridge Module",
     rescan: "Hľadať znova",
     modules: "Moduly",
     i2cChannel: "I²C kanál {n}",
@@ -101,7 +102,7 @@ export const sk: Messages = {
     rescanning: "Hľadám…",
     rescanFound: "Nájdené: {modules}.",
     rescanNone: "Senzory sa nenašli.",
-    notConnectedError: "TOWER Bridge nie je pripojený.",
+    notConnectedError: "TOWER Bridge Module nie je pripojený.",
     actionFailed: "Nepodarilo sa: {error}",
   },
   gps: {

@@ -392,7 +392,12 @@
           grid: { stroke: th.grid, width: 1 },
           ticks: { show: false },
           size: 52,
-          values: (_u, vals) => vals.map((v) => fmtNumber(v, d === 0 && Math.abs(v) >= 1000 ? 0 : d)),
+          // As many decimals as the tick spacing needs (0.25 apart: 23.75),
+          // at least the metric's.
+          values: (_u, vals, _axis, _space, incr) => {
+            const need = stepDecimals(incr);
+            return vals.map((v) => fmtNumber(v, Math.max(need, d === 0 && Math.abs(v) >= 1000 ? 0 : d)));
+          },
         },
       ],
       series: [
@@ -436,7 +441,7 @@
   $effect(() => {
     void [
       unit,
-      rule,
+      ruleKey,
       linesKey,
       show.min,
       show.avg,
@@ -453,6 +458,18 @@
     ];
     untrack(build);
   });
+
+  /** The limits drawn; a settings save gives a new rule object, which is no change. */
+  const ruleKey = $derived(rule ? `${rule.enabled}:${rule.min}:${rule.max}` : "");
+
+  /** Decimals needed to tell ticks `incr` apart: 0.25 needs 2, 2.5 needs 1. */
+  function stepDecimals(incr: number): number {
+    for (let d = 0; d < 6; d++) {
+      const scaled = incr * 10 ** d;
+      if (Math.abs(scaled - Math.round(scaled)) < 1e-6 * Math.max(1, scaled)) return d;
+    }
+    return 6;
+  }
 
   /** What the lines are; a new array with the same lines is no change. */
   const linesKey = $derived(lines.map((l) => `${l.channel}:${l.color}:${l.name ?? ""}:${l.hidden ? 1 : 0}`).join());

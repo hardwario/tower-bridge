@@ -33,7 +33,6 @@
     font-size: 12.5px;
     font-weight: 500;
     color: var(--text-2);
-    white-space: nowrap;
   }
   .dot {
     flex-shrink: 0;

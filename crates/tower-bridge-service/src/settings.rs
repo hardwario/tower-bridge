@@ -126,6 +126,7 @@ impl MqttSettings {
             credentials: (!self.username.is_empty())
                 .then(|| (self.username.clone(), self.password.clone())),
             client_id: self.client_id.clone(),
+            commands: self.allow_control,
         })
     }
 }
@@ -505,6 +506,8 @@ impl Settings {
     }
 
     fn parse(text: &str) -> Parsed {
+        // Windows editors may save a byte order mark, which is no JSON.
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let mut v = match serde_json::from_str::<serde_json::Value>(text) {
             Ok(v) => v,
             Err(e) => return Parsed::NotJson(e.to_string()),

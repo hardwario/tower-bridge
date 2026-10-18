@@ -21,6 +21,15 @@ impl HttpResponse {
     }
 }
 
+/// Largest response body and header line accepted: the answer comes from
+/// whatever listens on the port, maybe not the app.
+const MAX_BODY: usize = 64 * 1024 * 1024;
+const MAX_LINE: u64 = 16 * 1024;
+
+fn read_line(reader: &mut impl BufRead, line: &mut String) -> std::io::Result<usize> {
+    reader.take(MAX_LINE).read_line(line)
+}
+
 fn invalid(msg: &str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, msg.to_string())
 }
@@ -55,7 +64,7 @@ pub fn request(
 
     let mut reader = BufReader::new(stream);
     let mut status_line = String::new();
-    reader.read_line(&mut status_line)?;
+    read_line(&mut reader, &mut status_line)?;
     let status = status_line
         .split_whitespace()
         .nth(1)
@@ -65,7 +74,7 @@ pub fn request(
     let mut headers = Vec::new();
     loop {
         let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 {
+        if read_line(&mut reader, &mut line)? == 0 {
             break;
         }
         let line = line.trim_end();
@@ -90,12 +99,20 @@ pub fn request(
         .header("content-length")
         .and_then(|v| v.parse::<usize>().ok())
     {
+        if len > MAX_BODY {
+            return Err(invalid("response too large"));
+        }
         let mut b = vec![0u8; len];
         reader.read_exact(&mut b)?;
         b
     } else {
         let mut b = Vec::new();
-        reader.read_to_end(&mut b)?;
+        (&mut reader)
+            .take(MAX_BODY as u64 + 1)
+            .read_to_end(&mut b)?;
+        if b.len() > MAX_BODY {
+            return Err(invalid("response too large"));
+        }
         b
     };
     Ok(HttpResponse { body, ..resp })
@@ -105,19 +122,23 @@ fn read_chunked(reader: &mut impl BufRead) -> std::io::Result<Vec<u8>> {
     let mut out = Vec::new();
     loop {
         let mut size_line = String::new();
-        reader.read_line(&mut size_line)?;
+        read_line(reader, &mut size_line)?;
         let size_hex = size_line.trim().split(';').next().unwrap_or("");
         let size = usize::from_str_radix(size_hex, 16).map_err(|_| invalid("bad chunk size"))?;
         if size == 0 {
             // Trailer section ends with an empty line.
             let mut line = String::new();
-            while reader.read_line(&mut line)? > 0 && !line.trim().is_empty() {
+            while read_line(reader, &mut line)? > 0 && !line.trim().is_empty() {
                 line.clear();
             }
             return Ok(out);
         }
         let start = out.len();
-        out.resize(start + size, 0);
+        let end = start
+            .checked_add(size)
+            .filter(|end| *end <= MAX_BODY)
+            .ok_or_else(|| invalid("response too large"))?;
+        out.resize(end, 0);
         reader.read_exact(&mut out[start..])?;
         let mut crlf = [0u8; 2];
         reader.read_exact(&mut crlf)?;

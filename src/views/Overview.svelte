@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { flip } from "svelte/animate";
   import { api } from "../lib/api";
   import { ChartGroup, dataExtent, panBounds, windowStats, zoomDetail, zoomHint } from "../lib/chart-group.svelte";
@@ -81,8 +80,6 @@
     const conf = SPANS.find((s) => s.key === span) ?? SPANS[2];
     if (!group.hovering && Date.now() - lastFetch >= conf.refreshMs) load();
   });
-
-  onMount(load);
 
   const unit = $derived(live.settings?.temperature_unit ?? "celsius");
   const ready = $derived(live.device.status === "ready");

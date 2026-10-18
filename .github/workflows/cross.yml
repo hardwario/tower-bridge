@@ -39,3 +39,19 @@ jobs:
           toolchain: stable
       - run: cargo install cross --version 0.2.5 --locked
       - run: cross build --release --locked -p tower-bridge-cli --target ${{ matrix.target }}
+
+  # The Intel half of the universal macOS binary also compiles aws-lc.
+  macos-intel:
+    name: CLI (x86_64-apple-darwin)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: x86_64-apple-darwin
+      - run: cargo build --release --locked -p tower-bridge-cli --target x86_64-apple-darwin
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"

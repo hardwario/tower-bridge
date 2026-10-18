@@ -14,7 +14,6 @@ use tower_bridge_service::{
 };
 use tracing::{info, warn};
 
-use super::watch::stop_signal;
 use crate::access::Ctx;
 use crate::{exit, init_logging, output};
 
@@ -122,7 +121,7 @@ impl Observer for LogObserver {
 
 pub fn service(ctx: &Ctx, verbose: u8) -> Result<()> {
     init_logging(verbose, true);
-    let stop = stop_signal();
+    let stop = crate::stop::receiver();
     let service = match Service::start(ServiceConfig {
         paths: ctx.paths()?,
         mode: Mode::Full,

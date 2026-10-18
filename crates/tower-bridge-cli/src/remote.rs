@@ -115,7 +115,9 @@ impl Remote {
                     "{} refused the access token: {}",
                     self.holder, detail.message
                 ),
-                Some("the token in settings.json no longer matches; restart it"),
+                Some(
+                    "the token in settings.json no longer matches (restart it), or another program answers on this port (give one of them another api.port)",
+                ),
             )),
             403 => Err(crate::failure(
                 exit::ERROR,

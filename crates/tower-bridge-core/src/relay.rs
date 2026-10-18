@@ -195,7 +195,18 @@ impl RelayModule {
         let a = self.address;
         select_channel(bus, self.channel)?;
         self.configure(bus)?;
-        bus.write(a, &[REG_OUTPUT, drive(state) | state_led(state)])?;
+        if let Err(e) = bus.write(a, &[REG_OUTPUT, drive(state) | state_led(state)]) {
+            // The expander may have latched the drive before the error came:
+            // release the coil before giving up.
+            if !e.is_fatal() {
+                let idle = [REG_OUTPUT, IDLE | led(self.state)];
+                if bus.write(a, &idle).is_err() {
+                    let _ = bus.recover();
+                    let _ = bus.write(a, &idle);
+                }
+            }
+            return Err(e);
+        }
         clock.sleep(COIL_PULSE);
         let idle = [REG_OUTPUT, IDLE | state_led(state)];
         let released = bus.write(a, &idle);

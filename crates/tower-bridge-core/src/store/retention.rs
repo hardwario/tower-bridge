@@ -31,6 +31,10 @@ pub fn purge_older_than(conn: &Connection, cutoff_ms: i64) -> Result<usize> {
     let mut vacuum = conn.prepare("PRAGMA incremental_vacuum")?;
     let mut rows = vacuum.query([])?;
     while rows.next()?.is_some() {}
+    drop(rows);
+    drop(vacuum);
+    // The freed pages went through the WAL: give that space back too.
+    let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
     Ok(total)
 }
 

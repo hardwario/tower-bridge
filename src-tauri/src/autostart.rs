@@ -1,5 +1,6 @@
 //! Open at login. The OS registration is the source of truth.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -25,14 +26,67 @@ pub fn is_enabled(app: &AppHandle) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)
 }
 
-/// Re-register on start so a moved executable or AppImage keeps working.
+/// This program as the login item names it (an AppImage by its own path).
+fn program() -> Option<PathBuf> {
+    std::env::var_os("APPIMAGE")
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_exe().ok())
+}
+
+/// Where the program that turned Open at login on is recorded.
+fn record(app: &AppHandle) -> Option<PathBuf> {
+    app.try_state::<AppState>()
+        .map(|s| s.paths.data_dir.join("open-at-login.txt"))
+}
+
+/// A build of the source tree (`cargo build`, `npm run tauri dev`).
+fn development_build(program: &Path) -> bool {
+    let p = program.to_string_lossy().replace('\\', "/");
+    p.contains("/target/debug/") || p.contains("/target/release/")
+}
+
+/// Re-register on start so a moved executable or AppImage keeps working,
+/// but only for the program that turned it on: any other copy (a newer
+/// download, a portable exe elsewhere, a development build) would take the
+/// login item over.
 pub fn refresh(app: &AppHandle) {
-    if is_enabled(app)
-        && !isolated()
-        && !translocated()
-        && let Err(e) = app.autolaunch().enable()
-    {
-        warn!("cannot refresh login item: {e}");
+    if !is_enabled(app) || isolated() || translocated() {
+        return;
+    }
+    let Some(program) = program() else {
+        return;
+    };
+    let recorded = record(app)
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .map(|s| PathBuf::from(s.trim()));
+    let ours = match &recorded {
+        // Moved: the program recorded is gone.
+        Some(path) => path == &program || !path.exists(),
+        // Turned on by an older version, which kept no record.
+        None => !development_build(&program),
+    };
+    if !ours {
+        return;
+    }
+    match app.autolaunch().enable() {
+        Ok(()) => remember(app, Some(&program)),
+        Err(e) => warn!("cannot refresh login item: {e}"),
+    }
+}
+
+fn remember(app: &AppHandle, program: Option<&Path>) {
+    let Some(file) = record(app) else {
+        return;
+    };
+    let result = match program {
+        Some(p) => std::fs::write(&file, p.to_string_lossy().as_bytes()),
+        None => std::fs::remove_file(&file).or_else(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => Ok(()),
+            _ => Err(e),
+        }),
+    };
+    if let Err(e) = result {
+        warn!("cannot record the login item in {}: {e}", file.display());
     }
 }
 
@@ -61,6 +115,7 @@ pub fn set(app: &AppHandle, enabled: bool) -> Result<bool, String> {
     };
     sync(app);
     r.map_err(|e| e.to_string())?;
+    remember(app, if enabled { program() } else { None }.as_deref());
     let now = is_enabled(app);
     info!("open at login: {now}");
     Ok(now)

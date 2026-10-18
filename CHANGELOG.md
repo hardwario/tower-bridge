@@ -19,7 +19,8 @@ hardwario/enmon.
   30 s, humidity compensated; the learned baseline survives restarts.
 - TOWER Relay Module (TCA9534A or TCA9534): state TRUE, FALSE or unknown
   (JSON `true`, `false`, `null`), switched or pulsed to either state for 0.5 s
-  to 1 hour (2 s by default).
+  to 1 hour (2 s by default); a pulse running when the app or the service
+  stops is switched back.
 - TOWER GPS Module (u-blox SAM-M8Q): fix, satellites, position, accuracy,
   altitude and satellite time.
 - TOWER NFC Tag: shows the URL on the tag and writes a new one as an NDEF URI

@@ -193,7 +193,7 @@ fn forward(
     legacy_version: &str,
 ) -> Result<Option<Value>, String> {
     let Some(addr) = target.addr else {
-        return Err("The TOWER Bridge API server is turned off. Turn on Settings → API & MCP in the TOWER Bridge app.".into());
+        return Err("The TOWER Bridge API server is turned off. Turn it on in the app (Settings → API & MCP), or for tower-bridge-cli run with `tower-bridge-cli config set api.enabled true`.".into());
     };
     let method = msg
         .get("method")
@@ -234,7 +234,7 @@ fn forward(
         401 | 403 => Err("TOWER Bridge rejected the request (access token mismatch). Restart the MCP client to reload the settings.".into()),
         _ => match serde_json::from_slice::<Value>(&resp.body) {
             Ok(v) if v.get("jsonrpc").is_some() => Ok(Some(v)),
-            _ if resp.status == 404 => Err("The MCP server is turned off in TOWER Bridge → Settings → API & MCP.".into()),
+            _ if resp.status == 404 => Err("The MCP server is turned off. Turn it on in the app (Settings → API & MCP), or for tower-bridge-cli run with `tower-bridge-cli config set api.mcp true`.".into()),
             _ => Err(format!("TOWER Bridge returned HTTP {}", resp.status)),
         },
     }

@@ -11,6 +11,7 @@ mod cli;
 mod cmd;
 mod output;
 mod remote;
+mod stop;
 mod tui;
 
 use std::io::{IsTerminal, Write};
@@ -29,6 +30,9 @@ pub mod exit {
     pub const BUSY: u8 = 3;
     /// No bridge, or not the module the command needs.
     pub const NOT_FOUND: u8 = 4;
+    /// Stopped by Ctrl+C (128 + SIGINT, as shells report it); the bridge was
+    /// released cleanly.
+    pub const INTERRUPTED: u8 = 130;
 }
 
 /// An error with its exit code and a way out.
@@ -57,8 +61,12 @@ pub fn failure(code: u8, message: impl Into<String>, hint: Option<&str>) -> anyh
 }
 
 fn main() -> ExitCode {
-    restore_sigpipe();
     let cli = cli::Cli::parse();
+    // `watch` ends cleanly on a closed pipe (`watch | head`) to release the
+    // bridge; everything else dies quietly on SIGPIPE, as Unix tools do.
+    if !matches!(cli.command, Some(cli::Command::Watch { .. })) {
+        restore_sigpipe();
+    }
     match cmd::run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

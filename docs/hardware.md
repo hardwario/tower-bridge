@@ -193,7 +193,7 @@ the app does not use it.
 The address is stored in the chip (byte 0 of block 0), so it survives power
 cycles. The app looks at both, on both switch channels, on connect, on
 *Rescan* and every minute. A bare one-byte read does not find the chip, so
-`i2c-scan` misses it; `nfc --scan` sets the memory pointer first and tries
+`i2c-scan` misses it; `toolbox nfc-scan` sets the memory pointer first and tries
 every address.
 
 Over I²C the memory is read and written in 16-byte blocks: write the block

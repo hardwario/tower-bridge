@@ -17,12 +17,13 @@ export const pl: Messages = {
     error: "Błąd",
     loading: "Wczytywanie…",
     backendError: "Nie można połączyć się z rdzeniem aplikacji: {error}",
-    min: "min",
+    saveFailed: "Nie można zapisać ustawień: {error}",
+    min: "min.",
     avg: "śr.",
     max: "maks.",
     aboveLimit: "Powyżej limitu",
     belowLimit: "Poniżej limitu",
-    backToNormal: "W normie",
+    backToNormal: "Powrót do normy",
   },
   metrics: {
     temperature: "Temperatura",
@@ -61,12 +62,12 @@ export const pl: Messages = {
   banners: {
     simulationTitle: "Tryb symulacji",
     simulationBody:
-      "Wartości generują symulowany Climate Module i tagi czujników; sprzęt nie jest używany, a historia jest zapisywana osobno.",
+      "Wartości pochodzą z symulowanych modułów TOWER; sprzęt nie jest używany, a historia jest zapisywana osobno.",
     connectTitle: "Podłącz TOWER Bridge Module",
     connectBody: "Podłącz Bridge Module z Climate Module do portu USB. Zostanie wykryty automatycznie.",
     permissionTitle: "Brak uprawnień do Bridge Module",
     permissionLinux:
-      "Nadaj swojemu użytkownikowi dostęp do mostka tym poleceniem w terminalu i podłącz moduł ponownie:",
+      "Nadaj swojemu użytkownikowi dostęp do Bridge Module tym poleceniem w terminalu i podłącz moduł ponownie:",
     i2cDevTitle: "Moduł jądra i2c-dev nie jest załadowany",
     i2cDevBody:
       "Urządzenie obsługuje linuksowy sterownik ft260. Załaduj interfejs I²C poleceniem {load} i włącz go na stałe poleceniem {persist}.",
@@ -101,7 +102,7 @@ export const pl: Messages = {
     rescanning: "Wyszukiwanie…",
     rescanFound: "Znaleziono: {modules}.",
     rescanNone: "Nie znaleziono czujników.",
-    notConnectedError: "TOWER Bridge nie jest podłączony.",
+    notConnectedError: "TOWER Bridge Module nie jest podłączony.",
     actionFailed: "Niepowodzenie: {error}",
   },
   gps: {
@@ -118,7 +119,7 @@ export const pl: Messages = {
     zoomOut: "Oddal",
     recenter: "Wróć do pozycji",
     mapFailed: "Nie udało się wczytać mapy",
-    searchingHint: "Pierwsze ustalenie pozycji może potrwać kilka minut i wymaga widoku nieba.",
+    searchingHint: "Pierwsze ustalenie pozycji może potrwać kilka minut i wymaga widoku na niebo.",
     noData: "Oczekiwanie na odbiornik…",
   },
   nfc: {

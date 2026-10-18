@@ -96,7 +96,9 @@ pub fn run() {
         RunEvent::ExitRequested {
             code: None, api, ..
         } => api.prevent_exit(),
-        RunEvent::Exit => shutdown(app, Duration::from_secs(1)),
+        // Long enough for a measurement cycle to end, so the sensors are
+        // stopped and the relay is switched back from a pulse.
+        RunEvent::Exit => shutdown(app, Duration::from_secs(4)),
         _ => {}
     });
 }

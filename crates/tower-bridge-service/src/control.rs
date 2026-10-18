@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crossbeam_channel::Receiver;
 use tower_bridge_core::acquisition::{AcqCommand, AcqError, Reply, RescanOutcome};
-use tower_bridge_core::mqtt::MqttCommand;
+use tower_bridge_core::mqtt::{MqttCommand, warn_rarely};
 use tower_bridge_core::nfc::NfcInfo;
 use tower_bridge_core::relay::RelayInfo;
 use tracing::warn;
@@ -129,18 +129,23 @@ pub(crate) fn spawn_mqtt_commands(
     std::thread::Builder::new()
         .name("mqtt-commands".into())
         .spawn(move || {
-            for cmd in rx {
+            while let Ok(mut cmd) = rx.recv() {
+                // A burst (a looping automation) switches once: the last
+                // command waiting wins, as with the other ways in.
+                while let Ok(next) = rx.try_recv() {
+                    cmd = next;
+                }
                 let mqtt = state.settings().mqtt.clone();
                 if !(mqtt.enabled && mqtt.allow_control) {
-                    warn!("ignored MQTT relay command: relay control over MQTT is off");
+                    warn_rarely("ignored MQTT relay command: relay control over MQTT is off");
                     continue;
                 }
                 let relay_channel = state.relay.read().map(|r| r.channel);
                 if relay_channel != Some(cmd.channel()) {
-                    warn!(
+                    warn_rarely(&format!(
                         "ignored MQTT relay command: no Relay Module on I2C channel {}",
                         cmd.channel()
-                    );
+                    ));
                     continue;
                 }
                 let result = match cmd {
