@@ -7,7 +7,6 @@ use fontdue::{Font, FontSettings};
 static FONT: &[u8] = include_bytes!("../../assets/fonts/BarlowCondensed-Bold.ttf");
 
 pub const BRAND_RED: [u8; 3] = [0xE4, 0x00, 0x2B];
-pub const GREY: [u8; 3] = [0x6B, 0x6A, 0x6A];
 
 pub struct TileRenderer {
     font: Font,
