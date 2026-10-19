@@ -7,6 +7,7 @@
 //                   &bridges=2 (more than one TOWER Bridge Module plugged in)
 //                   &nfc=url|empty|unformatted (an NFC Tag on channel 0)
 //                   &co2=1 (a CO2 Module and a VOC-LP Tag on channel 0)  &gps=fix|nofix (a GPS Module)
+//                   &notify=blocked (macOS has the app's notifications turned off: "Send test" says so)
 
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
@@ -336,7 +337,7 @@ const snapshot: Snapshot = {
           },
         ]
       : [],
-  app: { version: "1.0.0", data_dir: "~/Library/Application Support/com.hardwario.tower-bridge", portable: false, simulated: false, os: "macos", system_language: "en", exe_path: "/Applications/TOWER Bridge.app/Contents/MacOS/tower-bridge" },
+  app: { version: "1.0.1", data_dir: "~/Library/Application Support/com.hardwario.tower-bridge", portable: false, simulated: false, os: "macos", system_language: "en", exe_path: "/Applications/TOWER Bridge.app/Contents/MacOS/tower-bridge" },
 };
 
 mockIPC(
@@ -386,6 +387,8 @@ mockIPC(
       case "open_link":
         console.info("open link", a.target);
         return null;
+      case "send_test_notification":
+        return params.get("notify") === "blocked" ? "blocked" : "sent";
       case "identify_device":
         return new Promise((resolve) => setTimeout(() => resolve(null), 800));
       case "set_relay":

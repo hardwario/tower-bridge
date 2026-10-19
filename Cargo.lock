@@ -3208,6 +3208,8 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9df9128cbbfef73cda168416ccf7f837b62737d748333bfe9ab71c245d76613e"
 dependencies = [
+ "bitflags 2.13.2",
+ "block2",
  "objc2",
  "objc2-foundation",
 ]
@@ -5700,12 +5702,17 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
+ "block2",
  "chrono",
  "crossbeam-channel",
  "fontdue",
+ "objc2",
+ "objc2-foundation",
+ "objc2-service-management",
+ "objc2-user-notifications",
  "parking_lot",
  "serde",
  "serde_json",
@@ -5728,7 +5735,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -5751,7 +5758,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "axum",
  "chrono",
@@ -5774,7 +5781,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge-service"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "crossbeam-channel",

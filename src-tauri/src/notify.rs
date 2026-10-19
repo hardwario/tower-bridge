@@ -1,13 +1,44 @@
-//! Native notifications.
+//! Native notifications: the notification plugin on Windows and Linux, the
+//! UserNotifications framework on macOS (in an app bundle; development
+//! builds keep the plugin).
+
+#[cfg(target_os = "macos")]
+mod macos;
 
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 use tracing::warn;
 
+/// At start: on macOS ask for permission (macOS prompts only the first time)
+/// and show notifications also while the dashboard is in front.
+pub fn init(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    if macos::available() {
+        macos::init(app);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
 pub fn send(app: &AppHandle, title: &str, body: &str) {
+    #[cfg(target_os = "macos")]
+    if macos::available() {
+        macos::send(title, body);
+        return;
+    }
     if let Err(e) = app.notification().builder().title(title).body(body).show() {
         warn!("notification failed: {e}");
     }
+}
+
+/// Whether the system has notifications turned off for TOWER Bridge (macOS:
+/// in System Settings, Notifications).
+pub fn blocked() -> bool {
+    #[cfg(target_os = "macos")]
+    if macos::available() {
+        return macos::blocked();
+    }
+    false
 }
 
 /// Windows shows toasts from an unpackaged exe only when its AppUserModelID

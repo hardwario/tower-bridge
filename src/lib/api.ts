@@ -30,7 +30,8 @@ export const api = {
   exportCsv: (from: number, to: number) => invoke<ExportResult | null>("export_csv", { from, to }),
   exportXlsx: (from: number, to: number, datetimeFormat: string) =>
     invoke<ExportResult | null>("export_xlsx", { from, to, datetime_format: datetimeFormat }),
-  testNotification: () => invoke<void>("send_test_notification"),
+  /** "blocked" when the system has TOWER Bridge notifications turned off (macOS). */
+  testNotification: () => invoke<"sent" | "blocked">("send_test_notification"),
   identify: () => invoke<void>("identify_device"),
   rescan: () => invoke<RescanOutcome>("rescan_device"),
   /** Switch the relay to true or false. */
@@ -45,7 +46,7 @@ export const api = {
   openDataFolder: () => invoke<void>("open_data_folder"),
   revealFile: (path: string) => invoke<void>("reveal_file", { path }),
   /** Open docs / store / academy in the system browser. */
-  openLink: (target: "docs" | "store" | "academy") => invoke<void>("open_link", { target }),
+  openLink: (target: "docs" | "store" | "academy" | "notification_settings") => invoke<void>("open_link", { target }),
 };
 
 export interface Events {

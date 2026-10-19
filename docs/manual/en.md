@@ -131,7 +131,7 @@ Set a lower limit (**Below**) and an upper limit (**Above**) for each measuremen
 
 In the diagram the value rises above the limit: the alert starts and you get a notification (red bell). A dip into the hysteresis band does not end it. Only when the value falls below the band does the alert end, with a notification if **Notify when back to normal** is on (green bell).
 
-**Send test** under Test notification checks that notifications reach you. Recent alerts are listed at the bottom.
+**Send test** under Test notification checks that notifications reach you. On macOS, TOWER Bridge asks for permission to send notifications when it first starts; if they are turned off, **Send test** says so and **Open settings** opens the place to turn them on. Recent alerts are listed at the bottom.
 
 ## Settings {#settings}
 

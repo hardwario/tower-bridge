@@ -211,6 +211,8 @@ export const de: Messages = {
     testHint: "Prüfen Sie, ob das Betriebssystem Benachrichtigungen von TOWER Bridge anzeigt.",
     sendTest: "Senden",
     sent: "Gesendet",
+    blocked: "macOS hat die Benachrichtigungen von TOWER Bridge ausgeschaltet. Schalten Sie sie in den Systemeinstellungen → Mitteilungen ein.",
+    openSettings: "Einstellungen öffnen",
     recent: "Letzte Alarme",
     none: "Noch keine Alarme.",
     limit: "Grenzwert {value}",

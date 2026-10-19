@@ -1,7 +1,7 @@
 [package]
 name = "tower-bridge"
 description = "Desktop app for the HARDWARIO TOWER Bridge Module and Climate Module"
-version = "1.0.0"
+version = "1.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -40,6 +40,27 @@ tracing-subscriber.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
+
+# Notifications through UserNotifications (the notification plugin's
+# NSUserNotification delivers nothing on current macOS) and Open at Login
+# through SMAppService.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSProcessInfo", "NSString", "NSUUID"] }
+objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+    "std",
+    "block2",
+    "UNNotification",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotificationSettings",
+    "UNNotificationSound",
+    "UNNotificationTrigger",
+    "UNUserNotificationCenter",
+] }
 
 [lints]
 workspace = true

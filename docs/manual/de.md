@@ -131,7 +131,7 @@ Legen Sie für jede Messgröße eine untere Grenze (**Unter**) und eine obere Gr
 
 Im Diagramm steigt der Wert über die Grenze: Der Alarm beginnt und Sie erhalten eine Benachrichtigung (rote Glocke). Ein Absinken in das Hystereseband beendet ihn nicht. Erst wenn der Wert unter das Band fällt, endet der Alarm; ist **Benachrichtigen, wenn wieder normal** eingeschaltet, kommt eine Benachrichtigung (grüne Glocke).
 
-**Senden** bei Testbenachrichtigung prüft, ob Benachrichtigungen ankommen. Die letzten Alarme stehen unten.
+**Senden** bei Testbenachrichtigung prüft, ob Benachrichtigungen ankommen. Unter macOS bittet TOWER Bridge beim ersten Start um die Erlaubnis für Benachrichtigungen; sind sie ausgeschaltet, sagt **Senden** das, und **Einstellungen öffnen** öffnet die Stelle, an der Sie sie einschalten. Die letzten Alarme stehen unten.
 
 ## Einstellungen {#settings}
 

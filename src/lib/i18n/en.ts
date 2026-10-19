@@ -208,6 +208,8 @@ export const en = {
     testHint: "Check that the operating system shows TOWER Bridge notifications.",
     sendTest: "Send test",
     sent: "Sent",
+    blocked: "macOS has notifications for TOWER Bridge turned off. Turn them on in System Settings → Notifications.",
+    openSettings: "Open settings",
     recent: "Recent alerts",
     none: "No alerts yet.",
     limit: "limit {value}",

@@ -131,7 +131,7 @@ Pro každou veličinu nastavte dolní limit (**Pod**) a horní limit (**Nad**). 
 
 V diagramu hodnota stoupne nad limit: upozornění začne a přijde oznámení (červený zvonek). Pokles do pásma hystereze ho neukončí. Upozornění skončí, až když hodnota klesne pod pásmo; je-li zapnuté **Oznámit návrat do normy**, přijde oznámení (zelený zvonek).
 
-Tlačítko **Odeslat** u položky Zkušební oznámení ověří, že oznámení dorazí. Nedávná upozornění jsou vypsána dole.
+Tlačítko **Odeslat** u položky Zkušební oznámení ověří, že oznámení dorazí. Na macOS si TOWER Bridge při prvním spuštění vyžádá povolení k oznámením; jsou-li vypnutá, tlačítko **Odeslat** na to upozorní a **Otevřít nastavení** otevře místo, kde je zapnete. Nedávná upozornění jsou vypsána dole.
 
 ## Nastavení {#settings}
 

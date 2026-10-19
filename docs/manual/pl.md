@@ -131,7 +131,7 @@ Dla każdej wielkości ustaw dolny limit (**Poniżej**) i górny limit (**Powyż
 
 Na diagramie wartość rośnie powyżej limitu: alarm się zaczyna i otrzymujesz powiadomienie (czerwony dzwonek). Spadek do pasma histerezy go nie kończy. Alarm kończy się dopiero, gdy wartość spadnie poniżej pasma; jeśli włączone jest **Powiadom o powrocie do normy**, przychodzi powiadomienie (zielony dzwonek).
 
-Przycisk **Wyślij** przy pozycji Powiadomienie testowe sprawdza, czy powiadomienia docierają. Ostatnie alarmy są wymienione na dole.
+Przycisk **Wyślij** przy pozycji Powiadomienie testowe sprawdza, czy powiadomienia docierają. W macOS TOWER Bridge przy pierwszym uruchomieniu prosi o zgodę na powiadomienia; jeśli są wyłączone, przycisk **Wyślij** o tym informuje, a **Otwórz ustawienia** otwiera miejsce, w którym je włączysz. Ostatnie alarmy są wymienione na dole.
 
 ## Ustawienia {#settings}
 

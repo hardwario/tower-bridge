@@ -169,6 +169,9 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
     tray.set_open_at_login(autostart::is_enabled(&handle));
     #[cfg(windows)]
     notify::register_aumid(&handle, &paths.data_dir);
+    // On macOS asks for permission now, at the start (the user's choice):
+    // the prompt appears the first time only.
+    notify::init(&handle);
 
     if first_run && !autostarted {
         window::show_dashboard(&handle);

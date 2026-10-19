@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.1 (2026-10-19)
+
+- macOS: notifications work again. They go through the system's current
+  notification framework, which 1.0.0's notification library no longer
+  reached on current macOS (nothing appeared, not even a permission request).
+  TOWER Bridge asks for permission when it first starts, shows notifications
+  also while the dashboard is in front, and opens the dashboard when one is
+  clicked. If notifications are turned off, **Send test** in Alerts says so
+  and **Open settings** opens the place to turn them on.
+- macOS 13 and newer: **Open at Login** registers TOWER Bridge itself as a
+  login item, listed by name and icon under Open at Login in System Settings,
+  instead of a background item listed as "HARDWARIO a.s.". The launch agent
+  of 1.0.0 is replaced when the app starts.
+
 ## 1.0.0 (2026-10-19)
 
 The first version: a tray app for the HARDWARIO TOWER Bridge Module (FTDI

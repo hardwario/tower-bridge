@@ -220,6 +220,8 @@ export const pl: Messages = {
     testHint: "Sprawdź, czy system operacyjny wyświetla powiadomienia TOWER Bridge.",
     sendTest: "Wyślij",
     sent: "Wysłano",
+    blocked: "macOS ma wyłączone powiadomienia TOWER Bridge. Włącz je w Ustawieniach systemowych → Powiadomienia.",
+    openSettings: "Otwórz ustawienia",
     recent: "Ostatnie alarmy",
     none: "Brak alarmów.",
     limit: "limit {value}",

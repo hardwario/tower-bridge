@@ -309,9 +309,14 @@ pub async fn export_xlsx(
 }
 
 #[tauri::command]
-pub fn send_test_notification(app: AppHandle) {
+pub async fn send_test_notification(app: AppHandle) -> &'static str {
+    // Sent anyway while the answer is still open; only a refusal is news.
+    if crate::notify::blocked() {
+        return "blocked";
+    }
     let tr = crate::i18n::current(&app).tr();
     crate::notify::send(&app, "TOWER Bridge", tr.test_body);
+    "sent"
 }
 
 /// Blink the bridge LED; resolves when the blinking has finished.
@@ -399,6 +404,10 @@ pub const LINKS: &[(&str, &str)] = &[
     ("docs", "https://docs.hardwario.com/tower/"),
     ("store", "https://www.hardwario.store/"),
     ("academy", "https://hardwario.academy/"),
+    (
+        "notification_settings",
+        "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.hardwario.tower-bridge",
+    ),
 ];
 
 /// Open one of [`LINKS`] in the system browser.

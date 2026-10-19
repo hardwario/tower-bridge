@@ -14,6 +14,7 @@
 
   let log = $state<AlertLogEntry[]>([]);
   let tested = $state(false);
+  let blocked = $state(false);
 
   async function loadLog() {
     try {
@@ -31,7 +32,8 @@
   const unit = $derived(live.settings?.temperature_unit ?? "celsius");
 
   async function test() {
-    await api.testNotification();
+    blocked = (await api.testNotification()) === "blocked";
+    if (blocked) return;
     tested = true;
     setTimeout(() => (tested = false), 3000);
   }
@@ -64,7 +66,10 @@
           onchange={(v) => live.save((x) => (x.notify_device_lost = v))}
         />
       </Field>
-      <Field label={t().alerts.test} hint={t().alerts.testHint}>
+      <Field label={t().alerts.test} hint={blocked ? t().alerts.blocked : t().alerts.testHint}>
+        {#if blocked}
+          <button class="btn" onclick={() => api.openLink("notification_settings")}>{t().alerts.openSettings}</button>
+        {/if}
         <button class="btn" onclick={test}>
           {#if tested}<Icon name="check" size={14} /> {t().alerts.sent}{:else}<Icon name="bell" size={14} />
             {t().alerts.sendTest}{/if}

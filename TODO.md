@@ -87,6 +87,10 @@ A final independent review of the night's diff found one regression, fixed with 
 
 - A built-in MQTT broker again, for users without one (removed on 2026-10-17: rumqttd was barely maintained and could not be stopped without a restart). Options when it comes back: a maintained embeddable broker, or bundling Mosquitto. Deferred on 2026-10-17.
 
+## 1.0.1
+
+- macOS notifications through the UserNotifications framework and Open at Login through SMAppService (2026-10-19): both work only in a Developer ID signed app bundle, so the first real test is the v1.0.1 draft's dmg (an ad-hoc local build is refused notifications). Check: the permission prompt at the first start, **Send test** shows a banner with the dashboard in front, a click opens the dashboard, Open at Login appears as TOWER Bridge under Open at Login and replaces the 1.0.0 launch agent, the blocked hint when notifications are turned off.
+
 ## Before the first release
 
 - CI is green on GitHub since 2026-10-19 (the first run failed only on a constant that is dead code on Windows).

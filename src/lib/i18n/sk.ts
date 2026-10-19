@@ -219,6 +219,8 @@ export const sk: Messages = {
     testHint: "Overte, že operačný systém zobrazuje oznámenia TOWER Bridge.",
     sendTest: "Odoslať",
     sent: "Odoslané",
+    blocked: "macOS má oznámenia TOWER Bridge vypnuté. Zapnite ich v Systémových nastaveniach → Hlásenia.",
+    openSettings: "Otvoriť nastavenia",
     recent: "Posledné upozornenia",
     none: "Zatiaľ žiadne upozornenia.",
     limit: "limit {value}",

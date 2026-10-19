@@ -72,6 +72,14 @@ CASES.push([
   [["click", ".fold"], ["tab", "data"], ["tab", "alerts"], ["tab", "settings"], ["tab", "manual"], ["click", ".fold"]],
 ]);
 CASES.push(["lang=cs&bridges=2", []]);
+// Notifications turned off in macOS: "Send test" says so and offers the settings.
+CASES.push([
+  "tab=alerts&lang=cs&notify=blocked",
+  [
+    ["click", "button.btn:has-text('Odeslat')"],
+    ["click", "button.btn:has-text('Otevřít nastavení')"],
+  ],
+]);
 // The third-party notices from the manual's About chapter, a license text unfolded, and back.
 CASES.push([
   "tab=manual&lang=sk&theme=dark",
