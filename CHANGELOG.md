@@ -66,7 +66,8 @@ hardwario/enmon.
   font, icon set and map source with its license).
 - One file per platform: a portable Windows exe, a macOS dmg, a Linux
   AppImage. The Windows exe and the Windows command line tool are signed by
-  HARDWARIO a.s. (Authenticode, timestamped).
+  HARDWARIO a.s. (Authenticode, timestamped); the macOS app, its dmg and the
+  macOS command line tool are signed with Developer ID and notarized.
 
 ### Integrations
 

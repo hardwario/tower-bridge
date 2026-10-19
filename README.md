@@ -64,8 +64,8 @@ command-line reader for the same hardware.
 - **macOS:** open the dmg and drag *TOWER Bridge* to *Applications* (Open at
   Login requires the app to be in Applications). The window is drawn by the
   system's WebKit, so keep Safari updated (16.2 or newer; Software Update
-  offers it for macOS 11 too). Unsigned builds must be
-  allowed once in *System Settings → Privacy & Security → Open Anyway*.
+  offers it for macOS 11 too). The app is signed by HARDWARIO and notarized
+  by Apple, so it opens without warnings.
 - **Linux:** install the udev rule (`70-hardwario-tower-bridge.rules`, a
   release asset, also in `packaging/linux/`) and see
   [docs/linux.md](docs/linux.md) (kernel driver notes, GNOME tray extension).

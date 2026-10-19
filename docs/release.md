@@ -8,8 +8,9 @@
    `node scripts/check-version.mjs v1.2.3` checks that they agree.
 2. Commit, then tag and push: `git tag v1.2.3 && git push origin v1.2.3`.
 3. The Release workflow (`.github/workflows/release.yml`) tests, builds every
-   platform, signs the Windows binaries and creates a **draft** release with
-   all files and their `.sha256` checksums.
+   platform, signs the Windows binaries, signs and notarizes the macOS ones,
+   and creates a **draft** release with all files and their `.sha256`
+   checksums.
 4. Check the draft on GitHub and publish it.
 
 A dry run builds everything without publishing: Actions, Release, Run
@@ -21,10 +22,11 @@ it signs too, but still publishes nothing.
 | File | Built by |
 |---|---|
 | `tower-bridge-<version>-windows-x64-portable.exe` | `build` (windows), signed by `sign` |
-| `tower-bridge-<version>-macos-universal.dmg` | `build` (macos) |
+| `tower-bridge-<version>-macos-universal.dmg` | `build` (macos, the app), signed, notarized and packed by `sign-macos` |
 | `tower-bridge-<version>-linux-x86_64.AppImage`, `70-hardwario-tower-bridge.rules` | `build` (linux) |
 | `tower-bridge-cli-<version>-x86_64-pc-windows-msvc.zip` | `cli`, the exe inside signed by `sign` |
-| `tower-bridge-cli-<version>-<target>.tar.gz` (Linux x86_64 and aarch64, macOS universal) | `cli` |
+| `tower-bridge-cli-<version>-universal-apple-darwin.tar.gz` | `cli`, the binary inside signed and notarized by `sign-macos` |
+| `tower-bridge-cli-<version>-<target>.tar.gz` (Linux x86_64 and aarch64) | `cli` |
 
 ## Windows signing
 
@@ -61,9 +63,36 @@ What it depends on:
   The job logs in with `azure/login` through OIDC (`id-token: write`); there
   is no client secret.
 
-## macOS
+## macOS signing and notarization
 
-The dmg is signed and notarized when the repository has the Apple secrets
-(`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
-`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`); without them it is ad-hoc
-signed and users must allow it once in System Settings.
+The `sign-macos` job signs with the team's Developer ID Application
+certificate (team C32QFQ68V9) and notarizes with an App Store Connect API key,
+in this order:
+
+1. `TOWER Bridge.app`: signed with the hardened runtime and a secure
+   timestamp, notarized, and the ticket stapled to it, so it also opens
+   offline;
+2. the dmg built from it (the app and a link to Applications): signed,
+   notarized and stapled;
+3. `tower-bridge-cli`: signed with the hardened runtime and notarized. A bare
+   binary cannot carry a stapled ticket; macOS checks it online.
+
+A verification step fails the job unless Gatekeeper (`spctl`) accepts the app
+and the dmg, both tickets are stapled, and the CLI is signed with Developer ID,
+a timestamp and the hardened runtime. The app needs no entitlements: it is
+not sandboxed, and the USB HID access and WebKit need none outside the
+sandbox. The build job never sees the certificate: it makes an ad-hoc signed
+app, and only `sign-macos` imports the certificate, into a temporary keychain
+it deletes at the end.
+
+When: as for Windows, for release tags only, in the same `signing`
+environment, which holds:
+
+- secrets `APPLE_CERTIFICATE` (the `.p12` with certificate and private key,
+  base64), `APPLE_CERTIFICATE_PASSWORD` and `APPLE_API_KEY_P8` (the API key's
+  `.p8` file);
+- variables `APPLE_API_KEY` (the key ID) and `APPLE_API_ISSUER` (the issuer
+  ID).
+
+Only the Account Holder can create Developer ID certificates, in
+developer.apple.com (the API refuses it); the API key works for notarization.

@@ -47,10 +47,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The app only: sign-macos signs it and makes the dmg.
           - name: macos
             os: macos-latest
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            args: --target universal-apple-darwin --bundles app,dmg
+            args: --target universal-apple-darwin --bundles app
           - name: linux
             os: ubuntu-22.04
             rust-targets: ""
@@ -82,24 +83,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libudev-dev patchelf libfuse2
+      # No signing secrets here: the build runs every dependency's build
+      # script. The macOS app comes out ad-hoc signed, the Windows exe
+      # unsigned; the sign jobs sign them.
       - name: Build
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
           MACOSX_DEPLOYMENT_TARGET: "11.0"
-          # Only this step sees the Apple secrets.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          # Without a certificate the build is ad-hoc signed: empty variables
-          # would make Tauri try to sign and notarize.
-          if [ -z "$APPLE_CERTIFICATE" ]; then
-            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
-          fi
-          npx tauri build ${{ matrix.args }}
+        run: npx tauri build ${{ matrix.args }}
       # The portable exe must start on a Windows without the Visual C++
       # runtime. tauri-build links the VC runtime statically and the
       # Universal CRT dynamically (staticVCRuntime); the UCRT is part of
@@ -122,14 +113,15 @@ jobs:
           v="${v//\//-}"  # a dry run on feature/x
           mkdir -p out
           case "${{ matrix.name }}" in
-            macos)   cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/tower-bridge-$v-macos-universal.dmg" ;;
+            # Signed, notarized, put in a dmg and checksummed by sign-macos.
+            macos)   ditto -c -k --keepParent "target/universal-apple-darwin/release/bundle/macos/TOWER Bridge.app" out/tower-bridge-app.zip ;;
             linux)   cp target/release/bundle/appimage/*.AppImage "out/tower-bridge-$v-linux-x86_64.AppImage"
                      cp packaging/linux/70-hardwario-tower-bridge.rules out/ ;;
             # Signed, checksummed and released by the sign job.
             windows) cp target/release/tower-bridge.exe "out/tower-bridge-$v-windows-x64-portable.exe" ;;
           esac
           cd out
-          if [ "${{ matrix.name }}" != windows ]; then
+          if [ "${{ matrix.name }}" = linux ]; then
             for f in tower-bridge-*; do
               if command -v sha256sum >/dev/null; then sha256sum "$f" > "$f.sha256"; else shasum -a 256 "$f" > "$f.sha256"; fi
             done
@@ -137,7 +129,7 @@ jobs:
           ls -la
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ matrix.name == 'windows' && 'unsigned-windows' || matrix.name }}
+          name: ${{ matrix.name == 'linux' && 'linux' || format('unsigned-{0}', matrix.name) }}
           path: out/*
 
   # tower-bridge-cli: an archive per target. Linux builds run in the `cross`
@@ -226,8 +218,9 @@ jobs:
             *) cp "target/$target/release/tower-bridge-cli" "out/$name/" ;;
           esac
           cd out
-          # The Windows folder is signed, zipped and checksummed by the sign job.
-          if [[ "$target" != *-windows-* ]]; then
+          # The Windows and macOS folders are signed, packed and checksummed
+          # by the sign jobs.
+          if [[ "$target" == *-linux-* ]]; then
             tar czf "$name.tar.gz" "$name"
             rm -r "$name"
             if command -v sha256sum >/dev/null; then sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"; else shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"; fi
@@ -235,7 +228,7 @@ jobs:
           ls -la
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ contains(matrix.target, 'windows') && 'unsigned-' || '' }}cli-${{ matrix.target }}
+          name: ${{ contains(matrix.target, 'linux') && '' || 'unsigned-' }}cli-${{ matrix.target }}
           path: out/*
 
   # Authenticode signing of the Windows binaries with Azure Artifact Signing
@@ -258,7 +251,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: unsigned-*
+          pattern: unsigned-*windows*
           path: unsigned
       - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
@@ -321,10 +314,129 @@ jobs:
           name: windows
           path: out/*
 
+  # Developer ID signing and notarization of the macOS app, dmg and CLI
+  # (docs/release.md), in a job of its own for the same reason as sign: the
+  # certificate and the API key never meet the build scripts.
+  sign-macos:
+    name: Sign and notarize (macOS)
+    needs: [build, cli]
+    if: github.ref_type == 'tag'
+    runs-on: macos-latest
+    environment: signing
+    permissions:
+      contents: read
+    env:
+      APPLE_API_KEY: ${{ vars.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ vars.APPLE_API_ISSUER }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: unsigned-macos
+          path: unsigned/unsigned-macos
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: unsigned-cli-universal-apple-darwin
+          path: unsigned/unsigned-cli-universal-apple-darwin
+      - name: Import the certificate and the API key
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 24)
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          # In front of the existing keychains (xargs undoes their quotes).
+          security list-keychains -d user | xargs security list-keychains -d user -s "$keychain"
+          rm "$RUNNER_TEMP/certificate.p12"
+          identity=$(security find-identity -v -p codesigning "$keychain" | grep -o '"Developer ID Application: [^"]*"' | head -n 1 | tr -d '"')
+          if [ -z "$identity" ]; then echo "::error::no Developer ID Application identity in APPLE_CERTIFICATE"; exit 1; fi
+          echo "Signing as $identity"
+          umask 077
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          { echo "IDENTITY=$identity"; echo "KEYCHAIN=$keychain"; } >> "$GITHUB_ENV"
+      - name: Sign, notarize and staple
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"
+          sign() { codesign --force --options runtime --timestamp --keychain "$KEYCHAIN" --sign "$IDENTITY" "$@"; }
+          # Waits for Apple's verdict; anything but Accepted prints the log and fails.
+          notarize() {
+            local result id status
+            result=$(xcrun notarytool submit "$1" --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait --timeout 30m --output-format json)
+            id=$(python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])' <<< "$result")
+            status=$(python3 -c 'import json, sys; print(json.load(sys.stdin)["status"])' <<< "$result")
+            echo "$(basename "$1"): $status ($id)"
+            if [ "$status" != Accepted ]; then
+              xcrun notarytool log "$id" --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER"
+              exit 1
+            fi
+          }
+          mkdir -p work out
+          # The app, stapled so that it opens offline too.
+          ditto -x -k unsigned/unsigned-macos/tower-bridge-app.zip work
+          app="work/TOWER Bridge.app"
+          sign "$app"
+          codesign --verify --strict --verbose=2 "$app"
+          ditto -c -k --keepParent "$app" work/app.zip
+          notarize work/app.zip
+          xcrun stapler staple "$app"
+          # The dmg: the app and a link to Applications.
+          mkdir work/dmg
+          ditto "$app" "work/dmg/TOWER Bridge.app"
+          ln -s /Applications work/dmg/Applications
+          dmg="out/tower-bridge-$v-macos-universal.dmg"
+          hdiutil create -volname "TOWER Bridge" -srcfolder work/dmg -fs HFS+ -format UDZO -ov "$dmg"
+          codesign --force --timestamp --keychain "$KEYCHAIN" --sign "$IDENTITY" "$dmg"
+          notarize "$dmg"
+          xcrun stapler staple "$dmg"
+          # The CLI: a bare binary cannot be stapled; macOS checks it online.
+          cd unsigned/unsigned-cli-universal-apple-darwin
+          name=$(echo tower-bridge-cli-*)
+          sign "$name/tower-bridge-cli"
+          ditto -c -k --keepParent "$name/tower-bridge-cli" ../../work/cli.zip
+          notarize ../../work/cli.zip
+          tar czf "../../out/$name.tar.gz" "$name"
+      - name: Verify
+        run: |
+          set -euo pipefail
+          spctl --assess --type execute --verbose=2 "work/TOWER Bridge.app"
+          xcrun stapler validate "work/TOWER Bridge.app"
+          dmg=$(echo out/*.dmg)
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          xcrun stapler validate "$dmg"
+          cli=$(echo unsigned/unsigned-cli-universal-apple-darwin/tower-bridge-cli-*/tower-bridge-cli)
+          codesign --verify --strict --verbose=2 "$cli"
+          info=$(codesign -dvv "$cli" 2>&1)
+          grep -q "Authority=Developer ID Application" <<< "$info" || { echo "::error::the CLI is not signed with Developer ID"; exit 1; }
+          grep -q "^Timestamp=" <<< "$info" || { echo "::error::the CLI signature has no timestamp"; exit 1; }
+          grep -q "flags=0x10000(runtime)" <<< "$info" || { echo "::error::the CLI lacks the hardened runtime"; exit 1; }
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd out
+          for f in *; do shasum -a 256 "$f" > "$f.sha256"; done
+          ls -la
+      - name: Remove the keychain and the API key
+        if: always()
+        run: |
+          [ -z "${KEYCHAIN:-}" ] || security delete-keychain "$KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos
+          path: out/*
+
   # One job creates the draft release, so the builds cannot race to make two.
   publish:
     name: Draft release
-    needs: [build, cli, sign]
+    needs: [build, cli, sign, sign-macos]
     # Only a pushed tag: a dry run started on a tag must not replace the
     # assets of its release.
     if: github.event_name == 'push' && github.ref_type == 'tag'
@@ -335,7 +447,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
-      # Everything but the unsigned Windows builds the sign job started from.
+      # Everything but the unsigned builds the sign jobs started from.
       - name: Collect the release files
         run: |
           set -euo pipefail
