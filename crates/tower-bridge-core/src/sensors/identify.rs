@@ -1,6 +1,7 @@
-//! Find out which sensor chips answer on a switch channel, by their ID
-//! registers where they have one and by a harmless soft-reset command for the
-//! SHT humidity sensors (an idle SHT3x does not even acknowledge a plain read).
+//! Find out which chips answer on a switch channel, by their ID registers
+//! where they have one and by a harmless soft-reset command for the SHT
+//! humidity sensors (an idle SHT3x does not even acknowledge a plain read).
+//! Nothing here changes what a chip does.
 
 use crate::bus::{BusError, I2cBus};
 
@@ -37,8 +38,8 @@ fn acks(bus: &mut dyn I2cBus, addr: u8, command: &[u8]) -> Result<bool, BusError
     }
 }
 
-/// Sensor chips used on the Climate Module and the TOWER tags, on the
-/// currently selected channel.
+/// Chips of the TOWER modules and tags on the currently selected channel,
+/// by address.
 pub fn scan(bus: &mut dyn I2cBus) -> Result<Vec<Found>, BusError> {
     let mut found = Vec::new();
     let mut add = |address, part| found.push(Found { address, part });
@@ -74,5 +75,35 @@ pub fn scan(bus: &mut dyn I2cBus) -> Result<Vec<Found>, BusError> {
             add(address, part);
         }
     }
+    // The expanders of the Relay, CO2 and GPS Modules; reading the
+    // direction register leaves the outputs alone.
+    for address in (0x20..=0x27).chain(0x38..=0x3F) {
+        if id8(bus, address, 0x03)?.is_some() {
+            add(
+                address,
+                if address >= 0x38 {
+                    "TCA9534A"
+                } else {
+                    "TCA9534"
+                },
+            );
+        }
+    }
+    // The GPS Module's receiver: the count of bytes it has waiting. It
+    // answers only while powered (expander pin P0), which is left alone here.
+    if id16(bus, crate::gps::RECEIVER, 0xFD)?.is_some() {
+        add(crate::gps::RECEIVER, "SAM-M8Q");
+    }
+    // The CO2 Module's UART bridge keeps a byte in its scratch register.
+    match crate::sensors::sc16is740::present(bus, crate::co2::UART) {
+        Ok(true) => add(crate::co2::UART, "SC16IS740"),
+        Ok(false) => {}
+        Err(e) if e.is_fatal() => return Err(e),
+        Err(_) => {}
+    }
+    if crate::sensors::sgpc3::probe(bus)?.is_some() {
+        add(crate::sensors::sgpc3::ADDR, "SGPC3");
+    }
+    found.sort_by_key(|f| f.address);
     Ok(found)
 }

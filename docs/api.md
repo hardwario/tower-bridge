@@ -64,7 +64,7 @@ alerts carry their `channel`.
 | POST | `/api/v1/device/rescan` | Look for the sensors again *(changes)* |
 | GET | `/api/v1/relay` | Relay Module state: `{"state": true, "channel": 0, "address": 59, "pulse_until": null}`; `state` is `true`, `false` or `null` (unknown); 404 without a relay |
 | PUT | `/api/v1/relay` | `{"state": true}` or `false`; ends a running pulse *(changes)* |
-| POST | `/api/v1/relay/pulse` | Switch to a state for a while, then back. Body optional: `{"state": false, "duration_ms": 2000}`; defaults are the opposite state (or, while a pulse runs, extending it) and the configured length *(changes)* |
+| POST | `/api/v1/relay/pulse` | Switch to a state for a while, then back. Body optional: `{"state": false, "duration_ms": 2000}`; defaults are the opposite state (or, while a pulse runs, extending it) and the configured length; `duration_ms` is held to 500 to 3600000 *(changes)* |
 | GET | `/api/v1/gps` | GPS Module: `{"channel": 0, "fix": true, "satellites": 9, "latitude": 50.771168, "longitude": 15.056328, "altitude": 374.2, "accuracy": 3.1, "time": 1792245600000}`; position, altitude (m above sea level) and accuracy (m) are `null` without a fix; 404 without a GPS Module |
 | GET | `/api/v1/nfc` | TOWER NFC Tag: `{"channel": 0, "address": 8, "part": "NT3H2111", "url": "https://www.hardwario.com", "formatted": true}`; `url` is `null` when the tag holds none; 404 `no_nfc` without a tag |
 | PUT | `/api/v1/nfc` | `{"url": "https://example.com"}`: write a URL that phones open when they touch the tag, at most 240 bytes; `https://` is added when the address has no scheme. Returns what the tag holds afterwards; 409 `not_formatted` when the tag is not NDEF formatted (format it with a phone app, for example NXP TagWriter) *(changes)* |

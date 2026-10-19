@@ -22,7 +22,8 @@ hardwario/enmon.
   to 1 hour (2 s by default); a pulse running when the app or the service
   stops is switched back.
 - TOWER GPS Module (u-blox SAM-M8Q): fix, satellites, position, accuracy,
-  altitude and satellite time.
+  altitude and satellite time; shown as searching about a second after the
+  receiver powers up, although its first report can take two minutes.
 - TOWER NFC Tag: shows the URL on the tag and writes a new one as an NDEF URI
   record that phones open when they touch the tag.
 - More than one TOWER Bridge Module plugged in: the card and the tray say so
@@ -32,6 +33,10 @@ hardwario/enmon.
 
 - Menu bar or tray icon with a value of your choice, and the readings of every
   sensor in its menu.
+- The HARDWARIO TOWER logo at the top of the sidebar (its symbol on the
+  folded rail), white where it is grey in dark mode.
+- The dashboard window opens tall enough for the whole sidebar (820 px, or
+  what the screen has room for).
 - Dashboard: a panel per measurement with a line per channel, min, avg and max
   that toggle their lines, value and time under the pointer, time spans from
   1 hour to 365 days, drag to pan through all stored data, Ctrl/⌘+scroll,

@@ -153,7 +153,7 @@ pub struct ExportArgs {
 pub enum ConfigAction {
     /// Print all settings (the password and token as "(set)").
     Show,
-    /// Print one setting, e.g. mqtt.host or alerts.temperature.max.
+    /// Print one setting or group, e.g. mqtt.host or alerts.temperature; secrets only by their own key.
     Get {
         /// Dotted key, as in settings.json.
         key: String,

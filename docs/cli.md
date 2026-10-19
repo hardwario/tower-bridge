@@ -69,6 +69,7 @@ tower-bridge-cli export --last 7d -o week.xlsx
 tower-bridge-cli export --from 2026-10-01 --to 2026-10-08 > october.csv
 tower-bridge-cli alerts               # limits, active alerts, recent alert log
 tower-bridge-cli config set mqtt.host broker.local
+tower-bridge-cli config get api.token # the REST and MCP token (secrets show only by their own key)
 ```
 
 `--help` after any command lists its options. `--simulate` uses a simulated
@@ -269,7 +270,7 @@ Unix milliseconds.
 | 2 | Usage: an unknown command or option, an invalid value, or no terminal for the dashboard |
 | 3 | Busy: another instance or program holds the bridge, or a setting cannot change while the service runs |
 | 4 | Not found: no bridge, or not the module the command needs, or no history yet |
-| 130 | Stopped with Ctrl+C; the bridge was released cleanly |
+| 130 | Stopped with Ctrl+C before it was done; the bridge was released cleanly (`run`, `watch` and the dashboard end with 0, since Ctrl+C is how they end) |
 
 Errors go to stderr as `error: ...`, often with a `hint: ...` line that says
 the way out.
@@ -285,7 +286,7 @@ modules. They open the bridge directly, without the service:
 | `probe` | Find the sensors and print a measurement in the format of hardwario/enmon |
 | `led on`, `led off` | Switch the bridge LED |
 | `i2c-scan` | List the I²C addresses that answer, per channel |
-| `i2c-identify` | Name the sensor chips on each channel |
+| `i2c-identify` | Name the chips of the modules and tags on each channel |
 | `i2c-read`, `i2c-write` | Raw transfers, e.g. `i2c-read 0x38 0x00 --len 2` |
 | `co2`, `voc`, `gps` | Measure with one module directly |
 | `nfc-scan` | Look for an NFC Tag at every address |

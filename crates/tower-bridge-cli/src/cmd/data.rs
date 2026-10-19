@@ -76,13 +76,13 @@ fn labels(unit: TemperatureUnit) -> XlsxLabels {
         sheet: "Readings".into(),
         time: "Time".into(),
         device: "Device".into(),
-        channel: "I2C channel".into(),
+        channel: "I²C channel".into(),
         temperature: format!("Temperature ({temperature})"),
         humidity: "Humidity (%)".into(),
         illuminance: "Illuminance (lx)".into(),
         pressure: "Pressure (hPa)".into(),
         altitude: "Altitude (m)".into(),
-        co2: "CO2 (ppm)".into(),
+        co2: "CO₂ (ppm)".into(),
         voc: "VOC (ppb)".into(),
     }
 }

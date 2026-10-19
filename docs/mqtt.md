@@ -98,7 +98,7 @@ Turn on *Allow relay control* in the MQTT settings (off by default). Then:
 | `tower/relay/0/pulse` | empty | Switch to the other state for the configured time (default 2 s), then back; while a pulse runs, extend it |
 | `tower/relay/0/pulse` | `1500` | The same for 1500 ms |
 | `tower/relay/0/pulse` | `true` or `false` | Pulse to that state (back to the other one afterwards) |
-| `tower/relay/0/pulse` | `{"state": false, "duration_ms": 3000}` | Both fields are optional |
+| `tower/relay/0/pulse` | `{"state": false, "duration_ms": 3000}` | Both fields are optional; `duration_ms` is held to 500 to 3600000 |
 
 Use the channel the Relay Module is on; commands for a channel without a relay
 are ignored. Pulses last 0.5 s to 1 h. Commands published with the retain flag

@@ -26,3 +26,19 @@ from the HARDWARIO brand symbol (`artwork/brand/hardwario-symbol/*.svg`):
   the `-off` variant at 40 % opacity is shown while disconnected).
 - `tile-<size>.png` / `tile-off-<size>.png`: brand red `#E4002B` (grey `#6B6A6A`
   when disconnected) rounded square, radius 22 %, white symbol 72 % tall.
+
+## Logo
+
+`src/assets/hardwario-tower.svg` is the HARDWARIO TOWER logo
+(`hardwario-tower-tower-vertical.svg` from the brand artwork), optimized with
+svgo 4 and [`svgo.config.mjs`](svgo.config.mjs):
+
+```sh
+svgo --config scripts/svgo.config.mjs -i hardwario-tower-tower-vertical.svg -o src/assets/hardwario-tower.svg
+sed 's/fill="#6b6a6a"/fill="#fff"/' src/assets/hardwario-tower.svg > src/assets/hardwario-tower-reversed.svg
+```
+
+The config runs several passes but leaves out `convertToQ`, which bent the
+outlines by up to 0.08 viewBox units; with it off they stay within 0.007 of
+the original (13.3 KB to 7.7 KB). The reversed file, for dark mode, has white
+where the logo is grey, like `hardwario-symbol-reversed.svg`.

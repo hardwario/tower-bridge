@@ -10,6 +10,12 @@ use crate::state::AppState;
 
 pub const DASHBOARD: &str = "dashboard";
 
+const WIDTH: f64 = 1060.0;
+/// Tall enough for the sidebar with a dozen modules.
+const HEIGHT: f64 = 820.0;
+const MIN_WIDTH: f64 = 780.0;
+const MIN_HEIGHT: f64 = 560.0;
+
 fn native_theme(pref: ThemePref) -> Option<tauri::Theme> {
     match pref {
         ThemePref::System => None,
@@ -35,6 +41,23 @@ pub fn apply_theme(app: &AppHandle, pref: ThemePref) {
     }
 }
 
+/// The dashboard's size when it opens: [`WIDTH`] by [`HEIGHT`], but within
+/// the screen's work area (without the menu bar, Dock or taskbar), leaving
+/// room for the title bar.
+fn initial_size(app: &AppHandle) -> (f64, f64) {
+    let Some(monitor) = app.primary_monitor().ok().flatten() else {
+        return (WIDTH, HEIGHT);
+    };
+    let area = monitor
+        .work_area()
+        .size
+        .to_logical::<f64>(monitor.scale_factor());
+    (
+        WIDTH.min(area.width - 40.0).max(MIN_WIDTH),
+        HEIGHT.min(area.height - 60.0).max(MIN_HEIGHT),
+    )
+}
+
 pub fn show_dashboard(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(DASHBOARD) {
         let _ = w.unminimize();
@@ -55,11 +78,12 @@ pub fn show_dashboard(app: &AppHandle) {
         let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     }
 
+    let (width, height) = initial_size(app);
     let mut builder =
         WebviewWindowBuilder::new(app, DASHBOARD, WebviewUrl::App("index.html".into()))
             .title("TOWER Bridge")
-            .inner_size(1060.0, 740.0)
-            .min_inner_size(780.0, 560.0)
+            .inner_size(width, height)
+            .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
             .center();
     let theme = app
         .try_state::<AppState>()

@@ -19,13 +19,13 @@ use crate::exit;
 #[derive(Args)]
 pub struct ToolboxArgs {
     /// Transport to use.
-    #[arg(long, value_enum, default_value_t = BackendArg::Auto)]
+    #[arg(long, global = true, value_enum, default_value_t = BackendArg::Auto)]
     backend: BackendArg,
-    /// I2C switch channels to use (automatic: both).
-    #[arg(long, value_enum, default_value_t = ChannelArg::Auto)]
+    /// I²C switch channels to use (automatic: both).
+    #[arg(long, global = true, value_enum, default_value_t = ChannelArg::Auto)]
     channel: ChannelArg,
     /// Hex-dump every FT260 report to stderr.
-    #[arg(long)]
+    #[arg(long, global = true)]
     trace: bool,
     #[command(subcommand)]
     tool: Tool,
@@ -47,10 +47,10 @@ enum Tool {
         #[arg(value_enum)]
         state: LedState,
     },
-    /// List I2C addresses that acknowledge on a switch channel (a read, or a
+    /// List I²C addresses that acknowledge on a switch channel (a read, or a
     /// write of register pointer 0 for chips that ignore a bare read).
     I2cScan,
-    /// Identify the sensor chips on each switch channel.
+    /// Identify the chips of the TOWER modules and tags on each switch channel.
     I2cIdentify,
     /// Read bytes from a device: write the register (unless omitted), STOP,
     /// then read. On the channel given with --channel (default 0).
@@ -99,7 +99,7 @@ enum Tool {
         #[arg(long, default_value_t = 6)]
         count: u32,
     },
-    /// Look for an NTAG I2C plus at every address (its address can be
+    /// Look for an NTAG I²C plus at every address (its address can be
     /// changed), on the switch channels and in front of the switch.
     NfcScan,
 }
@@ -233,7 +233,7 @@ fn co2(
     };
     let mut found = None;
     for &ch in channels {
-        select_channel(bus.as_mut(), ch).context("I2C switch not responding")?;
+        select_channel(bus.as_mut(), ch).context("I²C switch not responding")?;
         if Co2Module::probe(bus.as_mut())? {
             found = Some(ch);
             break;
@@ -296,7 +296,7 @@ fn find_channel(
         ChannelArg::One => &[1],
     };
     for &ch in channels {
-        select_channel(bus, ch).context("I2C switch not responding")?;
+        select_channel(bus, ch).context("I²C switch not responding")?;
         if probe(bus)? {
             return Ok(Some(ch));
         }
@@ -315,17 +315,28 @@ fn voc(cli: &Cli, count: u32) -> Result<()> {
             None,
         ));
     };
-    println!("TOWER VOC-LP Tag on channel {ch}; first value in 30 s");
+    // No stored baseline here, so the sensor always starts with its preheat.
+    println!(
+        "TOWER VOC-LP Tag on channel {ch}; a value every 30 s once it has preheated (up to 5 minutes)"
+    );
     let mut sensor = Sgpc3::start(bus.as_mut(), &clock, ch, None)?;
     let mut done = 0;
     while done < count {
         clock.sleep_until(sensor.next());
-        if let Some(ppb) = sensor.service(bus.as_mut(), &clock, None)? {
-            done += 1;
-            println!("{done}: {ppb:.0} ppb");
-        } else {
-            println!("no value");
-            done += 1;
+        let ppb = sensor.service(bus.as_mut(), &clock, None)?;
+        if sensor.gone() {
+            bail!("the SGPC3 does not answer");
+        }
+        match (ppb, sensor.preheat_left(clock.now())) {
+            (Some(ppb), _) => {
+                done += 1;
+                println!("{done}: {ppb:.0} ppb");
+            }
+            (None, Some(left)) => println!("preheating, at most {} s more", left.as_secs()),
+            (None, None) => {
+                done += 1;
+                println!("{done}: no value");
+            }
         }
     }
     Ok(())
@@ -350,7 +361,7 @@ fn gps(cli: &Cli, count: u32) -> Result<()> {
         module.service(bus.as_mut(), &clock)?;
         if let Some(info) = module.info() {
             polls += 1;
-            println!("{polls}: {info:?}");
+            println!("{polls}: {}", super::status::gps_summary(info));
         }
         if module.gone() {
             bail!("the GPS receiver does not answer");
@@ -376,7 +387,7 @@ fn raw_channel(cli: &Cli, bus: &mut dyn I2cBus) -> Result<()> {
     } else {
         0
     };
-    select_channel(bus, ch).context("I2C switch not responding")
+    select_channel(bus, ch).context("I²C switch not responding")
 }
 
 fn i2c_read(cli: &Cli, address: u8, register: Option<u8>, len: u16) -> Result<()> {
@@ -422,10 +433,10 @@ fn nfc_scan(cli: &Cli) -> Result<()> {
     let mut found = 0;
     for pass in passes {
         match pass {
-            Some(ch) => select_channel(bus.as_mut(), ch).context("I2C switch not responding")?,
+            Some(ch) => select_channel(bus.as_mut(), ch).context("I²C switch not responding")?,
             None => bus
                 .write(tower_bridge_core::climate::SWITCH_ADDR, &[0])
-                .context("I2C switch not responding")?,
+                .context("I²C switch not responding")?,
         }
         let place = pass.map_or("upstream (switch off)".to_string(), |c| {
             format!("channel {c}")
@@ -441,7 +452,7 @@ fn nfc_scan(cli: &Cli) -> Result<()> {
         }
     }
     if found == 0 {
-        println!("no NTAG I2C plus answered at any address");
+        println!("no NTAG I²C plus answered at any address");
     }
     Ok(())
 }
@@ -576,7 +587,7 @@ fn i2c_identify(cli: &Cli) -> Result<()> {
         ChannelArg::One => &[1],
     };
     for &ch in channels {
-        select_channel(bus.as_mut(), ch).context("I2C switch not responding")?;
+        select_channel(bus.as_mut(), ch).context("I²C switch not responding")?;
         let found = tower_bridge_core::sensors::identify::scan(bus.as_mut())?;
         let list: Vec<String> = found
             .iter()
@@ -608,10 +619,10 @@ fn i2c_scan(cli: &Cli) -> Result<()> {
     }
     for pass in passes {
         match pass {
-            Some(ch) => select_channel(bus.as_mut(), ch).context("I2C switch not responding")?,
+            Some(ch) => select_channel(bus.as_mut(), ch).context("I²C switch not responding")?,
             None => bus
                 .write(tower_bridge_core::climate::SWITCH_ADDR, &[0])
-                .context("I2C switch not responding")?,
+                .context("I²C switch not responding")?,
         }
         let mut found = Vec::new();
         // Anything other than "no device here" hints at a wiring or bus problem.

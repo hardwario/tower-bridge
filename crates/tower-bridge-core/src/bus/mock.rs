@@ -480,6 +480,9 @@ pub struct SimGps {
     /// Latitude and longitude in degrees and altitude in metres; `None`: no fix.
     pub position: Option<(f64, f64, f64)>,
     pub satellites: u8,
+    /// NAV-PVT polls left unanswered, as a real receiver does for up to two
+    /// minutes after power-up.
+    pub silent_polls: u32,
     /// UBX frames received, as class and id.
     pub received: Vec<(u8, u8)>,
     stream: std::collections::VecDeque<u8>,
@@ -528,6 +531,10 @@ impl SimDevice for SimGpsReceiver {
                 let (class, id) = (*class, *id);
                 s.received.push((class, id));
                 let reply = match (class, id) {
+                    (0x01, 0x07) if s.silent_polls > 0 => {
+                        s.silent_polls -= 1;
+                        Vec::new()
+                    }
                     (0x01, 0x07) => s.nav_pvt(),
                     (0x06, _) => crate::gps::ubx(0x05, 0x01, &[class, id]),
                     _ => Vec::new(),

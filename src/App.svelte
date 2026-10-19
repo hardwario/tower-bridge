@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import logo from "./assets/hardwario-tower.svg";
+  import logoReversed from "./assets/hardwario-tower-reversed.svg";
   import symbol from "./assets/hardwario-symbol.svg";
   import symbolReversed from "./assets/hardwario-symbol-reversed.svg";
   import { api } from "./lib/api";
@@ -77,12 +79,11 @@
         api.openLink("academy");
       }}
     >
-      <img src={theme.effective === "dark" ? symbolReversed : symbol} alt="" width="22" height="28" />
-      {#if !collapsed}
-        <div>
-          <div class="name">TOWER Bridge</div>
-          <div class="sub">HARDWARIO</div>
-        </div>
+      <!-- The HARDWARIO TOWER logo, its symbol alone on the rail (the user, 2026-10-19). -->
+      {#if collapsed}
+        <img src={theme.effective === "dark" ? symbolReversed : symbol} alt="" width="22" height="28" />
+      {:else}
+        <img src={theme.effective === "dark" ? logoReversed : logo} alt="" width="132" height="36" />
       {/if}
     </a>
     <nav>
@@ -193,11 +194,11 @@
   .sidebar {
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 14px;
     min-height: 0;
     /* Many modules in a small window: the sidebar scrolls, not the page. */
     overflow-y: auto;
-    padding: 18px 12px 14px;
+    padding: 16px 12px 12px;
     background: var(--sidebar);
     border-right: 1px solid var(--border);
   }
@@ -210,7 +211,7 @@
     gap: 6px;
     flex-shrink: 0;
     height: 28px;
-    margin: -8px 0 0;
+    margin: -4px 0 0;
     padding: 0 8px;
     border: none;
     border-radius: var(--radius-sm);
@@ -245,18 +246,6 @@
   .brand img {
     display: block;
   }
-  .name {
-    font-weight: 700;
-    font-size: 15px;
-    letter-spacing: -0.01em;
-    white-space: nowrap;
-  }
-  .sub {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    color: var(--text-muted);
-  }
   nav {
     display: flex;
     flex-direction: column;
@@ -266,7 +255,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    height: 34px;
+    height: 32px;
     padding: 0 10px;
     border: none;
     border-radius: var(--radius-sm);

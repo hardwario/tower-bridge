@@ -162,9 +162,10 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// The NAV-PVT payloads in `data` (other frames and noise are skipped).
-fn find_pvt(data: &[u8]) -> Option<NavPvt> {
-    let mut found = None;
+/// The UBX frames in `data` with a valid checksum, as class, id and
+/// payload (NMEA and noise are skipped).
+fn frames(data: &[u8]) -> Vec<(u8, u8, &[u8])> {
+    let mut found = Vec::new();
     let mut i = 0;
     while i + 8 <= data.len() {
         if data[i] != 0xB5 || data[i + 1] != 0x62 {
@@ -177,15 +178,28 @@ fn find_pvt(data: &[u8]) -> Option<NavPvt> {
             break;
         }
         let frame = &data[i..end];
-        if ubx(frame[2], frame[3], &frame[6..6 + len]) == frame
-            && frame[2] == 0x01
-            && frame[3] == 0x07
-        {
-            found = NavPvt::parse(&frame[6..6 + len]);
+        if ubx(frame[2], frame[3], &frame[6..6 + len]) == frame {
+            found.push((frame[2], frame[3], &frame[6..6 + len]));
         }
         i = end;
     }
     found
+}
+
+/// The last NAV-PVT payload in `data`.
+fn find_pvt(data: &[u8]) -> Option<NavPvt> {
+    frames(data)
+        .into_iter()
+        .filter(|&(class, id, _)| (class, id) == (0x01, 0x07))
+        .filter_map(|(_, _, payload)| NavPvt::parse(payload))
+        .next_back()
+}
+
+/// Whether `data` holds the acknowledgement (ACK-ACK) of a CFG-PRT.
+fn port_acknowledged(data: &[u8]) -> bool {
+    frames(data)
+        .iter()
+        .any(|&(class, id, payload)| (class, id) == (0x05, 0x01) && payload == [0x06, 0x00])
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -272,7 +286,7 @@ impl GpsModule {
             return Ok(false);
         }
         let result = match self.phase {
-            Phase::Booting => self.configure(bus, clock).map(|()| false),
+            Phase::Booting => self.configure(bus, clock),
             Phase::Running => self.poll(bus, clock),
         };
         self.next = clock.now() + PERIOD;
@@ -290,13 +304,41 @@ impl GpsModule {
         }
     }
 
-    fn configure(&mut self, bus: &mut dyn I2cBus, clock: &dyn Clock) -> Result<(), BusError> {
+    /// Switch the receiver's port to UBX; returns whether what the receiver
+    /// knows changed (it has confirmed the module).
+    fn configure(&mut self, bus: &mut dyn I2cBus, clock: &dyn Clock) -> Result<bool, BusError> {
         bus.write(RECEIVER, &config_port())?;
         clock.sleep(REPLY_TIME);
-        // Whatever it sent so far (NMEA, the acknowledgement) is not needed.
-        self.drain(bus)?;
+        // What it sent so far is NMEA, apart from the acknowledgement.
+        let acknowledged = port_acknowledged(&self.drain(bus)?);
         self.phase = Phase::Running;
         info!("GPS receiver on channel {} ready", self.channel);
+        if !acknowledged {
+            return Ok(false);
+        }
+        // Only a u-blox receiver acknowledges, so this is a GPS Module. Its
+        // first NAV-PVT can take a minute or two after power-up; until then
+        // it is searching.
+        self.confirm(bus)?;
+        self.info = Some(GpsInfo {
+            channel: self.channel,
+            fix: false,
+            satellites: 0,
+            latitude: None,
+            longitude: None,
+            altitude: None,
+            accuracy: None,
+            time: None,
+        });
+        Ok(true)
+    }
+
+    /// The receiver answered: the expander's other pins become outputs too.
+    fn confirm(&mut self, bus: &mut dyn I2cBus) -> Result<(), BusError> {
+        if !self.confirmed {
+            bus.write(EXPANDER, &[REG_CONFIG, 0x00])?;
+            self.confirmed = true;
+        }
         Ok(())
     }
 
@@ -328,10 +370,7 @@ impl GpsModule {
         let Some(pvt) = find_pvt(&self.drain(bus)?) else {
             return Ok(false);
         };
-        if !self.confirmed {
-            bus.write(EXPANDER, &[REG_CONFIG, 0x00])?;
-            self.confirmed = true;
-        }
+        self.confirm(bus)?;
         let fix = pvt.fix_ok && matches!(pvt.fix_type, 2..=4);
         let info = GpsInfo {
             channel: self.channel,
@@ -421,6 +460,37 @@ mod tests {
     }
 
     #[test]
+    fn the_acknowledgement_confirms_the_module_before_the_first_position() -> Result<(), BusError> {
+        use crate::bus::mock::{MockBus, MockClock, attach_gps_module};
+        let mut bus = MockBus::new();
+        let receiver = attach_gps_module(&mut bus, 0);
+        if let Ok(mut r) = receiver.lock() {
+            r.silent_polls = 3;
+            r.position = Some((50.0, 15.0, 300.0));
+        }
+        let clock = MockClock::new();
+        crate::climate::select_channel(&mut bus, 0)?;
+        let mut module = GpsModule::start(&mut bus, &clock, 0)?;
+        clock.sleep(BOOT);
+        assert!(module.service(&mut bus, &clock)?, "searching is news");
+        assert!(module.confirmed());
+        assert_eq!(
+            module.info().map(|i| (i.fix, i.satellites)),
+            Some((false, 0))
+        );
+        // Unanswered polls are no failures; the position comes later.
+        for _ in 0..3 {
+            clock.sleep(PERIOD);
+            assert!(!module.service(&mut bus, &clock)?);
+        }
+        assert!(!module.gone());
+        clock.sleep(PERIOD);
+        assert!(module.service(&mut bus, &clock)?);
+        assert_eq!(module.info().map(|i| i.fix), Some(true));
+        Ok(())
+    }
+
+    #[test]
     fn a_bad_checksum_is_skipped() {
         let mut frame = ubx(0x01, 0x07, &pvt_payload());
         let last = frame.len() - 1;
@@ -443,10 +513,12 @@ mod tests {
             Ok(out[0] & LED_GREEN != 0)
         };
 
-        // Booting, then the port is switched to UBX: no news yet.
+        // Booting, then the port is switched to UBX; the acknowledgement
+        // confirms the module, searching.
         assert!(!gps.service(&mut bus, &clock)?, "not due before boot");
         clock.sleep(BOOT);
-        assert!(!gps.service(&mut bus, &clock)?);
+        assert!(gps.service(&mut bus, &clock)?);
+        assert_eq!(gps.info().map(|i| (i.fix, i.satellites)), Some((false, 0)));
         let received = || {
             receiver
                 .lock()

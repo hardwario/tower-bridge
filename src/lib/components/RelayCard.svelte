@@ -114,7 +114,7 @@
           disabled={busy || remaining !== null}
           onclick={() => run(() => api.setRelay(state))}
         >
-          <span class="dot" class:on={state} class:off={!state}></span>
+          <span class="glyph"><span class="dot" class:on={state} class:off={!state}></span></span>
           {state ? m.activateTrue : m.activateFalse}
         </button>
       {/each}
@@ -136,9 +136,10 @@
           disabled={busy || (remaining !== null && !running)}
           onclick={() => pulse(to)}
         >
-          <span class="label"
-            ><Icon name={to ? "pulse-high" : "pulse-low"} size={15} />{to ? m.pulseTrue : m.pulseFalse}</span
-          >
+          <span class="label">
+            <span class="glyph"><Icon name={to ? "pulse-high" : "pulse-low"} size={15} /></span>
+            {to ? m.pulseTrue : m.pulseFalse}
+          </span>
         </button>
       {/each}
       <label class="length">
@@ -235,9 +236,18 @@
     font-size: 13px;
     color: var(--text-2);
   }
+  /* Each symbol centred in a slot of its own, the label left-aligned after
+     it, so the symbols and the labels line up down the column (the user,
+     2026-10-19). */
   .controls .btn {
-    justify-content: center;
+    justify-content: flex-start;
     min-width: 0;
+  }
+  .glyph {
+    display: inline-flex;
+    flex: none;
+    justify-content: center;
+    width: 16px;
   }
   /* Narrow windows: the pulse duration gets a line of its own under the buttons. */
   @media (max-width: 1000px) {

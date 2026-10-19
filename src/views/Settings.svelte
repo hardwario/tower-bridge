@@ -513,6 +513,13 @@
   .small {
     font-size: 12.5px;
   }
+  /* Free text ends at the right edge, like the numbers and menus around it
+     (the user, 2026-10-19); one width for all, the password included (its
+     default width differs). */
+  .input:not(.num) {
+    width: 230px;
+    text-align: right;
+  }
   .about {
     padding: 14px;
     display: flex;

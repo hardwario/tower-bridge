@@ -305,8 +305,12 @@ time in one 100-byte message. Register `0xFD` and `0xFE` hold the number of
 bytes waiting, `0xFF` the stream, read in 60-byte chunks.
 
 The address `0x21` is not unique to this module, so the app takes the
-expander for a GPS Module only once the receiver answers at `0x42`; otherwise
-it puts the expander back to all inputs.
+expander for a GPS Module only once the receiver answers at `0x42`: with the
+acknowledgement of CFG-PRT (UBX ACK-ACK), or else its first NAV-PVT;
+otherwise it puts the expander back to all inputs. After power-up the
+receiver acknowledges within about a second but leaves NAV-PVT polls
+unanswered for 10 s to more than 2 minutes (seen on a real module indoors), so
+the module is shown as searching from the acknowledgement on.
 
 ## Diagnostics CLI
 
@@ -318,12 +322,12 @@ or the service; the everyday commands are described in [cli.md](cli.md).
 cargo run -p tower-bridge-cli -- toolbox scan              # list bridges and interfaces
 cargo run -p tower-bridge-cli -- toolbox --trace probe     # find the sensors, one cycle per channel, hex dump of every report
 cargo run -p tower-bridge-cli -- toolbox i2c-scan          # addresses per channel and in front of the switch
-cargo run -p tower-bridge-cli -- toolbox i2c-identify      # name the sensor chips on each channel
+cargo run -p tower-bridge-cli -- toolbox i2c-identify      # name the chips of the modules and tags on each channel
 cargo run -p tower-bridge-cli -- toolbox led on
 cargo run -p tower-bridge-cli -- toolbox nfc-scan          # look for a TOWER NFC Tag at every address
 cargo run -p tower-bridge-cli -- toolbox co2               # find the TOWER CO2 Module, charge for a minute, measure 3 times
 cargo run -p tower-bridge-cli -- toolbox co2 --charge 5 --pressure 990 --state lp8.txt  # shorter charge, a pressure, a kept state
-cargo run -p tower-bridge-cli -- toolbox voc               # find the VOC-LP Tag and measure every 30 s
+cargo run -p tower-bridge-cli -- toolbox voc               # find the VOC-LP Tag; a value every 30 s once it has preheated (up to 5 minutes)
 cargo run -p tower-bridge-cli -- toolbox gps               # find the TOWER GPS Module and print every report for 30 s
 cargo run -p tower-bridge-cli -- toolbox i2c-read 0x38 0x03 --len 1   # write a register, STOP, read
 cargo run -p tower-bridge-cli -- toolbox --channel 1 i2c-write 0x38 0x03 0xff   # write bytes (channel 0 by default)

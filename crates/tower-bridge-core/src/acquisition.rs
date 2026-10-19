@@ -745,9 +745,16 @@ impl Worker {
                 Ok(bus) => match self.run_connected(bus, opener) {
                     Exit::Shutdown => {
                         self.pulse = None;
-                        self.emit_relay(None);
-                        self.emit_nfc(None);
-                        self.emit_gps(None);
+                        // No longer watched, but not gone: no "gone" lines.
+                        if self.last_relay.take().is_some() {
+                            let _ = self.events.send(AcqEvent::Relay(None));
+                        }
+                        if self.last_nfc.take().is_some() {
+                            let _ = self.events.send(AcqEvent::Nfc(None));
+                        }
+                        if self.last_gps.take().is_some() {
+                            let _ = self.events.send(AcqEvent::Gps(None));
+                        }
                         return;
                     }
                     Exit::Lost(e) => {

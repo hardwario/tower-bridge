@@ -139,6 +139,13 @@ impl Sgpc3 {
         self.failures >= GIVE_UP
     }
 
+    /// How long the sensor still preheats (reads 0 ppb), if it does.
+    pub fn preheat_left(&self, now: Duration) -> Option<Duration> {
+        PREHEAT
+            .checked_sub(now.saturating_sub(self.started))
+            .filter(|left| !left.is_zero())
+    }
+
     /// A measurement slot that could not be served (the channel could not
     /// be selected): counts as a failure, and the grid moves on.
     pub fn missed(&mut self, now: Duration) {

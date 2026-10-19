@@ -303,6 +303,16 @@ fn config_takes_negative_numbers_null_and_masks_every_secret() {
         .success()
         .stdout(predicate::str::contains("my-secret").not());
     cli(&d)
+        .args(["config", "get", "mqtt"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("my-secret").not());
+    cli(&d)
+        .args(["config", "get", "mqtt.password"])
+        .assert()
+        .success()
+        .stdout("(my-secret\n");
+    cli(&d)
         .args(["--simulate", "toolbox", "scan"])
         .assert()
         .success()

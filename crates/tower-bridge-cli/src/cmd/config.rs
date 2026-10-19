@@ -45,15 +45,7 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
         ConfigAction::Path => println!("{}", file.display()),
         ConfigAction::Show => {
             let (mut v, _) = current(&file)?;
-            for key in SECRETS {
-                if let Some(secret) = lookup_mut(&mut v, key)
-                    && secret
-                        .as_str()
-                        .is_some_and(|s| !s.is_empty() && s != NOT_YET)
-                {
-                    *secret = Value::String("(set)".into());
-                }
-            }
+            mask(&mut v);
             if out.json {
                 output::json(&v)?;
             } else {
@@ -61,7 +53,12 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
             }
         }
         ConfigAction::Get { key } => {
-            let (v, _) = current(&file)?;
+            let (mut v, _) = current(&file)?;
+            // A secret shows only when asked for by name (to copy the
+            // token into a script), not inside its group.
+            if !SECRETS.contains(&key.as_str()) {
+                mask(&mut v);
+            }
             let value = lookup(&v, &key).ok_or_else(|| unknown(&v, &key))?;
             match value {
                 Value::String(s) if !out.json => println!("{s}"),
@@ -132,6 +129,19 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The password and the token as "(set)".
+fn mask(v: &mut Value) {
+    for key in SECRETS {
+        if let Some(secret) = lookup_mut(v, key)
+            && secret
+                .as_str()
+                .is_some_and(|s| !s.is_empty() && s != NOT_YET)
+        {
+            *secret = Value::String("(set)".into());
+        }
+    }
 }
 
 fn lookup<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {

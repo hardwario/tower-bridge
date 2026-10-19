@@ -20,11 +20,11 @@ Steps:
 5. Done: the terminal dashboard (`tui/`), checked in a pseudo-terminal.
 6. Done: tests (unit, TestBackend renders, assert_cmd contract against the simulated bridge); docs/cli.md (with systemd and launchd examples), README, CHANGELOG, AGENTS, a "Command line" chapter and a troubleshooting entry in all five manuals; release archives of the CLI in release.yml (Linux x86_64 and aarch64 through `cross` with a glibc 2.28 floor, macOS universal, Windows with the static CRT check), a `workflow_dispatch` dry run, and the third-party notices covering the CLI.
 
-Committed (55c999d). A second review the same day found about 40 issues, fixed after it (see the 2026-10-18 learnings in AGENTS.md). Still open:
+Committed (3636cdc). A second review the same day found about 40 issues, fixed after it (see the 2026-10-18 learnings in AGENTS.md). Still open:
 
 - The CLI's Linux builds in the `cross` images (Ubuntu 16.04) are unverified: `.github/workflows/cross.yml` tries them when Cargo.lock, Cross.toml or the workflows change, and the release workflow has a dry run (Actions, Release, Run workflow, on a branch). If aws-lc does not build there, switch rumqttc to `use-rustls-no-provider` with rustls' `ring` provider.
 - A 32-bit Raspberry Pi build (`armv7-unknown-linux-gnueabihf`) is not in the matrix yet.
-- Not tried on real hardware: the CLI against the bridge itself (only the simulated bridge, and the desktop app's refusal on the real data folder).
+- Tried on real hardware on 2026-10-19 (macOS; Temperature Tag, CO2 Module, VOC-LP Tag, Relay Module, GPS Module, NFC Tag on channel 0; Humidity, Lux Meter and Barometer Tags on channel 1): every toolbox tool, the session commands, `run` with REST, MCP (HTTP and stdio) and MQTT against a local mosquitto, remote commands through it, the dashboard in a pseudo-terminal, Ctrl+C and SIGTERM, and a pulse switched back when `run` stops. Fixed after it: the GPS Module shows as soon as the receiver acknowledges its setup (its first report took up to 2 minutes), `toolbox voc` reports the preheat (up to 5 minutes; 90 s on this tag) and counts only values, `toolbox gps` prints text, `toolbox i2c-identify` names the modules' expanders, UART bridge, SGPC3 and receiver, `config get <group>` masks secrets, no "gone" log lines when the service stops. Not covered: a GPS fix (indoors), unplugging the bridge while the CLI runs.
 - Formatting an unformatted NFC Tag (asked on 2026-10-18): not supported; the app, the CLI and the API (409 `not_formatted`) point to a phone app such as NXP TagWriter. Doing it means writing block 0, which also holds the I²C address and the static lock bytes. Per the NT3H2111 datasheet (to verify): byte 0 written sets the address (as `address << 1`) while a read returns the manufacturer ID 0x04, so a plain read-modify-write moves the chip; the lock bytes must be written back as read (0); the capability container is bytes 12 to 15 (`E1 10 6D 00` on the 1k part), then an empty NDEF TLV `03 00 FE` in block 1. Needs a spare real tag to verify.
 - The release dry run (`workflow_dispatch`) only exists once `release.yml` with it is on the default branch: merge the branch first.
 - The Tauri capability grants `core:default`; the dashboard needs only `core:event:allow-listen` and `allow-unlisten` (and app commands). Narrow it once it can be checked on a running dashboard.
@@ -90,6 +90,7 @@ A final independent review of the night's diff found one regression, fixed with 
 ## Before the first release
 
 - Push the repository and get CI green: the workflows have never run.
+- macOS with the theme set to System and the Mac in dark mode: the dashboard's title bar stays light while the page is dark (seen 2026-10-19 on the debug build with a fresh data folder; tao leaves the app appearance alone when no theme is given, and the binary declares SDK 27). Light and Dark themes are fine.
 - Panels can be reordered with the pointer only; arrow-key reordering would make it keyboard accessible.
 
 ## Waiting for hardware
