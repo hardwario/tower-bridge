@@ -58,8 +58,11 @@ What it depends on:
 - On the Azure side: the Entra app `github-codesign`, whose client ID is
   `AZURE_CLIENT_ID`, with the role "Artifact Signing Certificate Profile
   Signer" on the `hardwario` profile only, and a federated credential that
-  trusts GitHub's OIDC tokens for
-  `repo:hardwario/tower-bridge:environment:signing`.
+  trusts GitHub's OIDC tokens for the subject
+  `repo:hardwario@28539912/tower-bridge@1425884115:environment:signing`.
+  The repository uses GitHub's immutable subject (with the owner and
+  repository IDs), so a re-created repository of the same name is not
+  trusted.
   The job logs in with `azure/login` through OIDC (`id-token: write`); there
   is no client secret.
 

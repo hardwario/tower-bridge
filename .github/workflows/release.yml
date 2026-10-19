@@ -228,7 +228,9 @@ jobs:
           ls -la
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ contains(matrix.target, 'linux') && '' || 'unsigned-' }}cli-${{ matrix.target }}
+          # Not `cond && '' || 'unsigned-'`: an empty string counts as false,
+          # which named the Linux archives unsigned and left them out of v1.0.0.
+          name: ${{ contains(matrix.target, 'linux') && format('cli-{0}', matrix.target) || format('unsigned-cli-{0}', matrix.target) }}
           path: out/*
 
   # Authenticode signing of the Windows binaries with Azure Artifact Signing
@@ -399,6 +401,8 @@ jobs:
           # The CLI: a bare binary cannot be stapled; macOS checks it online.
           cd unsigned/unsigned-cli-universal-apple-darwin
           name=$(echo tower-bridge-cli-*)
+          # Artifacts do not keep file modes (v1.0.0 shipped it without +x).
+          chmod 755 "$name/tower-bridge-cli"
           sign "$name/tower-bridge-cli"
           ditto -c -k --keepParent "$name/tower-bridge-cli" ../../work/cli.zip
           notarize ../../work/cli.zip
@@ -457,6 +461,17 @@ jobs:
             cp -r "$d". out/
           done
           ls -la out
+          # Every file of a release, each with its checksum.
+          cd out
+          missing=0
+          for f in tower-bridge-*-windows-x64-portable.exe tower-bridge-*-macos-universal.dmg \
+                   tower-bridge-*-linux-x86_64.AppImage tower-bridge-cli-*-x86_64-unknown-linux-gnu.tar.gz \
+                   tower-bridge-cli-*-aarch64-unknown-linux-gnu.tar.gz tower-bridge-cli-*-universal-apple-darwin.tar.gz \
+                   tower-bridge-cli-*-x86_64-pc-windows-msvc.zip; do
+            if [ ! -f "$f" ] || [ ! -f "$f.sha256" ]; then echo "::error::missing $f or its checksum"; missing=1; fi
+          done
+          [ -f 70-hardwario-tower-bridge.rules ] || { echo "::error::missing 70-hardwario-tower-bridge.rules"; missing=1; }
+          exit $missing
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           draft: true
