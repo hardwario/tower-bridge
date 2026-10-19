@@ -89,7 +89,7 @@ A final independent review of the night's diff found one regression, fixed with 
 
 ## 1.0.1
 
-- macOS notifications through the UserNotifications framework and Open at Login through SMAppService (2026-10-19): both work only in a Developer ID signed app bundle, so the first real test is the v1.0.1 draft's dmg (an ad-hoc local build is refused notifications). Check: the permission prompt at the first start, **Send test** shows a banner with the dashboard in front, a click opens the dashboard, Open at Login appears as TOWER Bridge under Open at Login and replaces the 1.0.0 launch agent, the blocked hint when notifications are turned off.
+- Published on 2026-10-19 (https://github.com/hardwario/tower-bridge/releases/tag/v1.0.1), the first release the workflow built without hand repairs. Tested by the user from the draft: the notification permission prompt at the first start, **Send test** shows a banner and a click opens the dashboard, Open at Login appears as TOWER Bridge under Open at Login. Not yet seen on macOS 11 or 12 (launch agent kept there) or with notifications turned off on a real install.
 
 ## Before the first release
 
