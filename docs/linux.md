@@ -52,8 +52,8 @@ The AppImage needs glibc 2.35 or newer and FUSE 2 (`libfuse2` on Ubuntu 22.04,
 `libfuse2t64` on 24.04). Make it executable and run it:
 
 ```sh
-chmod +x TOWER-Bridge-*-linux-x86_64.AppImage
-./TOWER-Bridge-*-linux-x86_64.AppImage
+chmod +x tower-bridge-*-linux-x86_64.AppImage
+./tower-bridge-*-linux-x86_64.AppImage
 ```
 
 "Open at login" registers the AppImage path itself, so keep the file where it

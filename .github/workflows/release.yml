@@ -122,19 +122,22 @@ jobs:
           v="${v//\//-}"  # a dry run on feature/x
           mkdir -p out
           case "${{ matrix.name }}" in
-            macos)   cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/TOWER-Bridge-$v-macos-universal.dmg" ;;
-            linux)   cp target/release/bundle/appimage/*.AppImage "out/TOWER-Bridge-$v-linux-x86_64.AppImage"
+            macos)   cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/tower-bridge-$v-macos-universal.dmg" ;;
+            linux)   cp target/release/bundle/appimage/*.AppImage "out/tower-bridge-$v-linux-x86_64.AppImage"
                      cp packaging/linux/70-hardwario-tower-bridge.rules out/ ;;
-            windows) cp target/release/tower-bridge.exe "out/TOWER-Bridge-$v-windows-x64-portable.exe" ;;
+            # Signed, checksummed and released by the sign job.
+            windows) cp target/release/tower-bridge.exe "out/tower-bridge-$v-windows-x64-portable.exe" ;;
           esac
           cd out
-          for f in TOWER-Bridge-*; do
-            if command -v sha256sum >/dev/null; then sha256sum "$f" > "$f.sha256"; else shasum -a 256 "$f" > "$f.sha256"; fi
-          done
+          if [ "${{ matrix.name }}" != windows ]; then
+            for f in tower-bridge-*; do
+              if command -v sha256sum >/dev/null; then sha256sum "$f" > "$f.sha256"; else shasum -a 256 "$f" > "$f.sha256"; fi
+            done
+          fi
           ls -la
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ matrix.name }}
+          name: ${{ matrix.name == 'windows' && 'unsigned-windows' || matrix.name }}
           path: out/*
 
   # tower-bridge-cli: an archive per target. Linux builds run in the `cross`
@@ -223,22 +226,105 @@ jobs:
             *) cp "target/$target/release/tower-bridge-cli" "out/$name/" ;;
           esac
           cd out
-          case "$target" in
-            *-windows-*) 7z a -bd "$name.zip" "$name" > /dev/null; archive="$name.zip" ;;
-            *) tar czf "$name.tar.gz" "$name"; archive="$name.tar.gz" ;;
-          esac
-          rm -r "$name"
-          if command -v sha256sum >/dev/null; then sha256sum "$archive" > "$archive.sha256"; else shasum -a 256 "$archive" > "$archive.sha256"; fi
+          # The Windows folder is signed, zipped and checksummed by the sign job.
+          if [[ "$target" != *-windows-* ]]; then
+            tar czf "$name.tar.gz" "$name"
+            rm -r "$name"
+            if command -v sha256sum >/dev/null; then sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"; else shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"; fi
+          fi
           ls -la
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cli-${{ matrix.target }}
+          name: ${{ contains(matrix.target, 'windows') && 'unsigned-' || '' }}cli-${{ matrix.target }}
+          path: out/*
+
+  # Authenticode signing of the Windows binaries with Azure Artifact Signing
+  # (docs/release.md). A job of its own, so only these steps can get the
+  # OIDC token, in the `signing` environment, which admits only release tags.
+  sign:
+    name: Sign (Windows)
+    needs: [build, cli]
+    # A pushed release tag, or a dry run started on one; branch dry runs stay
+    # unsigned and are never published.
+    if: github.ref_type == 'tag'
+    runs-on: windows-latest
+    environment: signing
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: unsigned-*
+          path: unsigned
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # Our own two exes only: the app and the CLI link everything else
+      # statically, and there is no installer.
+      - uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: https://weu.codesigning.azure.net/
+          signing-account-name: hardwario
+          certificate-profile-name: hardwario
+          files-folder: ${{ github.workspace }}\unsigned
+          files-folder-filter: exe
+          files-folder-recurse: true
+          file-digest: SHA256
+          # The certificates live about three days; only the timestamp keeps
+          # a signature valid after that.
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: TOWER Bridge
+          description-url: https://github.com/hardwario/tower-bridge
+          # The Azure CLI login above; the other credential types would only
+          # be tried and fail first.
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+      - name: Verify the signatures
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem unsigned -Recurse -Filter *.exe
+          if ($files.Count -ne 2) { Write-Error "expected the app and the CLI, found: $($files.FullName -join ', ')"; exit 1 }
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f.FullName
+            "{0}: {1}, signed by {2}, timestamped by {3}" -f $f.Name, $sig.Status, $sig.SignerCertificate.Subject, $sig.TimeStamperCertificate.Subject
+            if ($sig.Status -ne 'Valid') { Write-Error "$($f.Name): signature $($sig.Status): $($sig.StatusMessage)"; exit 1 }
+            if ($sig.SignerCertificate.Subject -notlike '*HARDWARIO a.s.*') { Write-Error "$($f.Name): signed by $($sig.SignerCertificate.Subject)"; exit 1 }
+            if (-not $sig.TimeStamperCertificate) { Write-Error "$($f.Name): no timestamp"; exit 1 }
+          }
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp unsigned/unsigned-windows/tower-bridge-*-windows-x64-portable.exe out/
+          cd unsigned/unsigned-cli-x86_64-pc-windows-msvc
+          name=$(echo tower-bridge-cli-*)
+          7z a -bd "../../out/$name.zip" "$name" > /dev/null
+          cd ../../out
+          for f in *; do sha256sum "$f" > "$f.sha256"; done
+          ls -la
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
           path: out/*
 
   # One job creates the draft release, so the builds cannot race to make two.
   publish:
     name: Draft release
-    needs: [build, cli]
+    needs: [build, cli, sign]
     # Only a pushed tag: a dry run started on a tag must not replace the
     # assets of its release.
     if: github.event_name == 'push' && github.ref_type == 'tag'
@@ -248,8 +334,17 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: out
-          merge-multiple: true
+          path: artifacts
+      # Everything but the unsigned Windows builds the sign job started from.
+      - name: Collect the release files
+        run: |
+          set -euo pipefail
+          mkdir out
+          for d in artifacts/*/; do
+            case "$(basename "$d")" in unsigned-*) continue ;; esac
+            cp -r "$d". out/
+          done
+          ls -la out
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           draft: true

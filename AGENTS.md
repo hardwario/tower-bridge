@@ -113,7 +113,7 @@ src/                        Svelte 5 frontend, no router
   lib/manual.ts             renders docs/manual for the Manual tab
   lib/map.ts                offline map of the GPS card: TopoJSON decoding, Web Mercator, canvas drawing
   assets/map/world.json     the map data (Natural Earth 1:10m), built by scripts/build-map.mjs
-docs/                       cli.md, api.md, mqtt.md, hardware.md, linux.md, manual/
+docs/                       cli.md, api.md, mqtt.md, hardware.md, linux.md, release.md, manual/
 ```
 
 ### Data flow
@@ -271,3 +271,4 @@ Newest at the end. One bullet per learning, with the date and the reason.
 - 2026-10-18. MQTT subscribes to the command topics only while relay control is allowed, and warnings about ignored messages come at most once a minute (`mqtt::warn_rarely`): anyone who can publish on the broker could otherwise fill the log.
 - 2026-10-18. Edge readings of a long-span history are two index ranges (`ts >= ? AND ts < ?` twice, joined by OR, which SQLite plans as MULTI-INDEX OR); one range with `AND (ts < ? OR ts >= ?)` inside scanned the whole span (290 ms instead of 23 ms on a year). A test checks the query plan.
 - 2026-10-19. svgo 4 with `multipass` bends outlines through `convertPathData`'s `convertToQ` (cubic to quadratic): up to 0.08 viewBox units on the HARDWARIO TOWER logo (the O of TOWER), and `floatPrecision: 2` lets `makeArcs` bend the symbol's circles by 0.145. `scripts/svgo.config.mjs` turns `convertToQ` off and keeps 3 decimals; the outlines then stay within 0.007 units (the source paths' closing gaps). Check a new SVG by sampling both outlines with `getPointAtLength` in a browser: pixel diffs alone mislead, since Chrome draws arcs and Béziers slightly differently.
+- 2026-10-19. Windows binaries are signed in a `sign` job of their own (Azure Artifact Signing, OIDC through `azure/login`, environment `signing`), not in the build jobs: only those few steps can then get the OIDC token, never the npm and Cargo build scripts. Artifact Signing certificates live about three days, so a signature without its RFC 3161 timestamp stops validating soon after; the job verifies status, signer and timestamp of both exes. The unsigned Windows builds travel as `unsigned-*` artifacts, which the release leaves out.

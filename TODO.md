@@ -26,13 +26,13 @@ Committed (3636cdc). A second review the same day found about 40 issues, fixed a
 - A 32-bit Raspberry Pi build (`armv7-unknown-linux-gnueabihf`) is not in the matrix yet.
 - Tried on real hardware on 2026-10-19 (macOS; Temperature Tag, CO2 Module, VOC-LP Tag, Relay Module, GPS Module, NFC Tag on channel 0; Humidity, Lux Meter and Barometer Tags on channel 1): every toolbox tool, the session commands, `run` with REST, MCP (HTTP and stdio) and MQTT against a local mosquitto, remote commands through it, the dashboard in a pseudo-terminal, Ctrl+C and SIGTERM, and a pulse switched back when `run` stops. Fixed after it: the GPS Module shows as soon as the receiver acknowledges its setup (its first report took up to 2 minutes), `toolbox voc` reports the preheat (up to 5 minutes; 90 s on this tag) and counts only values, `toolbox gps` prints text, `toolbox i2c-identify` names the modules' expanders, UART bridge, SGPC3 and receiver, `config get <group>` masks secrets, no "gone" log lines when the service stops. Not covered: a GPS fix (indoors), unplugging the bridge while the CLI runs.
 - Formatting an unformatted NFC Tag (asked on 2026-10-18): not supported; the app, the CLI and the API (409 `not_formatted`) point to a phone app such as NXP TagWriter. Doing it means writing block 0, which also holds the I²C address and the static lock bytes. Per the NT3H2111 datasheet (to verify): byte 0 written sets the address (as `address << 1`) while a read returns the manufacturer ID 0x04, so a plain read-modify-write moves the chip; the lock bytes must be written back as read (0); the capability container is bytes 12 to 15 (`E1 10 6D 00` on the 1k part), then an empty NDEF TLV `03 00 FE` in block 1. Needs a spare real tag to verify.
-- The release dry run (`workflow_dispatch`) only exists once `release.yml` with it is on the default branch: merge the branch first.
+- The release dry run (`workflow_dispatch`, Actions, Release, Run workflow) has not been tried yet; `release.yml` is on `main` since 2026-10-19.
 - The Tauri capability grants `core:default`; the dashboard needs only `core:event:allow-listen` and `allow-unlisten` (and app commands). Narrow it once it can be checked on a running dashboard.
 - Retained MQTT topics of a sensor that left while the app was closed stay on the broker (the published set lives in memory). Clear them by learning the retained topics at connect, or by storing the set.
 - XLSX exports write local wall-clock times only; the repeated hour at the end of daylight saving time cannot be told apart. A UTC or Unix-ms column would fix it (a change of the export's columns: ask first).
 - The Linux AppImage bundles LGPL libraries (WebKitGTK, GTK, GLib); the notices name them and point to the Ubuntu sources. Have someone check that this is enough for LGPL.
 
-Everything is committed on the branch `feature/channels-manual-mqtt` (not merged into `main` yet).
+Published on 2026-10-19 as the public repository https://github.com/hardwario/tower-bridge; `main` is the only branch.
 
 ## Overnight review, 2026-10-18 (committed)
 
@@ -89,7 +89,9 @@ A final independent review of the night's diff found one regression, fixed with 
 
 ## Before the first release
 
-- Push the repository and get CI green: the workflows have never run.
+- Get CI green: its first run started on GitHub with the push on 2026-10-19.
+- Windows signing (set up on 2026-10-19, see docs/release.md) has not run yet: the first release tag is its first test, since the `signing` environment admits only `v*` tags and the version check admits only the real version. Everything it needs exists: the GitHub environment `signing` (tags `v*`, no required reviewer) with its three variables, and on Azure the app `github-codesign` (client ID 33ad3a9c-0938-406a-816b-4937325ac58c) with the GitHub OIDC trust for that environment and the role Artifact Signing Certificate Profile Signer on the `hardwario` profile only. If `azure/login` reports no subscription (the app has no role at subscription level), add `allow-no-subscriptions: true` to it.
+- macOS signing and notarization: the workflow already uses the `APPLE_*` secrets when they exist (Developer ID of HARDWARIO a.s., Team ID C32QFQ68V9); the secrets are not set yet.
 - macOS with the theme set to System and the Mac in dark mode: the dashboard's title bar stays light while the page is dark (seen 2026-10-19 on the debug build with a fresh data folder; tao leaves the app appearance alone when no theme is given, and the binary declares SDK 27). Light and Dark themes are fine.
 - Panels can be reordered with the pointer only; arrow-key reordering would make it keyboard accessible.
 

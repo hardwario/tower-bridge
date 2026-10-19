@@ -65,7 +65,8 @@ hardwario/enmon.
   diagrams that follow the theme, and the third-party notices (every library,
   font, icon set and map source with its license).
 - One file per platform: a portable Windows exe, a macOS dmg, a Linux
-  AppImage.
+  AppImage. The Windows exe and the Windows command line tool are signed by
+  HARDWARIO a.s. (Authenticode, timestamped).
 
 ### Integrations
 

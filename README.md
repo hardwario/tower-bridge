@@ -49,17 +49,17 @@ command-line reader for the same hardware.
 
 | Platform | File |
 |---|---|
-| Windows 10/11 (x64) | `TOWER-Bridge-<version>-windows-x64-portable.exe` |
-| macOS 11+ with Safari 16.2+ (Apple silicon and Intel) | `TOWER-Bridge-<version>-macos-universal.dmg` |
-| Linux (x86_64) | `TOWER-Bridge-<version>-linux-x86_64.AppImage` |
+| Windows 10/11 (x64) | `tower-bridge-<version>-windows-x64-portable.exe` |
+| macOS 11+ with Safari 16.2+ (Apple silicon and Intel) | `tower-bridge-<version>-macos-universal.dmg` |
+| Linux (x86_64) | `tower-bridge-<version>-linux-x86_64.AppImage` |
 | Command line, every platform (Linux also on 64-bit ARM) | `tower-bridge-cli-<version>-<target>.tar.gz` (`.zip` on Windows), see [docs/cli.md](docs/cli.md) |
 
 ### First run
 
 - **Windows:** run the exe; no installation needed. The dashboard needs the
   Microsoft Edge WebView2 Runtime, which ships with Windows 11 and current
-  Windows 10. Builds are not code-signed yet: if SmartScreen warns, choose
-  *More info → Run anyway*. Windows 11 may hide new tray icons in the overflow
+  Windows 10. The exe is signed by HARDWARIO a.s.; while a new release is
+  still unknown to SmartScreen it may warn: choose *More info → Run anyway*. Windows 11 may hide new tray icons in the overflow
   area; drag the icon to the taskbar to keep it visible.
 - **macOS:** open the dmg and drag *TOWER Bridge* to *Applications* (Open at
   Login requires the app to be in Applications). The window is drawn by the
@@ -126,6 +126,9 @@ Development helpers:
 
 `npm run dev` and opening `http://localhost:1420/preview.html` runs the
 dashboard in a browser against a mocked backend.
+
+Releases are built, signed and drafted by GitHub Actions from a version tag:
+see [docs/release.md](docs/release.md).
 
 `npm run manual:screenshots` regenerates the screenshots of the user manual
 from that preview, in every language and theme (needs Google Chrome).
