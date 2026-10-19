@@ -336,7 +336,7 @@ const snapshot: Snapshot = {
           },
         ]
       : [],
-  app: { version: "0.1.0", data_dir: "~/Library/Application Support/com.hardwario.tower-bridge", portable: false, simulated: false, os: "macos", system_language: "en", exe_path: "/Applications/TOWER Bridge.app/Contents/MacOS/tower-bridge" },
+  app: { version: "1.0.0", data_dir: "~/Library/Application Support/com.hardwario.tower-bridge", portable: false, simulated: false, os: "macos", system_language: "en", exe_path: "/Applications/TOWER Bridge.app/Contents/MacOS/tower-bridge" },
 };
 
 mockIPC(
