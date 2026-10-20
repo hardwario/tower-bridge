@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="src/assets/hardwario-tower-reversed.svg">
-    <img src="src/assets/hardwario-tower.svg" alt="HARDWARIO TOWER" height="56">
-  </picture>
+  <img src="src/assets/hardwario-tower.svg" alt="HARDWARIO TOWER" height="56">
 </p>
 
 <h1 align="center">TOWER Bridge</h1>
