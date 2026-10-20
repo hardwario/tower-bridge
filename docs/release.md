@@ -12,6 +12,12 @@
    and creates a **draft** release with all files and their `.sha256`
    checksums.
 4. Check the draft on GitHub and publish it.
+5. Submit the two Windows exes (the portable app and `tower-bridge-cli.exe`
+   from the zip) to AVG and Avast as false positives, at
+   https://www.avg.com/en-ww/report-false-positive and
+   https://www.avast.com/report-false-positive, so their lab reviews the new
+   files before users meet them (see [Windows signing](#windows-signing)).
+   The forms need a reCAPTCHA and an email, so a person sends them.
 
 A dry run builds everything without publishing: Actions, Release, Run
 workflow. Started on a branch it skips the signing; started on a release tag
@@ -46,6 +52,12 @@ for about three days, so only the timestamp keeps a signature valid after
 that. A verification step fails the job unless both files have a valid
 signature by "HARDWARIO a.s." with a timestamp, and the release takes the
 Windows files from the `sign` job only.
+
+A valid signature does not stop every antivirus warning. The CyberCapture of
+AVG and Avast judges a file by how often it has been seen, so each new release
+can be held at its first start, uploaded to their lab and released about a
+minute later (seen with v1.0.1). Step 5 of the release asks them to look at the
+files first.
 
 When: for a pushed release tag (`v*`) and for a dry run started on one.
 Nothing else reaches the job.

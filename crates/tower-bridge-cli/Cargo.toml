@@ -35,6 +35,11 @@ tracing-subscriber.workspace = true
 # Only to restore the default SIGPIPE disposition (see main.rs).
 libc = "0.2"
 
+[build-dependencies]
+# The version resource of the Windows exe (build.rs); already in the tree
+# through tauri-build.
+tauri-winres = "0.3"
+
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"

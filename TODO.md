@@ -92,6 +92,8 @@ A final independent review of the night's diff found one regression, fixed with 
 
 - Published on 2026-10-19 (https://github.com/hardwario/tower-bridge/releases/tag/v1.0.1), the first release the workflow built without hand repairs. Tested by the user from the draft: the notification permission prompt at the first start, **Send test** shows a banner and a click opens the dashboard, Open at Login appears as TOWER Bridge under Open at Login. Not yet seen on macOS 11 or 12 (launch agent kept there) or with notifications turned off on a real install.
 
+- Windows, 2026-10-20: the user's test of v1.0.1 went well, but AVG's CyberCapture held the exe at its first start for analysis. The signing is correct (see AGENTS.md). Done: step 5 of docs/release.md (submit each release's exes to AVG and Avast); a version resource for `tower-bridge-cli.exe` (`crates/tower-bridge-cli/build.rs`, "TOWER Bridge CLI"). Open: the user submits the v1.0.1 exes (the forms need a reCAPTCHA and an email); check the CLI exe's Details tab in the next release; the next CHANGELOG entry mentions the CLI's version information (CI wants the newest heading to match the version, so it waits for the version bump).
+
 ## Before the first release
 
 - CI is green on GitHub since 2026-10-19 (the first run failed only on a constant that is dead code on Windows).
