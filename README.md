@@ -1,51 +1,189 @@
-# TOWER Bridge
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="src/assets/hardwario-tower-reversed.svg">
+    <img src="src/assets/hardwario-tower.svg" alt="HARDWARIO TOWER" height="56">
+  </picture>
+</p>
 
-Desktop app for the HARDWARIO **TOWER Bridge Module** with a **TOWER Climate
-Module** or TOWER sensor tags (Humidity, Temperature, Lux Meter, Barometer) on
-either of its two I²C channels and, optionally, a **TOWER CO2 Module**, a
-**TOWER VOC-LP Tag**, a **TOWER GPS Module**, a **TOWER Relay Module** and a **TOWER NFC
-Tag**. It lives in the menu bar (macOS) or system tray (Windows, Linux) and
-shows temperature, humidity, illuminance, barometric pressure, CO₂ and VOC at a
-glance.
+<h1 align="center">TOWER Bridge</h1>
 
-- Current value right in the menu bar / tray icon, all readings in the tray menu
-- Dashboard with live values and interactive charts: min / avg / max with
-  optional lines, exact value and time under the pointer, selectable time
-  span, drag to pan through all stored data, Ctrl/⌘+scroll, pinch or
-  Shift+drag to zoom, line colors from an 8-color palette, history from
-  1 h to 365 days or a custom range, and a table view; dashboard panels can be
-  rearranged by dragging and charts maximized; with sensors on both channels,
-  each panel shows a line per channel
-- Relay Module control (true / false / timed pulse) on the dashboard, over
-  REST, MCP and MQTT when one is connected
-- CO₂ (TOWER CO2 Module, pressure compensated) and TVOC (VOC-LP Tag, humidity
-  compensated) as full measurements: panels, alerts, export, MQTT, REST and MCP
-- TOWER GPS Module: fix, position on an offline map (and a link to
-  OpenStreetMap), altitude and satellites on the dashboard, over MQTT, REST
-  and MCP
-- TOWER NFC Tag: write a URL (an NDEF URI record) that phones open when they touch
-  the tag
-- Notifications when a value leaves its range (with hysteresis and repeat
-  interval), and when the bridge is disconnected
-- CSV and XLSX export of the stored history
-- Optional MQTT to your own broker (Mosquitto, Home Assistant), publishing
-  every reading with its I²C channel
-  (`tower/temperature/0`, `tower/humidity/1`, …) and the app's availability
-- Optional local REST API, Prometheus metrics and MCP server, so scripts,
-  Grafana and AI assistants (Claude, Cursor, VS Code) can use the readings
+<p align="center">
+  Live readings, charts and alerts from HARDWARIO TOWER modules,<br>
+  right in your menu bar or system tray.
+</p>
+
+<p align="center">
+  <a href="https://github.com/hardwario/tower-bridge/actions/workflows/ci.yml"><img src="https://github.com/hardwario/tower-bridge/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/hardwario/tower-bridge/releases/latest"><img src="https://img.shields.io/github/v/release/hardwario/tower-bridge" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/hardwario/tower-bridge" alt="License: MIT"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/hardwario/tower-bridge/releases/latest"><b>Download</b></a> ·
+  <a href="docs/manual/en.md">User manual</a> ·
+  <a href="docs/cli.md">Command line</a> ·
+  <a href="docs/mqtt.md">MQTT</a> ·
+  <a href="docs/api.md">REST API and MCP</a>
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/manual/images/en/dashboard.dark.webp">
+  <img src="docs/manual/images/en/dashboard.webp" alt="The TOWER Bridge dashboard: relay control and temperature and humidity charts from a Climate Module and a Humidity Tag">
+</picture>
+
+## What it does
+
+TOWER Bridge is a desktop app for the HARDWARIO **TOWER Bridge Module**. Put
+TOWER modules on the bridge, plug it into your computer, and the app:
+
+- shows the current value in the menu bar or tray, and every reading in its menu;
+- records the history and draws interactive charts;
+- notifies you when a value leaves its range;
+- switches a relay, shows a GPS position on a map and writes a URL to an NFC tag;
+- shares the readings over MQTT, a REST API, Prometheus metrics and MCP.
+
+It runs on Windows, macOS and Linux. `tower-bridge-cli`, its headless sibling,
+does the same in a terminal or as a service on a Raspberry Pi. TOWER Bridge
+continues [hardwario/enmon](https://github.com/hardwario/enmon), the
+command-line reader for the same hardware.
+
+## Hardware
+
+<img align="right" width="250" src="docs/images/hardware/bridge-module.webp" alt="TOWER Bridge Module">
+
+The [TOWER Bridge Module](https://docs.hardwario.com/tower/hardware-modules/about-bridge-module/)
+connects TOWER modules to a computer over USB. It is an FTDI FT260 USB to I²C
+bridge with an I²C switch, so it has two channels: put a Climate Module on one
+and sensor tags on the other, or anything on both.
+
+The app finds the modules by itself, names them from the parts it detects, and
+looks again every minute, so a tag plugged in later shows up on its own.
+
+Windows and macOS need no driver. On Linux, install the udev rule (see
+[First run](#first-run)).
+
+<br clear="right">
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%"><a href="https://docs.hardwario.com/tower/hardware-modules/about-climate-module/"><img src="docs/images/hardware/climate-module.webp" width="170" alt="TOWER Climate Module"></a><br><b>Climate Module</b><br><sub>temperature, humidity, illuminance, pressure</sub></td>
+    <td align="center" valign="top" width="25%"><a href="https://docs.hardwario.com/tower/hardware-modules/about-co2-module/"><img src="docs/images/hardware/co2-module.webp" width="170" alt="TOWER CO2 Module"></a><br><b>CO2 Module</b><br><sub>CO₂, pressure compensated</sub></td>
+    <td align="center" valign="top" width="25%"><a href="https://docs.hardwario.com/tower/hardware-modules/about-relay-module/"><img src="docs/images/hardware/relay-module.webp" width="170" alt="TOWER Relay Module"></a><br><b>Relay Module</b><br><sub>switch or pulse a load</sub></td>
+    <td align="center" valign="top" width="25%"><a href="https://docs.hardwario.com/tower/hardware-modules/about-gps-module/"><img src="docs/images/hardware/gps-module.webp" width="170" alt="TOWER GPS Module"></a><br><b>GPS Module</b><br><sub>position, altitude, satellites</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><a href="https://docs.hardwario.com/tower/hardware-modules/about-humidity-tag/"><img src="docs/images/hardware/humidity-tag.webp" width="170" alt="TOWER Humidity Tag"></a><br><b>Humidity Tag</b><br><sub>humidity, temperature</sub></td>
+    <td align="center" valign="top"><a href="https://docs.hardwario.com/tower/hardware-modules/about-temperature-tag/"><img src="docs/images/hardware/temperature-tag.webp" width="170" alt="TOWER Temperature Tag"></a><br><b>Temperature Tag</b><br><sub>temperature</sub></td>
+    <td align="center" valign="top"><a href="https://docs.hardwario.com/tower/hardware-modules/about-lux-meter-tag/"><img src="docs/images/hardware/lux-meter-tag.webp" width="170" alt="TOWER Lux Meter Tag"></a><br><b>Lux Meter Tag</b><br><sub>illuminance</sub></td>
+    <td align="center" valign="top"><a href="https://docs.hardwario.com/tower/hardware-modules/about-barometer-tag/"><img src="docs/images/hardware/barometer-tag.webp" width="170" alt="TOWER Barometer Tag"></a><br><b>Barometer Tag</b><br><sub>pressure, altitude</sub></td>
+  </tr>
+</table>
+
+Also supported: the **TOWER VOC-LP Tag** (TVOC, humidity compensated) and the
+**TOWER NFC Tag** (a URL that phones open when they touch it).
+
+## Features
+
+### Dashboard and charts
+
+A panel per quantity with a line per module, the latest values in large type,
+and a chart of the chosen span.
+
+- 1 h to 365 days, or drag to pan through everything stored
+- Ctrl/⌘+scroll, pinch or Shift+drag to zoom; the exact value and time under the pointer
+- min, average and max as numbers and optional lines, alert limits as light red bands
+- panels rearranged by dragging and maximized with a click; colors from an 8-color palette
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/manual/images/en/chart.dark.webp">
+  <img src="docs/manual/images/en/chart.webp" width="460" alt="A temperature panel with two sensors, min, average and max lines, and the alert band">
+</picture>
+
+### Relay, GPS and NFC
+
+- **Relay Module:** switch it to TRUE or FALSE, or pulse it for a set time, from
+  the dashboard, REST, MCP or MQTT
+- **GPS Module:** fix, position on an offline map (with a link to
+  OpenStreetMap), altitude and satellites
+- **NFC Tag:** write a URL (an NDEF URI record) that phones open when they touch the tag
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/manual/images/en/relay.dark.webp">
+  <img src="docs/manual/images/en/relay.webp" alt="The relay card: activate TRUE or FALSE, pulse TRUE or FALSE, pulse duration">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/manual/images/en/gps.dark.webp">
+  <img src="docs/manual/images/en/gps.webp" alt="The GPS card: position fix, coordinates, accuracy, altitude and the offline map">
+</picture>
+
+### Alerts
+
+A notification when a value leaves its range, with hysteresis so a value
+hovering at the limit does not flood you, a repeat interval, and an optional
+note when it is back to normal. Another one when the bridge is disconnected.
+
+### History and export
+
+Every reading is stored in SQLite (90 days by default) in the data folder shown
+in *Settings → Data*. The Data page shows it as a table, over a span or a custom
+range, and exports it as CSV or XLSX.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/manual/images/en/data.dark.webp">
+  <img src="docs/manual/images/en/data.webp" alt="The Data page: a table of readings per module with CSV and XLSX export">
+</picture>
+
+### MQTT, REST, Prometheus and MCP
+
+All optional and off by default:
+
+- **MQTT** to your own broker (Mosquitto, Home Assistant): every reading with
+  its I²C channel, relay commands, and the app's availability ([docs/mqtt.md](docs/mqtt.md))
+
+  ```text
+  $ mosquitto_sub -h broker.local -t 'tower/#' -v
+  tower/status online
+  tower/temperature/0 23.46
+  tower/humidity/0 45.2
+  tower/co2/0 612
+  ```
+
+- **REST API** and **Prometheus metrics** for scripts and Grafana, and an
+  **MCP server** so AI assistants (Claude, Cursor, VS Code) can read the sensors
+  ([docs/api.md](docs/api.md))
+
+  ```sh
+  claude mcp add --transport http tower-bridge http://127.0.0.1:8180/mcp
+  ```
+
+### Command line
+
+`tower-bridge-cli` shares the app's settings and history. It has a terminal
+dashboard, commands for scripts (text or JSON), and a service without a window
+for a Raspberry Pi or a server ([docs/cli.md](docs/cli.md)).
+
+```sh
+tower-bridge-cli                         # the dashboard (in a terminal)
+tower-bridge-cli status                  # the bridge, its modules and the latest values
+tower-bridge-cli --json watch | jq .     # a line per reading, as NDJSON
+tower-bridge-cli relay pulse --ms 3000   # TRUE or FALSE for 3 s, then back
+tower-bridge-cli export --last 7d -o week.xlsx
+tower-bridge-cli run                     # the service: history, alerts, MQTT, API
+```
+
+### And also
+
 - Open at login
 - Light or dark theme, or follow the system; date and 12/24-hour time format
 - English, Čeština, Slovenčina, Deutsch and Polski (follows the system language
   by default), including the tray menu and notifications
 - One file per platform, no installer on Windows
-- `tower-bridge-cli`, the headless sibling: a terminal dashboard, commands for
-  scripts (text or JSON), and a service without a window for a Raspberry Pi
-  or a server, sharing the app's settings and history ([docs/cli.md](docs/cli.md))
-
-It continues [hardwario/enmon](https://github.com/hardwario/enmon), the
-command-line reader for the same hardware.
+- The user manual is built in: open *Manual* in the sidebar
 
 ## Download
+
+Get the [latest release](https://github.com/hardwario/tower-bridge/releases/latest):
 
 | Platform | File |
 |---|---|
@@ -56,45 +194,67 @@ command-line reader for the same hardware.
 
 ### First run
 
-- **Windows:** run the exe; no installation needed. The dashboard needs the
-  Microsoft Edge WebView2 Runtime, which ships with Windows 11 and current
-  Windows 10. The exe is signed by HARDWARIO a.s.; while a new release is
-  still unknown to SmartScreen it may warn: choose *More info → Run anyway*. Windows 11 may hide new tray icons in the overflow
-  area; drag the icon to the taskbar to keep it visible.
-- **macOS:** open the dmg and drag *TOWER Bridge* to *Applications* (Open at
-  Login requires the app to be in Applications). The window is drawn by the
-  system's WebKit, so keep Safari updated (16.2 or newer; Software Update
-  offers it for macOS 11 too). The app is signed by HARDWARIO and notarized
-  by Apple, so it opens without warnings. At its first start it asks for
-  permission to send notifications (alerts and the test in Alerts need it).
-- **Linux:** install the udev rule (`70-hardwario-tower-bridge.rules`, a
-  release asset, also in `packaging/linux/`) and see
-  [docs/linux.md](docs/linux.md) (kernel driver notes, GNOME tray extension).
+<details>
+<summary><b>Windows</b></summary>
 
-### Portable mode (Windows)
+Run the exe; no installation needed.
 
-Create a folder named `data` next to the exe: settings, history and logs are
-then stored there instead of `%LOCALAPPDATA%`, so the app can run from a USB
-stick. The only thing written outside is a registry key that lets Windows show
-notifications (`HKCU\Software\Classes\AppUserModelId\com.hardwario.tower-bridge`).
+- The dashboard needs the Microsoft Edge WebView2 Runtime, which ships with
+  Windows 11 and current Windows 10.
+- The exe is signed by HARDWARIO a.s. While a new release is still unknown to
+  SmartScreen it may warn: choose *More info → Run anyway*.
+- Windows 11 may hide new tray icons in the overflow area; drag the icon to the
+  taskbar to keep it visible.
 
-## Using it
+**Portable mode:** create a folder named `data` next to the exe. Settings,
+history and logs are then stored there instead of `%LOCALAPPDATA%`, so the app
+can run from a USB stick. The only thing written outside is a registry key that
+lets Windows show notifications
+(`HKCU\Software\Classes\AppUserModelId\com.hardwario.tower-bridge`).
 
-- The menu bar / tray shows the value chosen in *Settings → Value in menu bar*.
+</details>
+
+<details>
+<summary><b>macOS</b></summary>
+
+Open the dmg and drag *TOWER Bridge* to *Applications* (Open at Login requires
+the app to be in Applications).
+
+- The app is signed by HARDWARIO and notarized by Apple, so it opens without
+  warnings.
+- At its first start it asks for permission to send notifications (alerts and
+  the test in Alerts need it).
+- The window is drawn by the system's WebKit, so keep Safari updated (16.2 or
+  newer; Software Update offers it for macOS 11 too).
+
+</details>
+
+<details>
+<summary><b>Linux</b></summary>
+
+Install the udev rule (`70-hardwario-tower-bridge.rules`, a release asset, also
+in `packaging/linux/`) so your user can open the bridge:
+
+```sh
+sudo cp 70-hardwario-tower-bridge.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger
+```
+
+Then see [docs/linux.md](docs/linux.md) for the kernel driver notes and the
+GNOME tray extension.
+
+</details>
+
+### Good to know
+
+- The menu bar or tray shows the value chosen in *Settings → Value in menu bar*.
   Click the icon for all readings and quick toggles; on Windows a left click
   opens the dashboard.
 - Closing the dashboard keeps the app running in the tray. Quit from the tray
   menu.
-- Readings are stored in SQLite (default retention 90 days) in the data folder
-  shown in *Settings → Data*.
-- MQTT is described in [docs/mqtt.md](docs/mqtt.md), the REST API,
-  metrics and MCP server in [docs/api.md](docs/api.md).
-- Without a desktop, `tower-bridge-cli run` does what the app does, and
-  `tower-bridge-cli` alone opens a terminal dashboard ([docs/cli.md](docs/cli.md)).
-  Only one of them runs per data folder; the other commands then go through
-  its API server.
-- The user manual is built in: open *Manual* in the sidebar. Its source, in all
-  five languages, is in [docs/manual](docs/manual/en.md).
+- Without a desktop, `tower-bridge-cli run` does what the app does. Only one of
+  them runs per data folder; other commands then go through its API server.
+- The manual's source, in all five languages, is in [docs/manual](docs/manual/en.md).
 
 ## Building from source
 
@@ -116,7 +276,11 @@ dashboard from the Vite dev server at `localhost:1420` and shows a blank window
 without it. Use `npm run tauri dev`, or embed the dashboard:
 `npm run build && cargo run -p tower-bridge --features tauri/custom-protocol`.
 
-Development helpers:
+`npm run dev` and opening `http://localhost:1420/preview.html` runs the
+dashboard in a browser against a mocked backend.
+
+<details>
+<summary><b>Development helpers</b></summary>
 
 | Variable | Effect |
 |---|---|
@@ -125,20 +289,18 @@ Development helpers:
 | `TOWER_BRIDGE_DATA_DIR=/path` | Override the data folder (also skips the single-instance check) |
 | `TOWER_BRIDGE_LOG=debug` | Log level (logs also go to the data folder) |
 
-`npm run dev` and opening `http://localhost:1420/preview.html` runs the
-dashboard in a browser against a mocked backend.
-
-Releases are built, signed and drafted by GitHub Actions from a version tag:
-see [docs/release.md](docs/release.md).
-
 `npm run manual:screenshots` regenerates the screenshots of the user manual
-from that preview, in every language and theme (needs Google Chrome).
+(also used in this README) from the browser preview, in every language and
+theme (needs Google Chrome).
 
 Translations: the dashboard dictionaries are `src/lib/i18n/{en,cs,sk,de,pl}.ts`
 (English is the reference; the others are type-checked against it). Tray
 menu, notification and dialog texts are in `src-tauri/src/i18n.rs`.
 
-Tests and checks:
+</details>
+
+<details>
+<summary><b>Tests and checks</b></summary>
 
 ```sh
 cargo fmt --all --check
@@ -150,6 +312,11 @@ npm run test:ui:webkit   # the same in WebKit (npx playwright-core install webki
 npm run notices -- --check
 npm run build
 ```
+
+</details>
+
+Releases are built, signed and drafted by GitHub Actions from a version tag:
+see [docs/release.md](docs/release.md).
 
 ## Project layout
 
