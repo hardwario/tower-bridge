@@ -80,16 +80,9 @@ A final independent review of the night's diff found one regression, fixed with 
 - The acquisition loop's reopen after five failed cycles has no test, because the loop waits in real time. A clock-driven wait would make it testable.
 - The Identify blink (about 0.75 s) still delays relay commands. Low priority: fixing it means timing the LED toggles in the wait loop like a pulse, for a rare case.
 
-## README
-
-- Restructured with screenshots and product photos on 2026-10-20. The screenshots are the manual's English ones (`docs/manual/images/en/`, light and dark through `<picture>`), so `npm run manual:screenshots` keeps the README current. The product photos in `docs/images/hardware/` come from the docs site's repository (hardwario/website-hardwario-docs, `tower/hardware-modules/images/`), trimmed and set on light tiles as WebP. The license section does not mention the photos (the user, 2026-10-20).
-- Decided with the user on 2026-10-20, in progress:
-  - The manual's `alerts.webp` ends in an empty band and cuts the CO₂ row in half. Fix the shot in `scripts/manual-screenshots.mjs`, regenerate it, and put it back in the README's Alerts section.
-  - docs/cli.md still says the macOS CLI binary is not notarized. `sign-macos` notarizes it since v1.0.0 but cannot staple a bare binary: say it is notarized, keep `xattr` only for a first start offline.
-  - A scripted screenshot of the CLI dashboard (on `--simulate`, light and dark) for the README's Command line section.
-- Not wanted for now: photos of a real setup, the VOC-LP Tag or the NFC Tag, a tray menu screenshot.
-
 ## Deferred (the user decided to postpone)
+
+- More visuals for the README: photos of a real setup (a bridge with modules on both channels), of the VOC-LP Tag and the NFC Tag (the docs site has none), and a screenshot of the tray menu. Not wanted for now (the user, 2026-10-20).
 
 - Let the user name the channels (for example "Indoors" or "Outdoors") and show those names in the panels, legends, notifications and MCP output instead of the module names. Deferred on 2026-10-17.
 

@@ -40,7 +40,9 @@ Put the binary somewhere on your `PATH`.
   sudo usermod -aG plugdev $USER
   ```
 
-- **macOS:** the binary is not notarized yet. Clear the quarantine flag once:
+- **macOS:** the binary is signed by HARDWARIO and notarized by Apple. A bare
+  binary cannot carry its notarization ticket, so its first start checks with
+  Apple online; offline, clear the quarantine flag once:
   `xattr -d com.apple.quarantine tower-bridge-cli`.
 
 From source (Rust 1.99 or newer; on Linux also `libudev-dev`):

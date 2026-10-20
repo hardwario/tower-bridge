@@ -3,8 +3,9 @@
 // from the browser preview (preview.html, mocked backend), in every language and
 // in the light and dark theme. Needs Google Chrome or Chromium installed.
 //
-//   npm run manual:screenshots            all languages
-//   npm run manual:screenshots -- cs de   only some
+//   npm run manual:screenshots              all languages
+//   npm run manual:screenshots -- cs de     only some
+//   npm run manual:screenshots -- alerts    only some shots (in every language, or with cs de in those)
 //
 // CHROME_PATH=/path/to/chrome overrides the browser.
 
@@ -29,11 +30,13 @@ const SHOTS = [
   { name: "relay", tab: "overview", element: ".card.relay" },
   { name: "chart", tab: "overview", element: "article.metric" },
   { name: "data", tab: "data" },
+  // Tall enough for every limit: <main> scrolls, and what is below its fold would come out blank.
   {
     name: "alerts",
     tab: "alerts",
     element: "main .view > section",
     width: 900,
+    height: 1400,
   },
   // A GPS Module with a fix, its map loaded; tall so the card is in view.
   { name: "gps", tab: "overview", element: ".card.gps", query: "gps=fix&tags=0", height: 1500 },
@@ -56,6 +59,8 @@ async function waitForMap(page) {
 }
 
 const langs = process.argv.slice(2).filter((a) => LANGS.includes(a));
+const names = process.argv.slice(2).filter((a) => SHOTS.some((s) => s.name === a));
+const shots = names.length ? SHOTS.filter((s) => names.includes(s.name)) : SHOTS;
 
 const server = await createServer({
   root: ROOT,
@@ -82,7 +87,7 @@ try {
       const cdp = await context.newCDPSession(page);
       let query = null;
 
-      for (const shot of SHOTS) {
+      for (const shot of shots) {
         await page.setViewportSize({
           width: shot.width ?? VIEWPORT.width,
           height: shot.height ?? VIEWPORT.height,

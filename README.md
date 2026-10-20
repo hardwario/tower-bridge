@@ -123,6 +123,11 @@ A notification when a value leaves its range, with hysteresis so a value
 hovering at the limit does not flood you, a repeat interval, and an optional
 note when it is back to normal. Another one when the bridge is disconnected.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/manual/images/en/alerts.dark.webp">
+  <img src="docs/manual/images/en/alerts.webp" width="440" alt="Alert limits for temperature, humidity, illuminance, pressure and CO2">
+</picture>
+
 ### History and export
 
 Every reading is stored in SQLite (90 days by default) in the data folder shown
@@ -162,6 +167,11 @@ All optional and off by default:
 `tower-bridge-cli` shares the app's settings and history. It has a terminal
 dashboard, commands for scripts (text or JSON), and a service without a window
 for a Raspberry Pi or a server ([docs/cli.md](docs/cli.md)).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/cli-dashboard.dark.webp">
+  <img src="docs/images/cli-dashboard.webp" alt="The tower-bridge-cli terminal dashboard: values per I²C channel with sparklines, a temperature chart, the relay, GPS and NFC, and the log">
+</picture>
 
 ```sh
 tower-bridge-cli                         # the dashboard (in a terminal)
@@ -291,7 +301,8 @@ dashboard in a browser against a mocked backend.
 
 `npm run manual:screenshots` regenerates the screenshots of the user manual
 (also used in this README) from the browser preview, in every language and
-theme (needs Google Chrome).
+theme (needs Google Chrome). `npm run cli:screenshot` regenerates the one of the
+CLI dashboard on the simulated bridge (needs Python 3 and Google Chrome).
 
 Translations: the dashboard dictionaries are `src/lib/i18n/{en,cs,sk,de,pl}.ts`
 (English is the reference; the others are type-checked against it). Tray
