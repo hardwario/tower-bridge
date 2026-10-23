@@ -39,7 +39,7 @@ The Bridge Module has two I²C channels, and sensors can be on both, for example
 
 ### Menu bar and tray {#tray}
 
-The icon shows the current value of the measurement chosen in the settings. Its menu opens the dashboard, lists all readings and the connection status, switches **Open at Login** and MQTT on or off, and quits the app. Closing the dashboard window keeps the app running. When a quantity is measured on both channels, the menu shows both values, channel 0 first.
+The icon shows the current value of the measurement chosen in the settings. Its menu opens the dashboard, lists all readings and the connection status, switches **Open at Login** and MQTT on or off, and quits the app. Closing the dashboard window keeps the app running. When a quantity is measured on both channels, the menu shows both values, channel 0 first. When a newer version of TOWER Bridge is out, the menu starts with **Update Available**, which opens its download page ([Updates](#updates)).
 
 ## Dashboard {#dashboard}
 
@@ -138,6 +138,7 @@ In the diagram the value rises above the limit: the alert starts and you get a n
 - **General:** appearance (system, light, dark), language, date format, time format, decimal separator (a point or a comma; Automatic follows the language), temperature unit, the value shown next to the menu bar or tray icon, and open at login.
 - **Measurement:** the sea-level pressure for the altitude estimate, and the I²C channels to look for sensors on (Automatic uses both).
 - **Data:** how long readings are kept and where the data folder is.
+- **About:** the version, and whether a newer one is out ([Updates](#updates)).
 
 ### MQTT {#mqtt}
 
@@ -152,6 +153,20 @@ With **Allow relay control** switched on, the relay accepts `true` or `false` on
 ### API and MCP {#api}
 
 The optional local server offers a REST API, Prometheus metrics and an MCP server for AI assistants; it is off by default. Changes such as alert limits, switching the relay or writing the NFC Tag need **Allow changes**. Other computers must send the access token shown in the settings.
+
+### Updates {#updates}
+
+Once a day TOWER Bridge asks GitHub for the newest version; nothing else is sent. When a newer version is out, the menu bar or tray menu starts with **Update Available**, the Dashboard shows a banner, and a notification says so once per version. **Download** opens the version's page with its files and what changed. The app does not update itself.
+
+To install the new version, quit TOWER Bridge from its menu, then:
+
+- **macOS:** open the new DMG file and drag TOWER Bridge to Applications, replacing the old one.
+- **Windows:** delete the old EXE file and start the new one. In portable mode, put the new EXE next to the `data` folder.
+- **Linux:** delete the old AppImage, then make the new one executable and run it.
+
+Deleting the old file before the new one first starts lets **Open at Login** move over to it. Settings and history are kept.
+
+About, at the end of the settings, shows the version, the result of the last check and **Check now**. Switch off **Check for updates** to stop the daily check; **Check now** still works.
 
 ## Command line {#cli}
 

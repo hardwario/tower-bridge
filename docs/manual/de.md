@@ -39,7 +39,7 @@ Das Bridge Module hat zwei I²C-Kanäle, und auf beiden können Sensoren sitzen,
 
 ### Menüleiste und Infobereich {#tray}
 
-Das Symbol zeigt den aktuellen Wert der in den Einstellungen gewählten Messgröße. Sein Menü öffnet das Dashboard, listet alle Messwerte und den Verbindungsstatus auf, schaltet **Bei Anmeldung öffnen** und MQTT ein oder aus und beendet die App. Wenn Sie das Dashboard-Fenster schließen, läuft die App weiter. Wird eine Messgröße auf beiden Kanälen gemessen, zeigt das Menü beide Werte, Kanal 0 zuerst.
+Das Symbol zeigt den aktuellen Wert der in den Einstellungen gewählten Messgröße. Sein Menü öffnet das Dashboard, listet alle Messwerte und den Verbindungsstatus auf, schaltet **Bei Anmeldung öffnen** und MQTT ein oder aus und beendet die App. Wenn Sie das Dashboard-Fenster schließen, läuft die App weiter. Wird eine Messgröße auf beiden Kanälen gemessen, zeigt das Menü beide Werte, Kanal 0 zuerst. Ist eine neuere Version von TOWER Bridge erschienen, beginnt das Menü mit **Update verfügbar**, das ihre Download-Seite öffnet ([Updates](#updates)).
 
 ## Dashboard {#dashboard}
 
@@ -138,6 +138,7 @@ Im Diagramm steigt der Wert über die Grenze: Der Alarm beginnt und Sie erhalten
 - **Allgemein:** Erscheinungsbild (System, hell, dunkel), Sprache, Datumsformat, Zeitformat, Dezimaltrennzeichen (Punkt oder Komma; „Automatisch“ richtet sich nach der Sprache), Temperatureinheit, der Wert neben dem Symbol in der Menüleiste oder im Infobereich und das Öffnen bei Anmeldung.
 - **Messung:** der Luftdruck auf Meereshöhe für die Höhenschätzung und die I²C-Kanäle, auf denen nach Sensoren gesucht wird („Automatisch“ nutzt beide).
 - **Daten:** wie lange Messwerte aufbewahrt werden und wo der Datenordner liegt.
+- **Info:** die Version und ob eine neuere erschienen ist ([Updates](#updates)).
 
 ### MQTT {#mqtt}
 
@@ -152,6 +153,20 @@ Mit eingeschaltetem **Relaissteuerung erlauben** nimmt das Relais `true` oder `f
 ### API und MCP {#api}
 
 Der optionale lokale Server bietet eine REST-API, Prometheus-Metriken und einen MCP-Server für KI-Assistenten; standardmäßig ist er aus. Änderungen wie Alarmgrenzen, das Schalten des Relais oder das Beschreiben des NFC Tags erfordern **Änderungen erlauben**. Andere Computer müssen das in den Einstellungen angezeigte Zugriffstoken senden.
+
+### Updates {#updates}
+
+Einmal täglich fragt TOWER Bridge bei GitHub nach der neuesten Version; sonst wird nichts gesendet. Ist eine neuere Version erschienen, beginnt das Menü in der Menüleiste oder im Infobereich mit **Update verfügbar**, das Dashboard zeigt einen Hinweis, und eine Benachrichtigung meldet es einmal pro Version. **Herunterladen** öffnet die Seite der Version mit ihren Dateien und Änderungen. Die App aktualisiert sich nicht selbst.
+
+Um die neue Version zu installieren, beenden Sie TOWER Bridge über sein Menü und dann:
+
+- **macOS:** Öffnen Sie die neue DMG-Datei und ziehen Sie TOWER Bridge in den Ordner Programme, wo es die alte Version ersetzt.
+- **Windows:** Löschen Sie die alte EXE-Datei und starten Sie die neue. Im portablen Modus legen Sie die neue EXE neben den Ordner `data`.
+- **Linux:** Löschen Sie die alte AppImage-Datei, machen Sie die neue ausführbar und starten Sie sie.
+
+Wenn Sie die alte Datei vor dem ersten Start der neuen löschen, geht **Bei Anmeldung öffnen** auf die neue über. Einstellungen und Verlauf bleiben erhalten.
+
+Info am Ende der Einstellungen zeigt die Version, das Ergebnis der letzten Prüfung und **Jetzt suchen**. Schalten Sie **Nach Updates suchen** aus, um die tägliche Prüfung zu beenden; **Jetzt suchen** funktioniert weiterhin.
 
 ## Kommandozeile {#cli}
 

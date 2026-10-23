@@ -8,6 +8,7 @@
 //                   &nfc=url|empty|unformatted (an NFC Tag on channel 0)
 //                   &co2=1 (a CO2 Module and a VOC-LP Tag on channel 0)  &gps=fix|nofix (a GPS Module)
 //                   &notify=blocked (macOS has the app's notifications turned off: "Send test" says so)
+//                   &update=available|checking|failed|unchecked (the update check; up to date by default)
 
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
@@ -28,6 +29,7 @@ import type {
   Settings,
   Snapshot,
   TimeFormat,
+  UpdateState,
 } from "./lib/types";
 
 const params = new URLSearchParams(location.search);
@@ -224,6 +226,7 @@ const settings: Settings = {
     voc: { enabled: false, min: null, max: 500, hysteresis: 25, cooldown_ms: 900_000, notify_recovery: true },
   },
   notify_device_lost: true,
+  check_for_updates: true,
   mqtt: {
     enabled: mqttParam !== "off",
     host: mqttParam === "no_host" ? "" : "homeassistant.local",
@@ -256,6 +259,28 @@ const settings: Settings = {
 
 const now = Date.now();
 const latest = device.status === "ready" ? CHANNELS.map((c) => reading(now, c)) : [];
+// ?update=...: what the update check found, two hours ago.
+let update: UpdateState = (() => {
+  const last_check = now - 7_200_000;
+  switch (params.get("update")) {
+    case "available":
+      return {
+        checking: false,
+        available: { version: "1.0.2", url: "https://github.com/hardwario/tower-bridge/releases/tag/v1.0.2" },
+        last_check,
+        error: null,
+      };
+    case "checking":
+      return { checking: true, available: null, last_check, error: null };
+    case "failed":
+      return { checking: false, available: null, last_check, error: "http status: 403" };
+    case "unchecked":
+      return { checking: false, available: null, last_check: null, error: null };
+    default:
+      return { checking: false, available: null, last_check, error: null };
+  }
+})();
+
 // ?relay=true|false|unknown shows a Relay Module.
 const relayParam = params.get("relay");
 let relay: RelayInfo | null =
@@ -337,6 +362,7 @@ const snapshot: Snapshot = {
           },
         ]
       : [],
+  update,
   app: { version: "1.0.1", data_dir: "~/Library/Application Support/com.hardwario.tower-bridge", portable: false, simulated: false, os: "macos", system_language: "en", exe_path: "/Applications/TOWER Bridge.app/Contents/MacOS/tower-bridge" },
 };
 
@@ -386,6 +412,16 @@ mockIPC(
         return a.enabled;
       case "open_link":
         console.info("open link", a.target);
+        return null;
+      case "check_for_updates":
+        void emit("update-state", (update = { ...update, checking: true }));
+        setTimeout(
+          () => void emit("update-state", (update = { ...update, checking: false, last_check: Date.now() })),
+          800,
+        );
+        return null;
+      case "open_release":
+        console.info("open release", update.available?.url);
         return null;
       case "send_test_notification":
         return params.get("notify") === "blocked" ? "blocked" : "sent";

@@ -3,7 +3,7 @@
 
 use std::sync::OnceLock;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tower_bridge_core::alerts::{ActiveAlert, AlertEvent, AlertKind, Bound};
 use tower_bridge_core::gps::GpsInfo;
 use tower_bridge_core::model::{DeviceState, Reading, source_label};
@@ -127,6 +127,11 @@ impl Observer for AppObserver {
     fn settings_changed(&self, _: &ServiceState, old: &Settings, new: &Settings) {
         if old.theme != new.theme {
             crate::window::apply_theme(&self.app, new.theme);
+        }
+        if old.check_for_updates != new.check_for_updates
+            && let Some(updates) = self.app.try_state::<crate::update::Updates>()
+        {
+            updates.set_enabled(&self.app, new.check_for_updates);
         }
         let _ = self.app.emit("settings-changed", new);
     }

@@ -86,6 +86,8 @@ struct Shown {
     metrics: Vec<Metric>,
     /// The status line is in the menu.
     status: bool,
+    /// The newer version in the update item, while that is in the menu.
+    update: Option<String>,
 }
 
 struct Inner {
@@ -95,6 +97,8 @@ struct Inner {
     /// are in the menu.
     metrics: Vec<(Metric, MenuItem<tauri::Wry>)>,
     status: MenuItem<tauri::Wry>,
+    /// "Update Available: 1.0.2…", first in the menu while a newer version is known.
+    update: MenuItem<tauri::Wry>,
     open: MenuItem<tauri::Wry>,
     open_at_login: CheckMenuItem<tauri::Wry>,
     mqtt: CheckMenuItem<tauri::Wry>,
@@ -121,6 +125,7 @@ impl TrayController {
             .map(|&m| Ok((m, MenuItem::with_id(app, m.as_str(), "", false, none)?)))
             .collect::<tauri::Result<Vec<_>>>()?;
         let status = MenuItem::with_id(app, "status", "Searching for TOWER Bridge…", false, none)?;
+        let update = MenuItem::with_id(app, "update", "", true, none)?;
         let open = MenuItem::with_id(app, "open", "Open Dashboard…", true, none)?;
         let open_at_login =
             CheckMenuItem::with_id(app, "open_at_login", "Open at Login", true, false, none)?;
@@ -171,6 +176,7 @@ impl TrayController {
                 menu,
                 metrics,
                 status,
+                update,
                 open,
                 open_at_login,
                 mqtt,
@@ -179,6 +185,28 @@ impl TrayController {
                 shown: Mutex::new(Shown::default()),
             }),
         })
+    }
+
+    /// Show the update item for a newer version, or remove it (`None`).
+    pub fn set_update(&self, version: Option<String>, lang: Lang) {
+        let i = &self.inner;
+        let mut shown = i.shown.lock();
+        if shown.update == version {
+            return;
+        }
+        if let Some(v) = &version {
+            let _ = i
+                .update
+                .set_text(fill(lang.tr().update_available, &[("version", v)]));
+            if shown.update.is_none()
+                && let Err(e) = i.menu.insert(&i.update, 0)
+            {
+                warn!("tray menu update failed: {e}");
+            }
+        } else {
+            let _ = i.menu.remove(&i.update);
+        }
+        shown.update = version;
     }
 
     pub fn set_open_at_login(&self, enabled: bool) {
@@ -245,7 +273,7 @@ impl TrayController {
         };
 
         let (icon_key, icon) = self.icon_for(ready, tray_value, settings, lang);
-        let next = Shown {
+        let mut next = Shown {
             icon: icon_key,
             title: if cfg!(windows) { None } else { title },
             tooltip,
@@ -253,8 +281,10 @@ impl TrayController {
             mqtt: Some(mqtt_item.clone()),
             metrics: shown_metrics,
             status: status.is_some(),
+            update: None,
         };
         let mut shown = i.shown.lock();
+        next.update = shown.update.clone();
         if shown.metrics != next.metrics || shown.status != next.status {
             for (metric, item) in &i.metrics {
                 if shown.metrics.contains(metric) {
@@ -264,8 +294,9 @@ impl TrayController {
             if shown.status {
                 let _ = i.menu.remove(&i.status);
             }
-            // After "Open Dashboard" and its separator: the readings, then the status.
-            let mut at = 2;
+            // After "Open Dashboard" and its separator (and the update item
+            // before them): the readings, then the status.
+            let mut at = 2 + usize::from(shown.update.is_some());
             for (_, item) in i.metrics.iter().filter(|(m, _)| next.metrics.contains(m)) {
                 if let Err(e) = i.menu.insert(item, at) {
                     warn!("tray menu update failed: {e}");
@@ -282,6 +313,11 @@ impl TrayController {
             let _ = i.open.set_text(tr.open_dashboard);
             let _ = i.open_at_login.set_text(tr.open_at_login);
             let _ = i.quit.set_text(tr.quit);
+            if let Some(v) = &shown.update {
+                let _ = i
+                    .update
+                    .set_text(fill(tr.update_available, &[("version", v)]));
+            }
         }
         if shown.mqtt != next.mqtt {
             let _ = i.mqtt.set_checked(mqtt_item.0);
@@ -471,6 +507,11 @@ fn toggle_mqtt(app: &AppHandle) {
 
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
+        "update" => {
+            if let Err(e) = crate::update::open_release(app) {
+                warn!("cannot open the release page: {e}");
+            }
+        }
         "open" => crate::window::show_dashboard(app),
         "open_at_login" => crate::autostart::toggle(app),
         "mqtt" => toggle_mqtt(app),

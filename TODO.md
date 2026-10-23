@@ -4,6 +4,12 @@ Work in progress and open items, kept current so anyone (person or agent) can pi
 
 ## In progress
 
+**Update notices** (asked for on 2026-10-23). In-app installs were weighed and dropped (see AGENTS.md); the user chose notices. Decided with the user: the daily check is on by default (`check_for_updates`); a newer version shows as the tray item "Update Available: 1.0.2…", a Dashboard banner and one notification per version; Settings, About shows the last check, **Check now** and the switch.
+
+Done and released as 1.1.0 (tagged 2026-10-23; the draft waits for a check and publishing, then the AVG and Avast submissions, release.md steps 4 and 5): `src-tauri/src/update.rs` (GitHub API through ureq with the app's rustls), the tray item, the banner (closed per version), About, texts in five languages, the manual's Updates chapter in five languages, README, release.md, CHANGELOG. Checked: unit tests, the real request to GitHub (`cargo test -p tower-bridge -- --ignored asks_github`), a simulated app against a local file (found 1.0.2 after a minute, `update-notified.txt` written; a 404 logged once, no busy loop), the UI smoke test in Chrome and WebKit. Not seen yet:
+
+- The tray item and the notification on a real desktop (macOS needs a signed bundle for notifications; Windows; Linux), and **Check now** in the real app. The first real notice comes with the first release after 1.1.0.
+
 **tower-bridge-cli as the headless sibling of the desktop app** (asked for on 2026-10-18). Decided with the user:
 
 - Scope: everyday commands plus `run`, a service without a window (history, alerts, MQTT, REST, MCP), and a terminal dashboard (ratatui), the default of a bare `tower-bridge-cli` in a terminal.

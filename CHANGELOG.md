@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0 (2026-10-23)
+
+- Update notices: once a day the app asks GitHub for the newest release
+  (nothing else is sent). When a newer version is out, the tray menu starts
+  with **Update Available**, the Dashboard shows a banner with **Download**,
+  and a notification says so once per version. The app does not install
+  anything itself; the manual's Updates chapter says how to put the new
+  version in place. *Settings → About* shows the result of the last check,
+  has **Check now**, and switches the daily check off (**Check for updates**,
+  on by default).
+
 ## 1.0.1 (2026-10-19)
 
 - macOS: notifications work again. They go through the system's current

@@ -24,6 +24,8 @@ export const pl: Messages = {
     aboveLimit: "Powyżej limitu",
     belowLimit: "Poniżej limitu",
     backToNormal: "Powrót do normy",
+    download: "Pobierz",
+    close: "Zamknij",
   },
   metrics: {
     temperature: "Temperatura",
@@ -79,6 +81,8 @@ export const pl: Messages = {
     noModuleTitle: "Nie znaleziono czujników",
     noModuleBody:
       "Bridge Module jest podłączony, ale nie odpowiada ani Climate Module, ani żaden tag czujnika. Sprawdź, czy są dobrze wsunięte.",
+    updateTitle: "Dostępna aktualizacja: {version}",
+    updateBody: "Nowa wersja TOWER Bridge jest gotowa do pobrania. Ustawienia i historia zostaną zachowane.",
   },
   overview: {
     waiting: "Oczekiwanie na pierwszy pomiar",
@@ -304,6 +308,19 @@ export const pl: Messages = {
     keepHistory: "Przechowuj historię przez",
     dataFolder: "Folder danych",
     portable: "Wersja przenośna",
+    updates: {
+      check: "Sprawdzaj aktualizacje",
+      checkHint: "Raz dziennie pyta GitHub o najnowszą wersję. Nic więcej nie jest wysyłane.",
+      checkNow: "Sprawdź teraz",
+      checking: "Sprawdzanie aktualizacji…",
+      available: "Dostępna jest wersja {version}.",
+      availableHint:
+        "Pobierz ją, zakończ TOWER Bridge i zainstaluj ją w miejsce tej wersji; ustawienia i historia zostaną zachowane.",
+      upToDate: "TOWER Bridge jest aktualny.",
+      notChecked: "Aktualizacje nie zostały jeszcze sprawdzone.",
+      failed: "Nie udało się sprawdzić aktualizacji.",
+      checked: "Ostatnio sprawdzono {time}",
+    },
     about: "O aplikacji",
     version: "wersja {version}",
     legal:

@@ -9,6 +9,7 @@ mod notify;
 mod observer;
 mod state;
 mod tray;
+mod update;
 mod window;
 
 use std::sync::Arc;
@@ -73,6 +74,8 @@ pub fn run() {
             commands::open_data_folder,
             commands::reveal_file,
             commands::open_link,
+            commands::check_for_updates,
+            commands::open_release,
         ])
         .setup(move |app| {
             if let Err(e) = setup(app, simulated, autostarted) {
@@ -164,6 +167,8 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
         service,
         tray: tray.clone(),
     });
+
+    app.manage(update::Updates::start(&handle, paths.data_dir.clone()));
 
     autostart::refresh(&handle);
     tray.set_open_at_login(autostart::is_enabled(&handle));

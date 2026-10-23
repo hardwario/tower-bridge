@@ -51,6 +51,9 @@ const LABELS = [
   "overview.interval",
   "nfc.write",
   "manual.notices",
+  "settings.updates.check",
+  "settings.updates.checkNow",
+  "common.download",
 ];
 
 describe("user manual", () => {

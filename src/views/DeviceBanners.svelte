@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { api } from "../lib/api";
   import Icon from "../lib/components/Icon.svelte";
   import { deviceActions } from "../lib/device-actions.svelte";
   import Banner from "../lib/components/Banner.svelte";
@@ -13,11 +14,50 @@
   /** The udev rule of packaging/linux, written in place: the AppImage cannot ship the file. */
   const rule = (subsystem: string) =>
     `'${subsystem}, ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6030", MODE="0660", TAG+="uaccess"'`;
+  /** The newer version whose banner was closed; it comes back for the next one. */
+  const DISMISSED_KEY = "tower-bridge.update.dismissed";
+  let dismissed = $state(readDismissed());
+  function readDismissed(): string | null {
+    try {
+      return localStorage.getItem(DISMISSED_KEY);
+    } catch {
+      return null;
+    }
+  }
+  function dismiss(version: string) {
+    dismissed = version;
+    try {
+      localStorage.setItem(DISMISSED_KEY, version);
+    } catch {
+      // Closed for this session only.
+    }
+  }
+  const update = $derived(live.update.available);
   const udev =
     `printf '%s\\n' ${rule('KERNEL=="hidraw*"')} ${rule('SUBSYSTEM=="i2c-dev"')}` +
     " | sudo tee /etc/udev/rules.d/70-hardwario-tower-bridge.rules > /dev/null" +
     " && sudo udevadm control --reload && sudo udevadm trigger";
 </script>
+
+{#if update && update.version !== dismissed}
+  <Banner kind="info" title={fill(b.updateTitle, { version: update.version })}>
+    {b.updateBody}
+    {#snippet actions()}
+      <button class="btn primary" onclick={() => api.openRelease()}>
+        <Icon name="download" size={14} />
+        {t().common.download}
+      </button>
+      <button
+        class="btn ghost close"
+        aria-label={t().common.close}
+        title={t().common.close}
+        onclick={() => dismiss(update.version)}
+      >
+        <Icon name="close" size={15} />
+      </button>
+    {/snippet}
+  </Banner>
+{/if}
 
 {#if live.app?.simulated}
   <Banner kind="info" title={b.simulationTitle}>{b.simulationBody}</Banner>
@@ -63,3 +103,11 @@
     {/snippet}
   </Banner>
 {/if}
+
+<style>
+  .close {
+    width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+</style>

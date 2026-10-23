@@ -186,6 +186,7 @@ tower-bridge-cli run                     # the service: history, alerts, MQTT, A
 - English, Čeština, Slovenčina, Deutsch and Polski (follows the system language
   by default), including the tray menu and notifications
 - One file per platform, no installer on Windows
+- A notice in the tray and on the Dashboard when a newer version is out
 - The user manual is built in: open *Manual* in the sidebar
 
 ## Download
@@ -263,6 +264,17 @@ GNOME tray extension.
   them runs per data folder; other commands then go through its API server.
 - The manual's source, in all five languages, is in [docs/manual](docs/manual/en.md).
 
+### Updates
+
+Once a day the app asks GitHub for the newest release (and sends nothing
+else). When a newer one is out, the tray menu offers it, the Dashboard shows a
+banner and a notification says so once. The app does not update itself:
+download the new version, quit TOWER Bridge and put the new version in place of
+the old one. Delete the old exe or AppImage before the first start of the new
+one, so Open at Login moves over to it; a portable exe stays next to its `data`
+folder. Settings and history are kept. *Settings → About* shows the last check
+and turns the daily check off.
+
 ## Building from source
 
 Requirements: Rust 1.99+, Node.js 22+, and the
@@ -295,6 +307,7 @@ dashboard in a browser against a mocked backend.
 | `TOWER_BRIDGE_SEED_DAYS=14` | With simulation, fill an empty history with generated data |
 | `TOWER_BRIDGE_DATA_DIR=/path` | Override the data folder (also skips the single-instance check) |
 | `TOWER_BRIDGE_LOG=debug` | Log level (logs also go to the data folder) |
+| `TOWER_BRIDGE_UPDATE_URL=http://…` | Ask this address instead of GitHub for the newest release (a JSON file with `tag_name`), to try the update notice |
 
 `npm run manual:screenshots` regenerates the screenshots of the user manual
 (also used in this README) from the browser preview, in every language and

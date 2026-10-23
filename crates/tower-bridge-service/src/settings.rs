@@ -365,6 +365,8 @@ pub struct Settings {
     pub backend: BackendPref,
     pub alerts: AlertRules,
     pub notify_device_lost: bool,
+    /// Ask GitHub once a day whether a newer version is out (the app only).
+    pub check_for_updates: bool,
     pub mqtt: MqttSettings,
     pub api: ApiSettings,
     pub relay: RelaySettings,
@@ -389,6 +391,7 @@ impl Default for Settings {
             backend: BackendPref::Auto,
             alerts: AlertRules::default(),
             notify_device_lost: true,
+            check_for_updates: true,
             mqtt: MqttSettings::default(),
             api: ApiSettings::default(),
             relay: RelaySettings::default(),

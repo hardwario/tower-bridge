@@ -16,6 +16,7 @@ import type {
   RescanOutcome,
   Settings,
   Snapshot,
+  UpdateState,
 } from "./types";
 
 export const api = {
@@ -45,6 +46,10 @@ export const api = {
     invoke<RelayInfo>("pulse_relay", { state: state ?? null, duration_ms: durationMs ?? null }),
   openDataFolder: () => invoke<void>("open_data_folder"),
   revealFile: (path: string) => invoke<void>("reveal_file", { path }),
+  /** Ask GitHub for a newer version now; the answer comes as an `update-state` event. */
+  checkForUpdates: () => invoke<void>("check_for_updates"),
+  /** Open the release page of the newer version in the system browser. */
+  openRelease: () => invoke<void>("open_release"),
   /** Open docs / store / academy in the system browser. */
   openLink: (target: "docs" | "store" | "academy" | "notification_settings") => invoke<void>("open_link", { target }),
 };
@@ -61,6 +66,7 @@ export interface Events {
   "alerts-active": ActiveAlert[];
   "mqtt-state": MqttState;
   "api-state": ApiState;
+  "update-state": UpdateState;
   "export-progress": { done: number; total: number };
 }
 

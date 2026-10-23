@@ -15,6 +15,7 @@ import type {
   RelayInfo,
   SensorSource,
   Settings,
+  UpdateState,
 } from "./types";
 
 /** App state mirrored from the backend and kept current by events. */
@@ -32,6 +33,7 @@ class Live {
   api = $state<ApiState>({ status: "disabled" });
   activeAlerts = $state<ActiveAlert[]>([]);
   app = $state<AppInfo | null>(null);
+  update = $state<UpdateState>({ checking: false, available: null, last_check: null, error: null });
   /** Why the last settings save failed, until the next one works. */
   saveError = $state<string | null>(null);
   /** Saves sent and not answered yet; their events and replies are older
@@ -87,6 +89,10 @@ class Live {
         fresh.add("api");
         this.api = a;
       }),
+      on("update-state", (u) => {
+        fresh.add("update");
+        this.update = u;
+      }),
     ]);
     const s = await api.snapshot();
     if (!fresh.has("device")) this.setDevice(s.device);
@@ -99,6 +105,7 @@ class Live {
     if (!fresh.has("mqtt")) this.mqtt = s.mqtt;
     if (!fresh.has("api")) this.api = s.api;
     if (!fresh.has("alerts")) this.activeAlerts = s.active_alerts;
+    if (!fresh.has("update") && s.update) this.update = s.update;
     for (const r of s.latest ?? []) this.pushReading(r);
     this.ready = true;
   }

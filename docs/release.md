@@ -11,7 +11,12 @@
    platform, signs the Windows binaries, signs and notarizes the macOS ones,
    and creates a **draft** release with all files and their `.sha256`
    checksums.
-4. Check the draft on GitHub and publish it.
+4. Check the draft on GitHub and publish it. Publishing is what users see:
+   within a day every running TOWER Bridge from 1.1.0 on asks GitHub for the
+   latest release, finds the new version and offers it (tray menu, Dashboard
+   banner, one notification). Drafts and pre-releases are never offered, so
+   keep a release that must not reach users a draft or mark it as a
+   pre-release, and leave "Set as the latest release" checked otherwise.
 5. Submit the two Windows exes (the portable app and `tower-bridge-cli.exe`
    from the zip) to AVG and Avast as false positives, at
    https://www.avg.com/en-ww/report-false-positive and

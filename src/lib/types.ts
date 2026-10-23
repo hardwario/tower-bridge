@@ -146,6 +146,8 @@ export interface Settings {
   backend: "auto" | "hid" | "i2c_dev";
   alerts: AlertRules;
   notify_device_lost: boolean;
+  /** Ask GitHub once a day whether a newer version is out. */
+  check_for_updates: boolean;
   mqtt: MqttSettings;
   api: ApiSettings;
   relay: RelaySettings;
@@ -265,6 +267,18 @@ export interface NfcInfo {
   formatted: boolean;
 }
 
+/** What the app knows about newer versions (Settings, About and the Dashboard banner). */
+export interface UpdateState {
+  /** A check is under way. */
+  checking: boolean;
+  /** The newest release, when it is newer than this version. */
+  available: { version: string; url: string } | null;
+  /** When the last check ended (Unix ms). */
+  last_check: number | null;
+  /** Why the last check failed; a release found before stays known. */
+  error: string | null;
+}
+
 export interface Snapshot {
   device: DeviceState;
   relay: RelayInfo | null;
@@ -278,6 +292,7 @@ export interface Snapshot {
   api: ApiState;
   active_alerts: ActiveAlert[];
   app: AppInfo;
+  update: UpdateState;
 }
 
 export type RescanOutcome = { status: "found"; sources: SensorSource[] } | { status: "no_module" };

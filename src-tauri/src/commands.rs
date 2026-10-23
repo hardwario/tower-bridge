@@ -15,6 +15,7 @@ use tower_bridge_core::store::{self, AlertLogEntry, CsvOptions, History, History
 
 use crate::settings::{Settings, TemperatureUnit};
 use crate::state::{ApiState, AppState, MqttState};
+use crate::update::{UpdateState, Updates};
 
 #[derive(Debug, Serialize)]
 pub struct CmdError {
@@ -77,6 +78,7 @@ pub struct Snapshot {
     api: ApiState,
     active_alerts: Vec<ActiveAlert>,
     app: AppInfo,
+    update: UpdateState,
 }
 
 #[tauri::command]
@@ -105,6 +107,10 @@ pub fn get_snapshot(app: AppHandle, state: State<'_, AppState>) -> Snapshot {
                     .map(|p| p.display().to_string())
             }),
         },
+        update: app
+            .try_state::<Updates>()
+            .map(|u| u.state())
+            .unwrap_or_default(),
     }
 }
 
@@ -409,6 +415,18 @@ pub const LINKS: &[(&str, &str)] = &[
         "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.hardwario.tower-bridge",
     ),
 ];
+
+/// Ask GitHub for a newer version now; the answer comes as `update-state`.
+#[tauri::command]
+pub fn check_for_updates(updates: State<'_, Updates>) {
+    updates.check_now();
+}
+
+/// Open the release page of the newer version found.
+#[tauri::command]
+pub fn open_release(app: AppHandle) -> CmdResult<()> {
+    crate::update::open_release(&app).map_err(CmdError::from)
+}
 
 /// Open one of [`LINKS`] in the system browser.
 #[tauri::command]

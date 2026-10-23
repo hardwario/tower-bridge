@@ -39,7 +39,7 @@ Bridge Module má dva kanály I²C a senzory mohou být na obou, například Cli
 
 ### Řádek nabídek a oznamovací oblast {#tray}
 
-Ikona ukazuje aktuální hodnotu veličiny zvolené v nastavení. Její nabídka otevírá nástěnku, vypisuje všechny hodnoty a stav připojení, zapíná a vypíná **Spouštět po přihlášení** a MQTT a ukončuje aplikaci. Zavřením okna nástěnky aplikace běží dál. Když se veličina měří na obou kanálech, nabídka ukazuje obě hodnoty, kanál 0 jako první.
+Ikona ukazuje aktuální hodnotu veličiny zvolené v nastavení. Její nabídka otevírá nástěnku, vypisuje všechny hodnoty a stav připojení, zapíná a vypíná **Spouštět po přihlášení** a MQTT a ukončuje aplikaci. Zavřením okna nástěnky aplikace běží dál. Když se veličina měří na obou kanálech, nabídka ukazuje obě hodnoty, kanál 0 jako první. Když vyjde novější verze TOWER Bridge, nabídka začíná položkou **Dostupná aktualizace**, která otevře její stránku ke stažení ([Aktualizace](#updates)).
 
 ## Nástěnka {#dashboard}
 
@@ -138,6 +138,7 @@ Tlačítko **Odeslat** u položky Zkušební oznámení ověří, že oznámení
 - **Obecné:** vzhled (podle systému, světlý, tmavý), jazyk, formát data, formát času, desetinný oddělovač (tečka nebo čárka; volba „Automaticky“ se řídí jazykem), jednotka teploty, hodnota vedle ikony v řádku nabídek nebo oznamovací oblasti a spouštění po přihlášení.
 - **Měření:** tlak na hladině moře pro odhad nadmořské výšky a kanály I²C, na kterých se hledají senzory (volba „Automaticky“ používá oba).
 - **Data:** jak dlouho se hodnoty uchovávají a kde je složka s daty.
+- **O aplikaci:** verze a zda vyšla novější ([Aktualizace](#updates)).
 
 ### MQTT {#mqtt}
 
@@ -152,6 +153,20 @@ Se zapnutým **Povolit ovládání relé** přijímá relé `true` nebo `false` 
 ### API a MCP {#api}
 
 Volitelný místní server nabízí REST API, metriky pro Prometheus a server MCP pro AI asistenty; ve výchozím stavu je vypnutý. Změny, jako jsou limity upozornění, přepínání relé nebo zápis do NFC Tagu, vyžadují **Povolit změny**. Jiné počítače musí posílat přístupový token uvedený v nastavení.
+
+### Aktualizace {#updates}
+
+Jednou denně se TOWER Bridge zeptá GitHubu na nejnovější verzi; nic dalšího se neodesílá. Když vyjde novější verze, nabídka v řádku nabídek nebo v oznamovací oblasti začíná položkou **Dostupná aktualizace**, nástěnka ukáže pruh s oznámením a jednou přijde upozornění. **Stáhnout** otevře stránku verze se soubory a přehledem změn. Aplikace se sama neaktualizuje.
+
+Novou verzi nainstalujete tak, že TOWER Bridge ukončíte z jeho nabídky a potom:
+
+- **macOS:** otevřete nový soubor DMG a přetáhněte TOWER Bridge do složky Aplikace, kde nahradí starou verzi.
+- **Windows:** smažte starý soubor EXE a spusťte nový. V přenosném režimu dejte nový EXE vedle složky `data`.
+- **Linux:** smažte starý soubor AppImage, novému nastavte právo ke spuštění a spusťte ho.
+
+Když starý soubor smažete před prvním spuštěním nového, přejde na nový i **Spouštět po přihlášení**. Nastavení a historie zůstanou zachovány.
+
+Sekce O aplikaci na konci nastavení ukazuje verzi, výsledek poslední kontroly a tlačítko **Zkontrolovat nyní**. Denní kontrolu zastavíte vypnutím **Kontrolovat aktualizace**; **Zkontrolovat nyní** funguje i potom.
 
 ## Příkazová řádka {#cli}
 

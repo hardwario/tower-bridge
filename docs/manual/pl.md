@@ -39,7 +39,7 @@ Bridge Module ma dwa kanały I²C, a czujniki mogą być na obu, na przykład Cl
 
 ### Pasek menu i zasobnik {#tray}
 
-Ikona pokazuje bieżącą wartość wielkości wybranej w ustawieniach. Jej menu otwiera pulpit, wyświetla wszystkie odczyty i stan połączenia, włącza i wyłącza **Uruchamiaj przy logowaniu** oraz MQTT i zamyka aplikację. Po zamknięciu okna pulpitu aplikacja działa dalej. Gdy wielkość jest mierzona na obu kanałach, menu pokazuje obie wartości, najpierw kanał 0.
+Ikona pokazuje bieżącą wartość wielkości wybranej w ustawieniach. Jej menu otwiera pulpit, wyświetla wszystkie odczyty i stan połączenia, włącza i wyłącza **Uruchamiaj przy logowaniu** oraz MQTT i zamyka aplikację. Po zamknięciu okna pulpitu aplikacja działa dalej. Gdy wielkość jest mierzona na obu kanałach, menu pokazuje obie wartości, najpierw kanał 0. Gdy ukaże się nowsza wersja TOWER Bridge, menu zaczyna się od pozycji **Dostępna aktualizacja**, która otwiera jej stronę pobierania ([Aktualizacje](#updates)).
 
 ## Pulpit {#dashboard}
 
@@ -138,6 +138,7 @@ Przycisk **Wyślij** przy pozycji Powiadomienie testowe sprawdza, czy powiadomie
 - **Ogólne:** wygląd (systemowy, jasny, ciemny), język, format daty, format czasu, separator dziesiętny (kropka lub przecinek; opcja „Automatycznie” zależy od języka), jednostka temperatury, wartość obok ikony na pasku menu lub w zasobniku oraz uruchamianie przy logowaniu.
 - **Pomiar:** ciśnienie na poziomie morza do szacowania wysokości oraz kanały I²C, na których szukane są czujniki (opcja „Automatycznie” używa obu).
 - **Dane:** jak długo przechowywane są odczyty i gdzie jest folder danych.
+- **O aplikacji:** wersja i informacja, czy ukazała się nowsza ([Aktualizacje](#updates)).
 
 ### MQTT {#mqtt}
 
@@ -152,6 +153,20 @@ Po włączeniu **Zezwalaj na sterowanie przekaźnikiem** przekaźnik przyjmuje `
 ### API i MCP {#api}
 
 Opcjonalny lokalny serwer udostępnia REST API, metryki Prometheus i serwer MCP dla asystentów AI; domyślnie jest wyłączony. Zmiany, takie jak limity alarmów, przełączanie przekaźnika lub zapis NFC Tagu, wymagają **Zezwalaj na zmiany**. Inne komputery muszą wysyłać token dostępu pokazany w ustawieniach.
+
+### Aktualizacje {#updates}
+
+Raz dziennie TOWER Bridge pyta GitHub o najnowszą wersję; nic więcej nie jest wysyłane. Gdy ukaże się nowsza wersja, menu na pasku menu lub w zasobniku zaczyna się od pozycji **Dostępna aktualizacja**, pulpit pokazuje baner, a powiadomienie informuje o tym raz dla każdej wersji. **Pobierz** otwiera stronę wersji z plikami i listą zmian. Aplikacja nie aktualizuje się sama.
+
+Aby zainstalować nową wersję, zakończ TOWER Bridge z jego menu, a potem:
+
+- **macOS:** otwórz nowy plik DMG i przeciągnij TOWER Bridge do folderu Aplikacje, zastępując starą wersję.
+- **Windows:** usuń stary plik EXE i uruchom nowy. W trybie przenośnym umieść nowy EXE obok folderu `data`.
+- **Linux:** usuń stary plik AppImage, nadaj nowemu prawo do uruchamiania i uruchom go.
+
+Jeśli usuniesz stary plik przed pierwszym uruchomieniem nowego, **Uruchamiaj przy logowaniu** przejdzie na nowy. Ustawienia i historia zostaną zachowane.
+
+Sekcja O aplikacji na końcu ustawień pokazuje wersję, wynik ostatniego sprawdzenia i przycisk **Sprawdź teraz**. Wyłącz **Sprawdzaj aktualizacje**, aby zatrzymać codzienne sprawdzanie; **Sprawdź teraz** nadal działa.
 
 ## Wiersz poleceń {#cli}
 

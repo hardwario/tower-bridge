@@ -2828,7 +2828,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 
 </details>
 
-## Rust crates (556)
+## Rust crates (559)
 
 - adler2 2.0.1: 0BSD OR MIT OR Apache-2.0, used under MIT, https://github.com/oyvindln/adler2
 - aho-corasick 1.1.5: Unlicense OR MIT, used under MIT, https://github.com/BurntSushi/aho-corasick
@@ -3317,8 +3317,11 @@ Repository: https://github.com/sveltejs/zimmerframe
 - unicode-truncate 2.0.1: MIT OR Apache-2.0, used under MIT, https://github.com/Aetf/unicode-truncate
 - unicode-width 0.2.2: MIT OR Apache-2.0, used under MIT, https://github.com/unicode-rs/unicode-width
 - untrusted 0.9.0: ISC, https://github.com/briansmith/untrusted
+- ureq 3.5.0: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/ureq
+- ureq-proto 0.6.5: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/ureq-proto
 - url 2.5.8: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-url
 - urlpattern 0.6.0: MIT, https://github.com/denoland/rust-urlpattern
+- utf8-zero 0.8.1: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/utf8-zero
 - utf8_iter 1.0.4: Apache-2.0 OR MIT, used under MIT, https://github.com/hsivonen/utf8_iter
 - utf8parse 0.2.2: Apache-2.0 OR MIT, used under MIT, https://github.com/alacritty/vte
 - uuid 1.28.0: Apache-2.0 OR MIT, used under MIT, https://github.com/uuid-rs/uuid
@@ -3388,7 +3391,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - zvariant_utils 4.2.0: MIT, https://github.com/z-galaxy/zbus/
 
 <details>
-<summary>MIT: adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.104, async-channel 2.5.0, async-executor 1.14.0, async-io 2.6.0, async-lock 3.4.2, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, async-trait 0.1.92, atk 0.18.2, atk-sys 0.18.2, atomic-waker 1.1.2, blocking 1.7.0, cairo-rs 0.18.5, cairo-sys-rs 0.18.2, camino 1.2.6, cargo-platform 0.1.9, cargo_metadata 0.19.2, concurrent-queue 2.5.0, ctor 1.0.13, ctrlc 3.5.2, displaydoc 0.2.7, dtoa 1.0.11, dyn-clone 1.0.20, endi 1.1.1, erased-serde 0.4.10, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, finl_unicode 1.5.0, flume 0.11.1, futures-lite 2.6.1, gdk 0.18.2, gdk-pixbuf 0.18.5, gdk-pixbuf-sys 0.18.0, gdk-sys 0.18.2, gdkwayland-sys 0.18.2, gdkx11 0.18.2, gdkx11-sys 0.18.2, gio 0.18.4, gio-sys 0.18.1, glib 0.18.5, glib-macros 0.18.5, glib-sys 0.18.1, gobject-sys 0.18.0, gtk 0.18.2, gtk-sys 0.18.2, gtk3-macros 0.18.2, indoc 2.0.8, itoa 1.0.18, lazy_static 1.5.1, linux-raw-sys 0.12.1, minimal-lexical 0.2.1, once_cell 1.21.4, ordered-stream 0.2.0, pango 0.18.3, pango-sys 0.18.0, parking 2.2.1, pest 2.9.4, pest_derive 2.9.4, pest_generator 2.9.4, pest_meta 2.9.4, pin-project-lite 0.2.17, piper 0.2.5, polling 3.11.0, portable-atomic 1.15.0, proc-macro-crate 1.3.1, proc-macro-crate 2.0.2, proc-macro-crate 3.5.0, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, rustix 1.1.5, rustversion 1.0.23, semver 1.0.28, serde 1.0.229, serde-untagged 0.1.9, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_path_to_error 0.1.20, serde_repr 0.1.21, servo_arc 0.4.3, siphasher 1.0.4, syn 1.0.109, syn 2.0.119, syn 3.0.9, thiserror 1.0.69, thiserror 2.0.21, thiserror-impl 1.0.69, thiserror-impl 2.0.21, tinyvec 1.13.3, typed-path 0.12.3, typeid 1.0.3, winnow 0.5.40, winnow 1.0.4, x11 2.21.0, x11-dl 2.21.0, zmij 1.0.23, zvariant_utils 4.2.0</summary>
+<summary>MIT: adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.104, async-channel 2.5.0, async-executor 1.14.0, async-io 2.6.0, async-lock 3.4.2, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, async-trait 0.1.92, atk 0.18.2, atk-sys 0.18.2, atomic-waker 1.1.2, blocking 1.7.0, cairo-rs 0.18.5, cairo-sys-rs 0.18.2, camino 1.2.6, cargo-platform 0.1.9, cargo_metadata 0.19.2, concurrent-queue 2.5.0, ctor 1.0.13, ctrlc 3.5.2, displaydoc 0.2.7, dtoa 1.0.11, dyn-clone 1.0.20, endi 1.1.1, erased-serde 0.4.10, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, finl_unicode 1.5.0, flume 0.11.1, futures-lite 2.6.1, gdk 0.18.2, gdk-pixbuf 0.18.5, gdk-pixbuf-sys 0.18.0, gdk-sys 0.18.2, gdkwayland-sys 0.18.2, gdkx11 0.18.2, gdkx11-sys 0.18.2, gio 0.18.4, gio-sys 0.18.1, glib 0.18.5, glib-macros 0.18.5, glib-sys 0.18.1, gobject-sys 0.18.0, gtk 0.18.2, gtk-sys 0.18.2, gtk3-macros 0.18.2, indoc 2.0.8, itoa 1.0.18, lazy_static 1.5.1, linux-raw-sys 0.12.1, minimal-lexical 0.2.1, once_cell 1.21.4, ordered-stream 0.2.0, pango 0.18.3, pango-sys 0.18.0, parking 2.2.1, pest 2.9.4, pest_derive 2.9.4, pest_generator 2.9.4, pest_meta 2.9.4, pin-project-lite 0.2.17, piper 0.2.5, polling 3.11.0, portable-atomic 1.15.0, proc-macro-crate 1.3.1, proc-macro-crate 2.0.2, proc-macro-crate 3.5.0, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, rustix 1.1.5, rustversion 1.0.23, semver 1.0.28, serde 1.0.229, serde-untagged 0.1.9, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_path_to_error 0.1.20, serde_repr 0.1.21, servo_arc 0.4.3, siphasher 1.0.4, syn 1.0.109, syn 2.0.119, syn 3.0.9, thiserror 1.0.69, thiserror 2.0.21, thiserror-impl 1.0.69, thiserror-impl 2.0.21, tinyvec 1.13.3, typed-path 0.12.3, typeid 1.0.3, utf8-zero 0.8.1, winnow 0.5.40, winnow 1.0.4, x11 2.21.0, x11-dl 2.21.0, zmij 1.0.23, zvariant_utils 4.2.0</summary>
 
 ```text
 Permission is hereby granted, free of charge, to any
@@ -9645,6 +9648,50 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+```
+
+</details>
+
+<details>
+<summary>MIT: ureq 3.5.0</summary>
+
+```text
+MIT License
+
+Copyright (c) 2019 Martin Algesten
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
+
+<details>
+<summary>MIT: ureq-proto 0.6.5</summary>
+
+```text
+Copyright 2022 Martin Algesten
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 </details>

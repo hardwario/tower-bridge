@@ -24,6 +24,8 @@ export const cs: Messages = {
     aboveLimit: "Nad limitem",
     belowLimit: "Pod limitem",
     backToNormal: "Opět v normě",
+    download: "Stáhnout",
+    close: "Zavřít",
   },
   metrics: {
     temperature: "Teplota",
@@ -78,6 +80,8 @@ export const cs: Messages = {
     noModuleTitle: "Senzory nenalezeny",
     noModuleBody:
       "Bridge Module je připojen, ale neodpovídá Climate Module ani žádný senzorový tag. Zkontrolujte, zda jsou pevně zasunuté.",
+    updateTitle: "Dostupná aktualizace: {version}",
+    updateBody: "Nová verze TOWER Bridge je připravena ke stažení. Nastavení a historie zůstanou zachovány.",
   },
   overview: {
     waiting: "Čekám na první měření",
@@ -303,6 +307,19 @@ export const cs: Messages = {
     keepHistory: "Uchovávat historii",
     dataFolder: "Složka s daty",
     portable: "Přenosná verze",
+    updates: {
+      check: "Kontrolovat aktualizace",
+      checkHint: "Jednou denně se zeptá GitHubu na nejnovější verzi. Nic dalšího se neodesílá.",
+      checkNow: "Zkontrolovat nyní",
+      checking: "Kontroluji aktualizace…",
+      available: "Je k dispozici verze {version}.",
+      availableHint:
+        "Stáhněte ji, ukončete TOWER Bridge a nainstalujte ji místo této verze; nastavení a historie zůstanou zachovány.",
+      upToDate: "TOWER Bridge je aktuální.",
+      notChecked: "Aktualizace zatím nebyly zkontrolovány.",
+      failed: "Aktualizace se nepodařilo zkontrolovat.",
+      checked: "Naposledy zkontrolováno {time}",
+    },
     about: "O aplikaci",
     version: "verze {version}",
     legal:

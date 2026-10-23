@@ -6,7 +6,7 @@
   import SegmentedControl from "../lib/components/SegmentedControl.svelte";
   import Section from "../lib/components/Section.svelte";
   import Toggle from "../lib/components/Toggle.svelte";
-  import { fmtClock, fmtDate, fmtInput, parseInput } from "../lib/format";
+  import { fmtClock, fmtDate, fmtDateTime, fmtInput, parseInput } from "../lib/format";
   import { LANGUAGES, type LanguagePref, fill, i18n, languageName, plural, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
   import { mqttTopics, sanitizePrefix } from "../lib/mqtt";
@@ -101,6 +101,18 @@
       default:
         return t().common.off;
     }
+  });
+
+  /** The last update check, as a line and its hint in About. */
+  const updateStatus = $derived.by(() => {
+    const u = live.update;
+    const tu = st.updates;
+    const checked = u.last_check === null ? undefined : fill(tu.checked, { time: fmtDateTime(u.last_check) });
+    if (u.checking) return { label: tu.checking, hint: checked };
+    if (u.available) return { label: fill(tu.available, { version: u.available.version }), hint: tu.availableHint };
+    if (u.error) return { label: tu.failed, hint: u.error };
+    if (u.last_check !== null) return { label: tu.upToDate, hint: checked };
+    return { label: tu.notChecked, hint: undefined };
   });
 
   function newToken(): string {
@@ -470,6 +482,30 @@
         <div><strong>TOWER Bridge</strong> <span class="muted">{fill(st.version, { version: live.app?.version ?? "" })}</span></div>
         <div class="muted small">{st.legal}</div>
       </div>
+      <Field label={updateStatus.label} hint={updateStatus.hint}>
+        {#if live.update.available}
+          <button class="btn primary" onclick={() => api.openRelease()}>
+            <Icon name="download" size={14} />
+            {t().common.download}
+          </button>
+        {/if}
+        <button
+          class="btn"
+          disabled={live.update.checking}
+          aria-busy={live.update.checking}
+          onclick={() => api.checkForUpdates()}
+        >
+          <Icon name={live.update.checking ? "loader" : "refresh"} size={14} />
+          {st.updates.checkNow}
+        </button>
+      </Field>
+      <Field label={st.updates.check} hint={st.updates.checkHint}>
+        <Toggle
+          checked={s.check_for_updates}
+          label={st.updates.check}
+          onchange={(v) => live.save((x) => (x.check_for_updates = v))}
+        />
+      </Field>
     </Section>
   {/if}
 </div>

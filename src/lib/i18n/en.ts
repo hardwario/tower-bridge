@@ -23,6 +23,8 @@ export const en = {
     aboveLimit: "Above limit",
     belowLimit: "Below limit",
     backToNormal: "Back to normal",
+    download: "Download",
+    close: "Close",
   },
   metrics: {
     temperature: "Temperature",
@@ -73,6 +75,8 @@ export const en = {
     noModuleTitle: "No sensors found",
     noModuleBody:
       "The Bridge Module is connected, but neither a Climate Module nor a sensor tag answers. Check that they are firmly plugged in.",
+    updateTitle: "Update available: {version}",
+    updateBody: "A new version of TOWER Bridge is ready to download. Settings and history are kept.",
   },
   overview: {
     waiting: "Waiting for the first measurement",
@@ -292,6 +296,19 @@ export const en = {
     keepHistory: "Keep history for",
     dataFolder: "Data folder",
     portable: "Portable",
+    updates: {
+      check: "Check for updates",
+      checkHint: "Once a day, asks GitHub for the newest version. Nothing else is sent.",
+      checkNow: "Check now",
+      checking: "Checking for updates…",
+      available: "Version {version} is available.",
+      availableHint:
+        "Download it, quit TOWER Bridge and install it in place of this version; settings and history are kept.",
+      upToDate: "TOWER Bridge is up to date.",
+      notChecked: "Not checked for updates yet.",
+      failed: "Could not check for updates.",
+      checked: "Last checked {time}",
+    },
     about: "About",
     version: "version {version}",
     legal:

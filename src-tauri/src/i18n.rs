@@ -127,6 +127,10 @@ pub struct Tr {
     pub reconnected_title: &'static str,
     pub reconnected_body: &'static str,
     pub test_body: &'static str,
+    /// The tray item while a newer version is known; `{version}` is it.
+    pub update_available: &'static str,
+    pub update_title: &'static str,
+    pub update_body: &'static str,
     #[cfg_attr(not(windows), allow(dead_code))]
     pub webview2_missing: &'static str,
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -214,6 +218,9 @@ static EN: Tr = Tr {
     reconnected_title: "TOWER Bridge reconnected",
     reconnected_body: "Measurements have resumed.",
     test_body: "Notifications are working. You will be alerted when a value crosses a limit.",
+    update_available: "Update Available: {version}…",
+    update_title: "Update available: {version}",
+    update_body: "A new version of TOWER Bridge is ready to download.",
     webview2_missing: "The dashboard needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\n\
 The tray icon keeps working. Download WebView2 now?",
     download: "Download",
@@ -275,6 +282,9 @@ static CS: Tr = Tr {
     reconnected_title: "TOWER Bridge znovu připojen",
     reconnected_body: "Měření pokračuje.",
     test_body: "Oznámení fungují. Upozorníme vás, když hodnota překročí limit.",
+    update_available: "Dostupná aktualizace: {version}…",
+    update_title: "Dostupná aktualizace: {version}",
+    update_body: "Nová verze TOWER Bridge je připravena ke stažení.",
     webview2_missing: "Okno aplikace potřebuje Microsoft Edge WebView2 Runtime, který není nainstalován.\n\n\
 Ikona v oznamovací oblasti funguje dál. Stáhnout WebView2 nyní?",
     download: "Stáhnout",
@@ -336,6 +346,9 @@ static SK: Tr = Tr {
     reconnected_title: "TOWER Bridge znova pripojený",
     reconnected_body: "Meranie pokračuje.",
     test_body: "Oznámenia fungujú. Upozorníme vás, keď hodnota prekročí limit.",
+    update_available: "Dostupná aktualizácia: {version}…",
+    update_title: "Dostupná aktualizácia: {version}",
+    update_body: "Nová verzia TOWER Bridge je pripravená na stiahnutie.",
     webview2_missing: "Okno aplikácie potrebuje Microsoft Edge WebView2 Runtime, ktorý nie je nainštalovaný.\n\n\
 Ikona v oblasti oznámení funguje ďalej. Stiahnuť WebView2 teraz?",
     download: "Stiahnuť",
@@ -404,6 +417,9 @@ static DE: Tr = Tr {
     reconnected_title: "TOWER Bridge wieder verbunden",
     reconnected_body: "Die Messung läuft wieder.",
     test_body: "Benachrichtigungen funktionieren. Sie werden informiert, wenn ein Wert einen Grenzwert überschreitet.",
+    update_available: "Update verfügbar: {version}…",
+    update_title: "Update verfügbar: {version}",
+    update_body: "Eine neue Version von TOWER Bridge steht zum Download bereit.",
     webview2_missing: "Das Dashboard benötigt die Microsoft Edge WebView2 Runtime, die nicht installiert ist.\n\n\
 Das Symbol im Infobereich funktioniert weiterhin. WebView2 jetzt herunterladen?",
     download: "Herunterladen",
@@ -472,6 +488,9 @@ static PL: Tr = Tr {
     reconnected_title: "TOWER Bridge ponownie podłączony",
     reconnected_body: "Pomiary zostały wznowione.",
     test_body: "Powiadomienia działają. Otrzymasz powiadomienie, gdy wartość przekroczy limit.",
+    update_available: "Dostępna aktualizacja: {version}…",
+    update_title: "Dostępna aktualizacja: {version}",
+    update_body: "Nowa wersja TOWER Bridge jest gotowa do pobrania.",
     webview2_missing: "Pulpit wymaga środowiska Microsoft Edge WebView2 Runtime, które nie jest zainstalowane.\n\n\
 Ikona w zasobniku działa dalej. Pobrać WebView2 teraz?",
     download: "Pobierz",

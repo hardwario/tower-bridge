@@ -120,6 +120,18 @@ CASES.push(["lang=cs&co2=1&gps=nofix&theme=dark", [["tab", "data"]]]);
 CASES.push(["lang=cs&nfc=url&theme=dark", []]);
 CASES.push(["lang=pl&nfc=unformatted", []]);
 for (const mqtt of ["off", "connecting", "no_host"]) CASES.push([`lang=de&mqtt=${mqtt}`, [["tab", "settings"]]]);
+// A newer version: the Dashboard banner's Download, About with Check now, and the banner closed.
+CASES.push([
+  "lang=pl&theme=dark&update=available",
+  [
+    ["click", ".banner .actions .btn.primary"],
+    ["tab", "settings"],
+    ["click", "button:has-text('Sprawdź teraz')"],
+    ["tab", "overview"],
+    ["click", ".banner .actions .close"],
+  ],
+]);
+for (const update of ["checking", "failed", "unchecked"]) CASES.push([`lang=de&update=${update}`, [["tab", "settings"]]]);
 
 const server = await createServer({
   root: ROOT,

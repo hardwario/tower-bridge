@@ -1,7 +1,7 @@
 {
   "name": "tower-bridge",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Desktop app for the HARDWARIO TOWER Bridge Module and Climate Module",
   "license": "MIT",
   "author": "HARDWARIO a.s.",
