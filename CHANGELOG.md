@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.1 (unreleased)
+## 1.1.1 (2026-11-10)
 
 - Alerts: a value that leaves its range again within **Repeat after** of the
   last notification is notified once that time has passed, if it is still out
