@@ -1,8 +1,9 @@
 //! HTTP server lifecycle: runs on its own thread with a Tokio runtime and
 //! stops gracefully, so it can be restarted when settings change.
 
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -54,6 +55,7 @@ impl ApiServer {
                         Ok(l) => Guarded {
                             listener: l,
                             slots: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+                            peers: Arc::default(),
                         },
                         Err(e) => {
                             warn!("API server listener failed: {e}");
@@ -111,15 +113,24 @@ impl Drop for ApiServer {
 /// taking file descriptors the rest of the app needs (the database, the
 /// bridge, MQTT).
 const MAX_CONNECTIONS: usize = 64;
-/// A connection without traffic either way for this long is closed: an idle
-/// keep-alive, or headers trickling in. Hyper keeps reading while a request
-/// is answered, so this must be longer than any answer takes.
+/// Connections one address on the network may hold, so that a single host
+/// cannot take every slot before it even sent a token. Loopback clients are
+/// not limited: a local program can do worse than that anyway.
+const MAX_PER_PEER: usize = 16;
+/// A connection is closed when it was this long without an answer: idle
+/// after its last response, or a request that has not been answered this
+/// long after its first byte arrived. More bytes of the same request do not
+/// extend it, so headers trickling in a byte at a time cannot hold a slot
+/// for ever. Hyper keeps reading while a request is answered, so this must be
+/// longer than any answer takes.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(if cfg!(test) { 3 } else { 30 });
 
-/// The listener with a cap on connections and an idle timeout on each.
+/// The listener with a cap on connections, in all and per address, and a
+/// timeout on each.
 struct Guarded {
     listener: tokio::net::TcpListener,
     slots: Arc<Semaphore>,
+    peers: Arc<Mutex<HashMap<IpAddr, usize>>>,
 }
 
 impl axum::serve::Listener for Guarded {
@@ -133,22 +144,31 @@ impl axum::serve::Listener for Guarded {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
             };
-            match self.listener.accept().await {
-                Ok((stream, addr)) => {
-                    let idle = Box::pin(tokio::time::sleep(IDLE_TIMEOUT));
-                    return (
-                        GuardedStream {
-                            stream,
-                            idle,
-                            _permit: permit,
-                        },
-                        addr,
-                    );
-                }
-                Err(e) => {
-                    // Out of file descriptors and the like: wait, retry.
-                    debug!("API server accept failed: {e}");
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+            loop {
+                match self.listener.accept().await {
+                    Ok((stream, addr)) => {
+                        let Some(peer) = PeerSlot::take(&self.peers, addr.ip()) else {
+                            // Over its share: closed at once, the slot stays free.
+                            debug!("API server: too many connections from {}", addr.ip());
+                            continue;
+                        };
+                        let idle = Box::pin(tokio::time::sleep(IDLE_TIMEOUT));
+                        return (
+                            GuardedStream {
+                                stream,
+                                idle,
+                                answered: true,
+                                _permit: permit,
+                                _peer: peer,
+                            },
+                            addr,
+                        );
+                    }
+                    Err(e) => {
+                        // Out of file descriptors and the like: wait, retry.
+                        debug!("API server accept failed: {e}");
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
                 }
             }
         }
@@ -159,11 +179,61 @@ impl axum::serve::Listener for Guarded {
     }
 }
 
-/// A connection holding its slot; reading fails once it was idle too long.
+/// One connection counted against its address while it lasts.
+struct PeerSlot {
+    peers: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    ip: Option<IpAddr>,
+}
+
+impl PeerSlot {
+    /// Count a connection from `ip`, or `None` when that address already has
+    /// its share.
+    fn take(peers: &Arc<Mutex<HashMap<IpAddr, usize>>>, ip: IpAddr) -> Option<Self> {
+        // A dual-stack socket reports IPv4 peers as ::ffff:a.b.c.d.
+        let ip = ip.to_canonical();
+        if ip.is_loopback() {
+            return Some(Self {
+                peers: peers.clone(),
+                ip: None,
+            });
+        }
+        let Ok(mut map) = peers.lock() else {
+            return None;
+        };
+        let count = map.entry(ip).or_insert(0);
+        if *count >= MAX_PER_PEER {
+            return None;
+        }
+        *count += 1;
+        Some(Self {
+            peers: peers.clone(),
+            ip: Some(ip),
+        })
+    }
+}
+
+impl Drop for PeerSlot {
+    fn drop(&mut self) {
+        if let (Some(ip), Ok(mut map)) = (self.ip, self.peers.lock())
+            && let Some(count) = map.get_mut(&ip)
+        {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                map.remove(&ip);
+            }
+        }
+    }
+}
+
+/// A connection holding its slot; reading fails once it waited too long.
 struct GuardedStream {
     stream: tokio::net::TcpStream,
     idle: Pin<Box<tokio::time::Sleep>>,
+    /// Nothing was read since the last response (or since the connection
+    /// was accepted): the next byte starts a request, and the clock.
+    answered: bool,
     _permit: OwnedSemaphorePermit,
+    _peer: PeerSlot,
 }
 
 impl AsyncRead for GuardedStream {
@@ -173,10 +243,14 @@ impl AsyncRead for GuardedStream {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         let this = &mut *self;
+        let before = buf.filled().len();
         match Pin::new(&mut this.stream).poll_read(cx, buf) {
             Poll::Ready(r) => {
-                let deadline = tokio::time::Instant::now() + IDLE_TIMEOUT;
-                this.idle.as_mut().reset(deadline);
+                if this.answered && buf.filled().len() > before {
+                    this.answered = false;
+                    let deadline = tokio::time::Instant::now() + IDLE_TIMEOUT;
+                    this.idle.as_mut().reset(deadline);
+                }
                 Poll::Ready(r)
             }
             Poll::Pending => match this.idle.as_mut().poll(cx) {
@@ -199,6 +273,7 @@ impl AsyncWrite for GuardedStream {
             // A slow client downloading a large answer is not idle.
             let deadline = tokio::time::Instant::now() + IDLE_TIMEOUT;
             this.idle.as_mut().reset(deadline);
+            this.answered = true;
         }
         r
     }
@@ -754,5 +829,62 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         server.stop();
         Ok(())
+    }
+
+    #[test]
+    fn headers_trickling_in_do_not_hold_a_connection() -> std::io::Result<()> {
+        use std::io::{Read, Write};
+        let (mut server, _) = start(open_policy())?;
+        let mut slow = std::net::TcpStream::connect(server.local_addr())?;
+        slow.set_read_timeout(Some(Duration::from_millis(400)))?;
+        let started = std::time::Instant::now();
+        let request = b"GET /api/v1/status HTTP/1.1\r\nHost: localhost\r\nX-Slow: ";
+        let mut closed = false;
+        // A byte every 400 ms, each well within the timeout of 3 s.
+        for byte in request.iter().chain(std::iter::repeat(&b'a')).take(25) {
+            if slow.write_all(&[*byte]).is_err() {
+                closed = true;
+                break;
+            }
+            let mut buf = [0u8; 64];
+            match slow.read(&mut buf) {
+                Ok(_) => {
+                    closed = true;
+                    break;
+                }
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => {
+                    closed = true;
+                    break;
+                }
+            }
+        }
+        assert!(closed, "still open after {:?}", started.elapsed());
+        assert!(started.elapsed() < Duration::from_secs(6));
+        server.stop();
+        Ok(())
+    }
+
+    #[test]
+    fn one_address_gets_a_share_of_the_connections() {
+        let peers = Arc::default();
+        let lan: IpAddr = [192, 168, 1, 20].into();
+        let slots: Vec<PeerSlot> = (0..MAX_PER_PEER)
+            .filter_map(|_| PeerSlot::take(&peers, lan))
+            .collect();
+        assert_eq!(slots.len(), MAX_PER_PEER);
+        assert!(PeerSlot::take(&peers, lan).is_none());
+        // The same address seen through a dual-stack socket.
+        let mapped = IpAddr::V6(std::net::Ipv4Addr::new(192, 168, 1, 20).to_ipv6_mapped());
+        assert!(PeerSlot::take(&peers, mapped).is_none());
+        assert!(PeerSlot::take(&peers, [192, 168, 1, 21].into()).is_some());
+        assert!(PeerSlot::take(&peers, [127, 0, 0, 1].into()).is_some());
+        drop(slots);
+        assert!(PeerSlot::take(&peers, lan).is_some());
+        assert!(peers.lock().map(|m| m.is_empty()).unwrap_or(false));
     }
 }

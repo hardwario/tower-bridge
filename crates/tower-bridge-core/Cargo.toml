@@ -29,7 +29,7 @@ rumqttc = { workspace = true, optional = true }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std"] }
 rustls-native-certs = { version = "0.8", optional = true }
 rusqlite = { workspace = true, optional = true }
-rust_xlsxwriter = { version = "0.100", optional = true, features = ["constant_memory"] }
+rust_xlsxwriter = { version = "0.102", optional = true, features = ["constant_memory"] }
 axum = { version = "0.8", optional = true, default-features = false, features = ["http1", "json", "query", "tokio"] }
 serde_json = { workspace = true, optional = true }
 tokio = { version = "1", optional = true, features = ["rt", "net", "sync", "time"] }

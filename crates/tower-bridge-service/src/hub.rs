@@ -162,6 +162,7 @@ pub fn spawn(
 impl Hub {
     fn run(&mut self, acq_rx: &Receiver<AcqEvent>, hub_rx: &Receiver<HubMsg>) {
         let ticker = tick(Duration::from_secs(5));
+        let mut stopping = false;
         loop {
             let link_events = self
                 .mqtt
@@ -184,9 +185,28 @@ impl Hub {
                 recv(hub_rx) -> msg => match msg {
                     Ok(HubMsg::Init) => self.on_init(),
                     Ok(HubMsg::SettingsChanged { old, new }) => self.on_settings(&old, &new),
-                    Ok(HubMsg::Shutdown) | Err(_) => break,
+                    Ok(HubMsg::Shutdown) => {
+                        stopping = true;
+                        break;
+                    }
+                    Err(_) => break,
                 },
                 recv(ticker) -> _ => self.on_tick(),
+            }
+        }
+        // The acquisition stops after the hub and switches a running relay
+        // pulse back: the broker hears of it, or a retained state would say
+        // the relay is still switched over. Only the relay, and not the
+        // front end, which may be waiting for this thread (the app stops on
+        // its main thread); the acquisition's last "not watched" events are
+        // no news.
+        if stopping {
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            while let Ok(ev) = acq_rx.recv_deadline(deadline) {
+                if let AcqEvent::Relay(Some(relay)) = ev {
+                    *self.state.relay.write() = Some(relay);
+                    self.publish_relay();
+                }
             }
         }
         // A goodbye skips the broker's last will: say "offline" ourselves and

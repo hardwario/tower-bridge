@@ -237,11 +237,30 @@ impl AlertEngine {
                     Bound::Low => (value < limit, value >= limit + hyst),
                 };
                 st.value = value;
-                if !st.active && beyond {
-                    let cooldown_ms = i64::try_from(rule.cooldown_ms).unwrap_or(i64::MAX);
-                    let notify = st
-                        .last_notified
-                        .is_none_or(|t| ts.saturating_sub(t) >= cooldown_ms);
+                let cooldown_ms = i64::try_from(rule.cooldown_ms).unwrap_or(i64::MAX);
+                let cooled_down = st
+                    .last_notified
+                    .is_none_or(|t| ts.saturating_sub(t) >= cooldown_ms);
+                if st.active && beyond && !st.notified_episode && cooled_down {
+                    // An alert that started within the repeat interval was
+                    // held back, not dropped: still beyond the limit once the
+                    // interval has passed, it is notified (and logged) now.
+                    // Otherwise a value that briefly came back and then stayed
+                    // out of range for hours would never be reported.
+                    st.notified_episode = true;
+                    st.last_notified = Some(ts);
+                    events.push(AlertEvent {
+                        ts,
+                        metric,
+                        channel,
+                        bound,
+                        kind: AlertKind::Triggered,
+                        value,
+                        threshold: limit,
+                        notify: true,
+                    });
+                } else if !st.active && beyond {
+                    let notify = cooled_down;
                     st.active = true;
                     st.since = ts;
                     st.notified_episode = notify;
@@ -362,6 +381,26 @@ mod tests {
         // After the cooldown it notifies again.
         let ev = e.evaluate(700_000, 0, &temp(Some(26.0)));
         assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Triggered, true)]);
+    }
+
+    #[test]
+    fn an_alert_held_back_by_the_cooldown_is_notified_once_it_passed() {
+        let mut e = engine();
+        e.evaluate(0, 0, &temp(Some(26.0)));
+        e.evaluate(10_000, 0, &temp(Some(23.0)));
+        // Back beyond the limit within the 600 s cooldown, and it stays there.
+        let ev = e.evaluate(20_000, 0, &temp(Some(26.0)));
+        assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Triggered, false)]);
+        assert!(e.evaluate(300_000, 0, &temp(Some(26.5))).is_empty());
+        // Inside the hysteresis band (24 to 25) it is no longer beyond: wait.
+        assert!(e.evaluate(600_000, 0, &temp(Some(24.5))).is_empty());
+        let ev = e.evaluate(610_000, 0, &temp(Some(26.0)));
+        assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Triggered, true)]);
+        assert_eq!(e.active()[0].since, 20_000);
+        // Once only, and its recovery is notified like any other.
+        assert!(e.evaluate(2_000_000, 0, &temp(Some(26.0))).is_empty());
+        let ev = e.evaluate(2_010_000, 0, &temp(Some(23.0)));
+        assert_eq!(kinds(&ev), vec![(Bound::High, AlertKind::Recovered, true)]);
     }
 
     #[test]

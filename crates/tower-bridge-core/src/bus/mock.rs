@@ -483,6 +483,9 @@ pub struct SimGps {
     /// NAV-PVT polls left unanswered, as a real receiver does for up to two
     /// minutes after power-up.
     pub silent_polls: u32,
+    /// CFG commands dropped without an acknowledgement, as by a receiver
+    /// still booting.
+    pub ignored_configs: u32,
     /// UBX frames received, as class and id.
     pub received: Vec<(u8, u8)>,
     stream: std::collections::VecDeque<u8>,
@@ -536,6 +539,10 @@ impl SimDevice for SimGpsReceiver {
                         Vec::new()
                     }
                     (0x01, 0x07) => s.nav_pvt(),
+                    (0x06, _) if s.ignored_configs > 0 => {
+                        s.ignored_configs -= 1;
+                        Vec::new()
+                    }
                     (0x06, _) => crate::gps::ubx(0x05, 0x01, &[class, id]),
                     _ => Vec::new(),
                 };

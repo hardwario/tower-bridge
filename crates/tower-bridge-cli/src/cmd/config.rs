@@ -106,6 +106,7 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
                 // the type check below then explains.
                 _ => serde_json::from_str(&value).unwrap_or(Value::String(value)),
             };
+            let requested = slot.clone();
             let new: Settings = serde_json::from_value(v).map_err(|e| {
                 crate::failure(
                     exit::USAGE,
@@ -114,8 +115,18 @@ pub fn config(ctx: &Ctx, out: Out, action: Option<ConfigAction>) -> Result<()> {
                 )
             })?;
             let new = new.validated();
-            new.save(&file)?;
             let stored = serde_json::to_value(&new)?;
+            // A secret is shown masked, so one replaced by the checks (a
+            // token too short, which becomes a random one) must not pass
+            // for the value given.
+            if SECRETS.contains(&key.as_str()) && lookup(&stored, &key) != Some(&requested) {
+                return Err(crate::failure(
+                    exit::USAGE,
+                    format!("{key}: not accepted as given"),
+                    Some("an access token needs at least 16 characters, without spaces around it"),
+                ));
+            }
+            new.save(&file)?;
             let shown = if SECRETS.contains(&key.as_str()) {
                 Value::String("(set)".into())
             } else {

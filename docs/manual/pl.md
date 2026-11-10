@@ -123,7 +123,7 @@ Dla każdej wielkości ustaw dolny limit (**Poniżej**) i górny limit (**Powyż
 ![Granice alarmów](images/pl/alerts.webp)
 
 - **Histereza:** o ile wartość musi wrócić do zakresu, zanim alarm się zakończy, aby wartość bliska limitu nie wywoływała alarmów raz po raz.
-- **Powtórz po:** najkrótszy czas między dwoma powiadomieniami dla tego samego limitu.
+- **Powtórz po:** najkrótszy czas między dwoma powiadomieniami dla tego samego limitu. Jeśli wartość wcześniej ponownie opuści zakres, powiadomienie przyjdzie po upływie tego czasu, o ile nadal będzie poza zakresem.
 - **Powiadom o powrocie do normy:** informuje także, że wartość znów jest w zakresie.
 - **Odłączenie urządzenia:** powiadamia, gdy przez minutę nie nadejdzie żaden pomiar.
 

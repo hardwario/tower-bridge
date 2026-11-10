@@ -61,8 +61,10 @@ fn development_build(program: &Path) -> bool {
 }
 
 /// Whether the registration belongs to this program: the one recorded, or a
-/// moved one (the recorded program is gone), or for a registration by a
-/// version that kept no record, anything but a development build. Any other
+/// moved one (the recorded program is gone; never a development build, which
+/// would then start at every login with the real data), or for a
+/// registration by a version that kept no record, anything but a
+/// development build. Any other
 /// copy (a newer download, a portable exe elsewhere, a development build)
 /// would take the login item over.
 fn ours(app: &AppHandle, program: &Path) -> bool {
@@ -70,7 +72,7 @@ fn ours(app: &AppHandle, program: &Path) -> bool {
         .and_then(|f| std::fs::read_to_string(f).ok())
         .map(|s| PathBuf::from(s.trim()));
     match &recorded {
-        Some(path) => path == program || !path.exists(),
+        Some(path) => path == program || (!path.exists() && !development_build(program)),
         None => !development_build(program),
     }
 }

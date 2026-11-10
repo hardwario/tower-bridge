@@ -155,7 +155,7 @@
 <svelte:window
   bind:innerHeight
   onkeydown={(e) => {
-    if (e.key === "Escape" && layout.maximized) layout.toggleMaximize(layout.maximized);
+    if (e.key === "Escape" && !e.defaultPrevented && layout.maximized) layout.toggleMaximize(layout.maximized);
   }}
 />
 

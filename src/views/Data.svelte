@@ -93,8 +93,12 @@
     stop?.();
   });
 
+  /** A custom date cleared or still being typed is no range (NaN), and no export. */
+  const validRange = $derived(bounds().every(Number.isFinite));
+
   async function exportFile(format: "csv" | "xlsx") {
     const [from, to] = bounds();
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return;
     exported = null;
     exportError = null;
     exporting = { done: 0, total: 0 };
@@ -163,11 +167,11 @@
     />
     <span class="spacer"></span>
     <div class="exports">
-      <button class="btn" disabled={!!exporting || empty} onclick={() => exportFile("csv")}>
+      <button class="btn" disabled={!!exporting || empty || !validRange} onclick={() => exportFile("csv")}>
         <Icon name="download" size={14} />
         {t().data.exportCsv}
       </button>
-      <button class="btn" disabled={!!exporting || empty} onclick={() => exportFile("xlsx")}>
+      <button class="btn" disabled={!!exporting || empty || !validRange} onclick={() => exportFile("xlsx")}>
         <Icon name="download" size={14} />
         {t().data.exportXlsx}
       </button>

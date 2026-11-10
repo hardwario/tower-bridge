@@ -25,6 +25,8 @@ impl HttpResponse {
 /// whatever listens on the port, maybe not the app.
 const MAX_BODY: usize = 64 * 1024 * 1024;
 const MAX_LINE: u64 = 16 * 1024;
+/// Header (or trailer) lines accepted in a response.
+const MAX_HEADERS: usize = 100;
 
 fn read_line(reader: &mut impl BufRead, line: &mut String) -> std::io::Result<usize> {
     reader.take(MAX_LINE).read_line(line)
@@ -43,6 +45,20 @@ pub fn request(
     body: &[u8],
     timeout: Duration,
 ) -> std::io::Result<HttpResponse> {
+    // A line break in a header value would start a header of its own: the
+    // MCP stdio bridge copies the client's method and version into headers.
+    let unsafe_text = |t: &str| t.bytes().any(|b| matches!(b, b'\r' | b'\n' | 0));
+    if unsafe_text(method)
+        || unsafe_text(path)
+        || headers
+            .iter()
+            .any(|(k, v)| unsafe_text(k) || unsafe_text(v))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "line break in the request line or a header",
+        ));
+    }
     let mut stream = TcpStream::connect_timeout(&addr, timeout)?;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
@@ -72,6 +88,8 @@ pub fn request(
         .ok_or_else(|| invalid("bad status line"))?;
 
     let mut headers = Vec::new();
+    // Every line counts, with a colon or without.
+    let mut lines = 0;
     loop {
         let mut line = String::new();
         if read_line(&mut reader, &mut line)? == 0 {
@@ -80,6 +98,10 @@ pub fn request(
         let line = line.trim_end();
         if line.is_empty() {
             break;
+        }
+        lines += 1;
+        if lines > MAX_HEADERS {
+            return Err(invalid("too many header lines"));
         }
         if let Some((k, v)) = line.split_once(':') {
             headers.push((k.trim().to_string(), v.trim().to_string()));
@@ -128,7 +150,12 @@ fn read_chunked(reader: &mut impl BufRead) -> std::io::Result<Vec<u8>> {
         if size == 0 {
             // Trailer section ends with an empty line.
             let mut line = String::new();
+            let mut lines = 0;
             while read_line(reader, &mut line)? > 0 && !line.trim().is_empty() {
+                lines += 1;
+                if lines > MAX_HEADERS {
+                    return Err(invalid("too many trailer lines"));
+                }
                 line.clear();
             }
             return Ok(out);
@@ -155,5 +182,31 @@ mod tests {
         let mut r = BufReader::new(&data[..]);
         assert_eq!(read_chunked(&mut r)?, b"Wikipedia ");
         Ok(())
+    }
+
+    #[test]
+    fn refuses_line_breaks_in_headers() {
+        let addr: SocketAddr = ([127, 0, 0, 1], 9).into();
+        let t = Duration::from_millis(100);
+        for (method, header) in [
+            ("GET\r\nX: 1", "a"),
+            ("GET", "tools/list\r\nX-Injected: yes"),
+        ] {
+            let e = request(addr, method, "/", &[("Mcp-Method", header)], b"", t);
+            assert_eq!(
+                e.map(|_| ()).map_err(|e| e.kind()),
+                Err(std::io::ErrorKind::InvalidInput)
+            );
+        }
+    }
+
+    #[test]
+    fn endless_trailers_are_refused() {
+        let mut data = b"0\r\n".to_vec();
+        for _ in 0..200 {
+            data.extend_from_slice(b"X: 1\r\n");
+        }
+        let mut r = BufReader::new(&data[..]);
+        assert!(read_chunked(&mut r).is_err());
     }
 }

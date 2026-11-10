@@ -1,7 +1,7 @@
 [package]
 name = "tower-bridge"
 description = "Desktop app for the HARDWARIO TOWER Bridge Module and Climate Module"
-version = "1.1.0"
+version = "1.1.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -28,6 +28,8 @@ tauri-plugin-single-instance = "2"
 anyhow.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
+# SIGTERM, SIGINT and SIGHUP end the app like Quit (see lib.rs).
+ctrlc = { version = "3.4", features = ["termination"] }
 fontdue = "0.9"
 parking_lot.workspace = true
 serde.workspace = true

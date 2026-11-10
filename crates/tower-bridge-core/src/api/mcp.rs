@@ -433,6 +433,16 @@ impl McpServer {
                 body: None,
             };
         };
+        // MCP wants a string or an integer; a null id is no request to run.
+        if !(id.is_string() || id.is_i64() || id.is_u64()) {
+            return Reply {
+                http_status: 400,
+                body: Some(error_response(
+                    Value::Null,
+                    &RpcError::new(INVALID_REQUEST, "id must be a string or an integer"),
+                )),
+            };
+        }
         let params = obj.get("params").cloned().unwrap_or_else(|| json!({}));
         let era = match request_era(&params) {
             Ok(era) => era,
@@ -1241,6 +1251,27 @@ mod tests {
             r.body.as_ref().map(|b| b["error"]["code"].clone()),
             Some(json!(INVALID_PARAMS))
         );
+    }
+
+    #[test]
+    fn requests_need_a_string_or_integer_id() {
+        let (s, backend) = server(true);
+        for id in [json!(null), json!({"a": 1}), json!(true), json!(1.5)] {
+            let r = s.handle(&json!({"jsonrpc":"2.0","id": id,"method":"tools/call",
+                "params":{"name":"identify_device","arguments":{}}}));
+            assert_eq!(r.http_status, 400, "{id}");
+            assert_eq!(
+                r.body.map(|b| b["error"]["code"].clone()),
+                Some(json!(INVALID_REQUEST))
+            );
+        }
+        assert_eq!(
+            backend.identified.lock().map(|n| *n).ok(),
+            Some(0),
+            "nothing ran"
+        );
+        let r = s.handle(&json!({"jsonrpc":"2.0","id":"a","method":"tools/list"}));
+        assert_eq!(r.http_status, 200);
     }
 
     #[test]

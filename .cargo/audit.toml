@@ -1,0 +1,13 @@
+# cargo audit (and the Audit workflow): advisories that do not apply.
+[advisories]
+ignore = [
+  # rustls-webpki 0.102.8 comes with rumqttc 0.25.1, the newest, which uses it
+  # only for an error type. Certificates are checked by rustls 0.23 with
+  # rustls-webpki 0.103 (fixed), so these code paths never run. Drop them
+  # once rumqttc no longer depends on 0.102.
+  "RUSTSEC-2026-0049",
+  "RUSTSEC-2026-0098",
+  "RUSTSEC-2026-0099",
+  "RUSTSEC-2026-0104",
+  "RUSTSEC-2026-0382",
+]

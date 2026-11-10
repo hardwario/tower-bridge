@@ -226,6 +226,13 @@ pub enum LinkEvent {
 /// Longest wait between two connection attempts.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
+/// How long a connection must last before a drop is retried at once again.
+/// A broker that accepts and then drops the client (the same client ID in
+/// use elsewhere, an ACL refusing a publish, a retained message too big for
+/// the client, replayed on every subscribe) would otherwise be reconnected
+/// every second, each time logging, republishing and flipping the status.
+const STABLE_LINK: Duration = Duration::from_secs(60);
+
 /// How long a dropped link may take to send what is queued (the clears,
 /// `offline`) and its disconnect.
 const STOP_GRACE: Duration = Duration::from_secs(3);
@@ -314,6 +321,7 @@ pub fn connect(
         .name("mqtt-client".into())
         .spawn(move || {
             let mut backoff = Duration::from_secs(1);
+            let mut connected_at: Option<Instant> = None;
             let stopping = || thread_stopping.lock().ok().and_then(|s| *s);
             for notification in connection.iter() {
                 if stopping().is_some_and(|t| t.elapsed() > STOP_GRACE) {
@@ -323,7 +331,7 @@ pub fn connect(
                     // Everything queued before it went out.
                     Ok(rumqttc::Event::Outgoing(rumqttc::Outgoing::Disconnect)) => break,
                     Ok(rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(_))) => {
-                        backoff = Duration::from_secs(1);
+                        connected_at = Some(Instant::now());
                         // A clean session forgets subscriptions: subscribe on
                         // every connect.
                         if subscribe {
@@ -342,6 +350,12 @@ pub fn connect(
                     Err(e) => {
                         if stopping().is_some() {
                             break;
+                        }
+                        if connected_at
+                            .take()
+                            .is_some_and(|t| t.elapsed() >= STABLE_LINK)
+                        {
+                            backoff = Duration::from_secs(1);
                         }
                         warn!("MQTT broker at {address}: {e}");
                         let _ = events.send(LinkEvent::Disconnected(e.to_string()));

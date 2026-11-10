@@ -41,6 +41,10 @@ pub const PERIOD: Duration = Duration::from_secs(5);
 const BOOT: Duration = Duration::from_secs(1);
 const REPLY_TIME: Duration = Duration::from_millis(100);
 const GIVE_UP: u8 = 3;
+/// CFG-PRT sent at most this often while the receiver has not acknowledged
+/// it. One still booting may drop it; its port then keeps sending NMEA,
+/// which every poll has to read through (a few kB, seconds of bus time).
+const CONFIG_ATTEMPTS: u8 = 5;
 
 /// UBX frame: sync, class, id, length (little endian), payload, Fletcher
 /// checksum over class to payload.
@@ -217,6 +221,9 @@ pub struct GpsModule {
     led: bool,
     /// The receiver answered: this is a GPS Module.
     confirmed: bool,
+    /// CFG-PRT attempts so far, and whether one was acknowledged.
+    config_attempts: u8,
+    port_set: bool,
     failures: u8,
     info: Option<GpsInfo>,
 }
@@ -242,6 +249,8 @@ impl GpsModule {
             next: clock.now() + BOOT,
             led: false,
             confirmed: false,
+            config_attempts: 0,
+            port_set: false,
             failures: 0,
             info: None,
         })
@@ -307,13 +316,23 @@ impl GpsModule {
     /// Switch the receiver's port to UBX; returns whether what the receiver
     /// knows changed (it has confirmed the module).
     fn configure(&mut self, bus: &mut dyn I2cBus, clock: &dyn Clock) -> Result<bool, BusError> {
+        self.phase = Phase::Running;
+        info!("GPS receiver on channel {} ready", self.channel);
+        self.set_port(bus, clock)
+    }
+
+    /// Send CFG-PRT; returns whether the acknowledgement newly confirmed
+    /// the module.
+    fn set_port(&mut self, bus: &mut dyn I2cBus, clock: &dyn Clock) -> Result<bool, BusError> {
+        self.config_attempts = self.config_attempts.saturating_add(1);
         bus.write(RECEIVER, &config_port())?;
         clock.sleep(REPLY_TIME);
         // What it sent so far is NMEA, apart from the acknowledgement.
-        let acknowledged = port_acknowledged(&self.drain(bus)?);
-        self.phase = Phase::Running;
-        info!("GPS receiver on channel {} ready", self.channel);
-        if !acknowledged {
+        if !port_acknowledged(&self.drain(bus)?) {
+            return Ok(false);
+        }
+        self.port_set = true;
+        if self.info.is_some() {
             return Ok(false);
         }
         // Only a u-blox receiver acknowledges, so this is a GPS Module. Its
@@ -364,11 +383,15 @@ impl GpsModule {
     }
 
     fn poll(&mut self, bus: &mut dyn I2cBus, clock: &dyn Clock) -> Result<bool, BusError> {
+        let mut changed = false;
+        if !self.port_set && self.config_attempts < CONFIG_ATTEMPTS {
+            changed = self.set_port(bus, clock)?;
+        }
         self.drain(bus)?;
         bus.write(RECEIVER, &poll_pvt())?;
         clock.sleep(REPLY_TIME);
         let Some(pvt) = find_pvt(&self.drain(bus)?) else {
-            return Ok(false);
+            return Ok(changed);
         };
         self.confirm(bus)?;
         let fix = pvt.fix_ok && matches!(pvt.fix_type, 2..=4);
@@ -387,7 +410,7 @@ impl GpsModule {
             bus.write(EXPANDER, &[REG_OUTPUT, BACKUP | POWER | led])?;
             self.led = fix;
         }
-        let changed = self.info.as_ref() != Some(&info);
+        let changed = changed || self.info.as_ref() != Some(&info);
         self.info = Some(info);
         Ok(changed)
     }
@@ -487,6 +510,36 @@ mod tests {
         clock.sleep(PERIOD);
         assert!(module.service(&mut bus, &clock)?);
         assert_eq!(module.info().map(|i| i.fix), Some(true));
+        Ok(())
+    }
+
+    #[test]
+    fn a_dropped_port_setting_is_sent_again() -> Result<(), BusError> {
+        use crate::bus::mock::{MockBus, MockClock, attach_gps_module};
+        let mut bus = MockBus::new();
+        let receiver = attach_gps_module(&mut bus, 0);
+        if let Ok(mut r) = receiver.lock() {
+            r.ignored_configs = 1;
+            r.silent_polls = 10;
+        }
+        let clock = MockClock::new();
+        crate::climate::select_channel(&mut bus, 0)?;
+        let mut module = GpsModule::start(&mut bus, &clock, 0)?;
+        clock.sleep(BOOT);
+        assert!(!module.service(&mut bus, &clock)?);
+        assert!(!module.confirmed());
+        // The next poll sends it again; now acknowledged, it is searching.
+        clock.sleep(PERIOD);
+        assert!(module.service(&mut bus, &clock)?);
+        assert!(module.confirmed());
+        // Not sent once more.
+        clock.sleep(PERIOD);
+        module.service(&mut bus, &clock)?;
+        let configs = receiver
+            .lock()
+            .map(|r| r.received.iter().filter(|f| f.0 == 0x06).count())
+            .unwrap_or(0);
+        assert_eq!(configs, 2);
         Ok(())
     }
 

@@ -123,7 +123,7 @@ Legen Sie für jede Messgröße eine untere Grenze (**Unter**) und eine obere Gr
 ![Alarmgrenzen](images/de/alerts.webp)
 
 - **Hysterese:** wie weit der Wert in den zulässigen Bereich zurückkehren muss, bevor der Alarm endet, damit ein Wert nahe der Grenze nicht immer wieder Alarme auslöst.
-- **Wiederholen nach:** die kürzeste Zeit zwischen zwei Benachrichtigungen für dieselbe Grenze.
+- **Wiederholen nach:** die kürzeste Zeit zwischen zwei Benachrichtigungen für dieselbe Grenze. Verlässt ein Wert seinen Bereich früher wieder, kommt die Benachrichtigung nach Ablauf dieser Zeit, sofern er dann noch außerhalb liegt.
 - **Benachrichtigen, wenn wieder normal:** meldet auch, wenn der Wert wieder im Bereich liegt.
 - **Gerät getrennt:** meldet, wenn eine Minute lang keine Messung eintrifft.
 

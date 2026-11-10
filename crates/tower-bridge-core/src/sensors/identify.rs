@@ -21,6 +21,13 @@ fn id16(bus: &mut dyn I2cBus, addr: u8, reg: u8) -> Result<Option<u16>, BusError
     }
 }
 
+/// Whether an HDC2080 (an older Humidity Tag) answers at `addr`: its
+/// manufacturer ID 0x5449 ("TI"), little endian at 0xFC. It also
+/// acknowledges the SHT20's soft reset, as a register pointer.
+pub(crate) fn is_hdc2080(bus: &mut dyn I2cBus, addr: u8) -> Result<bool, BusError> {
+    Ok(id16(bus, addr, 0xFC)? == Some(0x4954))
+}
+
 fn id8(bus: &mut dyn I2cBus, addr: u8, reg: u8) -> Result<Option<u8>, BusError> {
     let mut b = [0u8; 1];
     match bus.write_read(addr, &[reg], &mut b) {
@@ -44,8 +51,7 @@ pub fn scan(bus: &mut dyn I2cBus) -> Result<Vec<Found>, BusError> {
     let mut found = Vec::new();
     let mut add = |address, part| found.push(Found { address, part });
     for address in [0x40, 0x41] {
-        // HDC2080: manufacturer ID 0x5449 ("TI"), little endian at 0xFC.
-        if id16(bus, address, 0xFC)? == Some(0x4954) {
+        if is_hdc2080(bus, address)? {
             add(address, "HDC2080");
         } else if address == 0x40 && acks(bus, address, &[0xFE])? {
             add(address, "SHT20");

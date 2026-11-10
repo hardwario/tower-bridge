@@ -7,10 +7,15 @@
    `CHANGELOG.md` heading that version without "(unreleased)".
    `node scripts/check-version.mjs v1.2.3` checks that they agree.
 2. Commit, then tag and push: `git tag v1.2.3 && git push origin v1.2.3`.
+   Only repository admins can create, move or delete `v*` tags (the ruleset
+   "Release tags").
 3. The Release workflow (`.github/workflows/release.yml`) tests, builds every
    platform, signs the Windows binaries, signs and notarizes the macOS ones,
    and creates a **draft** release with all files and their `.sha256`
-   checksums.
+   checksums. The two signing jobs wait for an approval: open the run and
+   choose **Review deployments**, **signing**, **Approve and deploy**
+   (GitHub also sends a notification). Approve only a run of a tag you
+   pushed yourself.
 4. Check the draft on GitHub and publish it. Publishing is what users see:
    within a day every running TOWER Bridge from 1.1.0 on asks GitHub for the
    latest release, finds the new version and offers it (tray menu, Dashboard
@@ -69,9 +74,12 @@ Nothing else reaches the job.
 
 What it depends on:
 
-- The GitHub environment **`signing`**: deployment limited to the tags `v*`
-  (optionally with a required reviewer), with the variables `AZURE_CLIENT_ID`,
-  `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID` (not secrets).
+- The GitHub environment **`signing`**: deployment limited to the tags `v*`,
+  with a required reviewer (the person who releases; self-review allowed,
+  no bypass for admins, since 2026-11-10), and the variables `AZURE_CLIENT_ID`,
+  `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID` (not secrets). The signing
+  secrets are environment secrets only: nothing at repository or
+  organization level, so no other job can read them.
 - On the Azure side: the Entra app `github-codesign`, whose client ID is
   `AZURE_CLIENT_ID`, with the role "Artifact Signing Certificate Profile
   Signer" on the `hardwario` profile only, and a federated credential that

@@ -11,6 +11,19 @@
     { value: "dark", icon: "moon" },
   ];
 
+  let themes: HTMLDivElement;
+
+  /** A radio group: one Tab stop, the arrow keys move the choice. */
+  function themeKey(e: KeyboardEvent, current: ThemePref) {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (step === undefined) return;
+    e.preventDefault();
+    const i = THEMES.findIndex((th) => th.value === current);
+    const next = THEMES[(i + step + THEMES.length) % THEMES.length].value;
+    live.save((x) => (x.theme = next));
+    queueMicrotask(() => themes.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus());
+  }
+
   function themeLabel(v: ThemePref): string {
     const s = t().settings;
     return v === "system" ? s.themeSystem : v === "light" ? s.themeLight : s.themeDark;
@@ -21,12 +34,20 @@
   {@const s = live.settings}
   <div class="prefs">
     <div class="label" id="prefs-theme-label">{t().settings.appearance}</div>
-    <div class="themes" role="radiogroup" aria-labelledby="prefs-theme-label">
+    <div
+      class="themes"
+      role="radiogroup"
+      aria-labelledby="prefs-theme-label"
+      tabindex="-1"
+      bind:this={themes}
+      onkeydown={(e) => themeKey(e, s.theme)}
+    >
       {#each THEMES as th (th.value)}
         <button
           type="button"
           role="radio"
           aria-checked={s.theme === th.value}
+          tabindex={s.theme === th.value ? 0 : -1}
           aria-label={themeLabel(th.value)}
           title={themeLabel(th.value)}
           class:active={s.theme === th.value}

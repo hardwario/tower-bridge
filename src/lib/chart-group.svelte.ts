@@ -70,6 +70,10 @@ export class ChartGroup {
       const keep = s * 0.1;
       start = Math.max(k[0] - s + keep, Math.min(start, k[1] - keep));
     }
+    // Held at an edge: the same window, no new one (which would start
+    // another detail load for nothing).
+    const z = this.zoom;
+    if (z && z[0] === start && z[1] === start + s) return;
     this.zoom = [start, start + s];
   }
 }
@@ -113,13 +117,19 @@ export function panBounds(range: { first: number; last: number } | null, h: Hist
 export function zoomDetail(group: ChartGroup, maxPoints: number) {
   // Replaced whole, never changed in place: no deep reactivity needed.
   let detail = $state.raw<History | null>(null);
+  // Loads are numbered as they are sent. An answer is shown unless a later
+  // one already is: while the window keeps moving (a drag sends a load every
+  // 200 ms), dropping every answer still under way would leave nothing
+  // shown, and panning would stop at the edge of the last one that landed.
   let seq = 0;
+  let shown = 0;
   let lastFetch = 0;
 
   $effect(() => {
     const z = group.zoom;
-    const mine = ++seq;
     if (!z) {
+      // Answers still under way are no longer wanted.
+      shown = ++seq;
       detail = null;
       return;
     }
@@ -135,11 +145,15 @@ export function zoomDetail(group: ChartGroup, maxPoints: number) {
     const wait = Math.max(0, 200 - (Date.now() - lastFetch));
     const timer = setTimeout(async () => {
       lastFetch = Date.now();
+      const mine = ++seq;
       try {
         const from = Math.floor((z[0] - pad) * 1000);
         const to = Math.ceil((z[1] + pad) * 1000) + 1;
         const h = await api.history(from, to, maxPoints * 2);
-        if (mine === seq) detail = h;
+        if (mine > shown) {
+          shown = mine;
+          detail = h;
+        }
       } catch (e) {
         console.error(e);
       }

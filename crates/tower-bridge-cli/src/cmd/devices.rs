@@ -66,10 +66,21 @@ pub fn relay(ctx: &Ctx, out: Out, action: Option<RelayAction>) -> Result<()> {
                         eprintln!("Waiting for the pulse to end; Ctrl+C ends it now.");
                         let stop = crate::stop::receiver();
                         let wait = Duration::from_millis(left.unsigned_abs() + 400);
-                        if stop.recv_timeout(wait).is_ok()
-                            && let Some(back) = info.state.map(|s| !s)
-                        {
-                            print_relay(out, &access.set_relay(back)?)?;
+                        if stop.recv_timeout(wait).is_ok() {
+                            // Stopped before it was done (exit 130), with the
+                            // one answer printed above (one JSON object).
+                            let back = match info.state.map(|s| !s) {
+                                Some(back) => {
+                                    let now = access.set_relay(back)?;
+                                    format!(", the relay is {}", output::relay_state(now.state))
+                                }
+                                None => String::new(),
+                            };
+                            return Err(crate::failure(
+                                exit::INTERRUPTED,
+                                format!("pulse ended early{back}"),
+                                None,
+                            ));
                         }
                     }
                 }
@@ -96,6 +107,10 @@ pub fn gps(ctx: &Ctx, out: Out) -> Result<()> {
     if matches!(access, Access::Local(_)) && found {
         let until = std::time::Instant::now() + Duration::from_secs(12);
         while snap.gps.is_none() && std::time::Instant::now() < until {
+            if crate::stop::requested() {
+                access.close();
+                return Err(crate::failure(exit::INTERRUPTED, "stopped", None));
+            }
             std::thread::sleep(Duration::from_millis(200));
             snap = access.snapshot()?;
         }

@@ -1,5 +1,63 @@
 # Changelog
 
+## 1.1.1 (unreleased)
+
+- Alerts: a value that leaves its range again within **Repeat after** of the
+  last notification is notified once that time has passed, if it is still out
+  of range. Before, such an alert stayed silent however long it lasted.
+- Relay: a timed pulse running while the computer sleeps ends at its time
+  after the wake, not as much later as the sleep lasted. A pulse is no longer
+  cut short, with the relay left switched over, when the sensors stop
+  answering and the bridge is opened again.
+- The desktop app quits as with **Quit** when the system or `kill` ends it
+  (SIGTERM, SIGINT, SIGHUP on macOS and Linux): a running relay pulse is
+  switched back and the sensors' state is saved. Its log keeps its last lines
+  and records crashes of its background threads.
+- MQTT: when the app or `run` stops during a relay pulse, the broker gets the
+  switched-back state before `offline`. A broker that accepts the connection
+  and then drops it (the same client ID in use elsewhere, for example) is
+  tried again after a growing delay, not every second.
+- Settings: a setting written by a newer version of TOWER Bridge is kept when
+  an older one (a CLI next to a newer app, for example) saves the file.
+- Local API: one address on the network holds at most 16 of the 64
+  connections, and a request that is not complete 30 seconds after its first
+  byte is closed, so a host on the network cannot block the API without the
+  token. MCP requests need a string or integer `id`; the stdio bridge answers
+  a batch with an error instead of nothing.
+- NFC Tag: spaces, line breaks and other control characters in a URL are
+  percent-encoded, when read (a phone may have written anything) and when
+  written.
+- Charts: zoomed to a few days, the time axis shows the date once a day and
+  the time at the other ticks, instead of one date several times. Panning a
+  zoomed chart no longer stops at an invisible edge while data loads. A value
+  just below zero shows as 0.0, not -0.0.
+- Dashboard: Escape in a chart's colour palette closes only the palette, not
+  a maximized card. The palette and the theme buttons in the sidebar take the
+  arrow keys, and screen readers read the legend's values with their names.
+  The Data page offers no export while a custom date is incomplete.
+- GPS Module: a receiver that missed its setup at power-up gets it again (it
+  kept sending NMEA, which held the bus for seconds every 5 s).
+- A Humidity Tag with an HDC2080 is no longer taken for one with an SHT20 (it
+  showed -46.85 °C); the HDC2080 is not supported.
+- Updates: a release candidate published without GitHub's pre-release mark is
+  not offered, and an answer that cannot be read is tried again the next day,
+  not every hour.
+- Open at Login: a development build never takes the login item over, also
+  when the program that turned it on is gone.
+- The tray's MQTT item no longer waits for a settings save on the main thread,
+  which could freeze the tray.
+- CLI: `config set api.token` refuses a token shorter than 16 characters
+  instead of storing a random one. Ctrl+C ends `relay pulse` with exit code
+  130 and one JSON object, and stops `gps` at once. The dashboard following
+  another instance shows that instance's error (a refused token, say) instead
+  of "no answer".
+- Dependencies: Tauri 2.12.5, rusqlite 0.41 with SQLite 3.54
+  (RUSTSEC-2026-0459), rustls-webpki 0.103.16 (RUSTSEC-2026-0382; MQTT over TLS
+  and the update check), and other updates.
+- Releases: the Windows signing step uses no cached tools, the draft release
+  takes exactly the expected files, and a weekly audit checks the
+  dependencies for new advisories.
+
 ## 1.1.0 (2026-10-23)
 
 - Update notices: once a day the app asks GitHub for the newest release
