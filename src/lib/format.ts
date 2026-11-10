@@ -33,6 +33,8 @@ function separated(f: Intl.NumberFormat, v: number): string {
 
 /** Locale number; digit grouping only from 10 000 up (1013,2 hPa, 12 400 lx). */
 export function fmtNumber(v: number, d: number): string {
+  // -0.03 to one decimal is 0.0, not "-0.0" (Intl keeps the sign).
+  if (Math.abs(v) < 0.5 * 10 ** -d) v = 0;
   const grouping = Math.abs(v) >= 10_000;
   const f = cached(
     `n${d}${grouping}`,
@@ -192,11 +194,22 @@ export function excelDateTimeFormat(): string {
   return `${date} ${cycle === "h12" || cycle === "h11" ? "h:mm:ss AM/PM" : "hh:mm:ss"}`;
 }
 
-/** Chart axis label: clock time for short ranges, date for long ones. */
-export function fmtAxis(ts: number, spanMs: number): string {
+/**
+ * Chart axis label: clock time for short ranges, date for long ones. With
+ * ticks less than a day apart (`stepMs`) over a longer range, the day's
+ * first tick shows the date and the others the time; dates alone would
+ * repeat ("5.11., 5.11., 6.11.").
+ */
+export function fmtAxis(ts: number, spanMs: number, stepMs = 0): string {
   // Zoomed into minutes, ticks are seconds apart: show them.
   if (spanMs <= 600_000) return fmtClock(ts, true);
-  return spanMs <= 2 * 86_400_000 ? fmtClock(ts) : fmtDayMonth(ts);
+  if (spanMs <= 2 * 86_400_000) return fmtClock(ts);
+  if (stepMs > 0 && stepMs < 86_400_000) {
+    const d = new Date(ts);
+    const midnight = d.getHours() === 0 && d.getMinutes() === 0;
+    return midnight ? fmtDayMonth(ts) : fmtClock(ts);
+  }
+  return fmtDayMonth(ts);
 }
 
 /** Compact duration: "10 s", "5 min", "2 h". */

@@ -22,8 +22,10 @@ use tracing::error;
 
 use crate::state::AppState;
 
-/// Kept for the life of the app: the log file writer flushes on drop.
-struct LogGuard(#[allow(dead_code)] Option<tracing_appender::non_blocking::WorkerGuard>);
+/// The log file writer, which flushes when dropped. Tauri keeps managed
+/// state until the process exits without dropping it, so `shutdown` takes
+/// it out at the end: its own last lines would be lost otherwise.
+struct LogGuard(parking_lot::Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>);
 
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
@@ -135,7 +137,9 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
     let paths =
         Paths::resolve(None, simulated).ok_or_else(|| anyhow::anyhow!("no local data folder"))?;
     paths.create()?;
-    app.manage(LogGuard(logging::init(&paths.logs_dir())));
+    app.manage(LogGuard(parking_lot::Mutex::new(logging::init(
+        &paths.logs_dir(),
+    ))));
 
     // The service first: an instance refused for the lock shows no tray.
     let observer = Arc::new(observer::AppObserver::new(handle.clone()));
@@ -159,6 +163,25 @@ fn setup(app: &mut App, simulated: bool, autostarted: bool) -> anyhow::Result<()
         }
         e => e.into(),
     })?;
+    // SIGTERM (`kill`, a session or systemd ending it), SIGINT and SIGHUP
+    // end the app as Quit does: the service stops, so a running relay pulse
+    // is switched back and the sensors' state is saved. That goes through
+    // the main thread; should it hang, the process still ends, after a few
+    // seconds or at a second signal.
+    let exit_handle = handle.clone();
+    let signals = std::sync::atomic::AtomicU32::new(0);
+    if let Err(e) = ctrlc::set_handler(move || {
+        if signals.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > 0 {
+            std::process::exit(1);
+        }
+        exit_handle.exit(0);
+        std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_secs(10));
+            std::process::exit(1);
+        });
+    }) {
+        tracing::warn!("termination signals are not handled: {e}");
+    }
     let tray = tray::TrayController::build(&handle)?;
     observer.set_tray(tray.clone());
     observer.refresh(service.state());
@@ -208,5 +231,8 @@ fn mcp_stdio(simulated: bool) -> i32 {
 pub(crate) fn shutdown(app: &AppHandle, timeout: Duration) {
     if let Some(state) = app.try_state::<AppState>() {
         state.service.shutdown(timeout);
+    }
+    if let Some(log) = app.try_state::<LogGuard>() {
+        drop(log.0.lock().take());
     }
 }

@@ -425,10 +425,10 @@ The structured data of Wikidata is available under the Creative Commons CC0 1.0 
 ## JavaScript packages (5)
 
 - @tauri-apps/api 2.12.4: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
-- marked 18.1.1: MIT, https://github.com/markedjs/marked
-- svelte 5.57.2: MIT, https://github.com/sveltejs/svelte
+- marked 18.1.3: MIT, https://github.com/markedjs/marked
+- svelte 5.57.3: MIT, https://github.com/sveltejs/svelte
 - uplot 1.6.32: MIT, https://github.com/leeoniya/uPlot
-- vite 8.3.4: MIT, https://github.com/vitejs/vite
+- vite 8.3.6: MIT, https://github.com/vitejs/vite
 
 <details>
 <summary>MIT: @tauri-apps/api 2.12.4</summary>
@@ -460,7 +460,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: marked 18.1.1</summary>
+<summary>MIT: marked 18.1.3</summary>
 
 ```text
 # License information
@@ -512,7 +512,7 @@ This software is provided by the copyright holders and contributors “as is” 
 </details>
 
 <details>
-<summary>MIT: svelte 5.57.2</summary>
+<summary>MIT: svelte 5.57.3</summary>
 
 ```text
 Copyright (c) 2016-2025 [Svelte Contributors](https://github.com/sveltejs/svelte/graphs/contributors)
@@ -556,7 +556,7 @@ THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: vite 8.3.4</summary>
+<summary>MIT: vite 8.3.6</summary>
 
 ```text
 # Vite core license
@@ -586,7 +586,7 @@ SOFTWARE.
 
 # Licenses of bundled dependencies
 The published Vite artifact additionally contains code with the following licenses:
-Apache-2.0, BSD-2-Clause, CC0-1.0, ISC, MIT
+BSD-2-Clause, CC0-1.0, ISC, MIT
 
 # Bundled dependencies:
 ## @jridgewell/gen-mapping, @jridgewell/remapping, @jridgewell/sourcemap-codec, @jridgewell/trace-mapping
@@ -690,215 +690,6 @@ Repository: https://github.com/rollup/plugins
 > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 > THE SOFTWARE.
-
----------------------------------------
-
-## @vercel/detect-agent
-License: Apache-2.0
-By: Vercel
-Repository: https://github.com/vercel/vercel
-
-> Apache License
->                            Version 2.0, January 2004
->                         http://www.apache.org/licenses/
-> 
->    TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-> 
->    1. Definitions.
-> 
->       "License" shall mean the terms and conditions for use, reproduction,
->       and distribution as defined by Sections 1 through 9 of this document.
-> 
->       "Licensor" shall mean the copyright owner or entity authorized by
->       the copyright owner that is granting the License.
-> 
->       "Legal Entity" shall mean the union of the acting entity and all
->       other entities that control, are controlled by, or are under common
->       control with that entity. For the purposes of this definition,
->       "control" means (i) the power, direct or indirect, to cause the
->       direction or management of such entity, whether by contract or
->       otherwise, or (ii) ownership of fifty percent (50%) or more of the
->       outstanding shares, or (iii) beneficial ownership of such entity.
-> 
->       "You" (or "Your") shall mean an individual or Legal Entity
->       exercising permissions granted by this License.
-> 
->       "Source" form shall mean the preferred form for making modifications,
->       including but not limited to software source code, documentation
->       source, and configuration files.
-> 
->       "Object" form shall mean any form resulting from mechanical
->       transformation or translation of a Source form, including but
->       not limited to compiled object code, generated documentation,
->       and conversions to other media types.
-> 
->       "Work" shall mean the work of authorship, whether in Source or
->       Object form, made available under the License, as indicated by a
->       copyright notice that is included in or attached to the work
->       (an example is provided in the Appendix below).
-> 
->       "Derivative Works" shall mean any work, whether in Source or Object
->       form, that is based on (or derived from) the Work and for which the
->       editorial revisions, annotations, elaborations, or other modifications
->       represent, as a whole, an original work of authorship. For the purposes
->       of this License, Derivative Works shall not include works that remain
->       separable from, or merely link (or bind by name) to the interfaces of,
->       the Work and Derivative Works thereof.
-> 
->       "Contribution" shall mean any work of authorship, including
->       the original version of the Work and any modifications or additions
->       to that Work or Derivative Works thereof, that is intentionally
->       submitted to Licensor for inclusion in the Work by the copyright owner
->       or by an individual or Legal Entity authorized to submit on behalf of
->       the copyright owner. For the purposes of this definition, "submitted"
->       means any form of electronic, verbal, or written communication sent
->       to the Licensor or its representatives, including but not limited to
->       communication on electronic mailing lists, source code control systems,
->       and issue tracking systems that are managed by, or on behalf of, the
->       Licensor for the purpose of discussing and improving the Work, but
->       excluding communication that is conspicuously marked or otherwise
->       designated in writing by the copyright owner as "Not a Contribution."
-> 
->       "Contributor" shall mean Licensor and any individual or Legal Entity
->       on behalf of whom a Contribution has been received by Licensor and
->       subsequently incorporated within the Work.
-> 
->    2. Grant of Copyright License. Subject to the terms and conditions of
->       this License, each Contributor hereby grants to You a perpetual,
->       worldwide, non-exclusive, no-charge, royalty-free, irrevocable
->       copyright license to reproduce, prepare Derivative Works of,
->       publicly display, publicly perform, sublicense, and distribute the
->       Work and such Derivative Works in Source or Object form.
-> 
->    3. Grant of Patent License. Subject to the terms and conditions of
->       this License, each Contributor hereby grants to You a perpetual,
->       worldwide, non-exclusive, no-charge, royalty-free, irrevocable
->       (except as stated in this section) patent license to make, have made,
->       use, offer to sell, sell, import, and otherwise transfer the Work,
->       where such license applies only to those patent claims licensable
->       by such Contributor that are necessarily infringed by their
->       Contribution(s) alone or by combination of their Contribution(s)
->       with the Work to which such Contribution(s) was submitted. If You
->       institute patent litigation against any entity (including a
->       cross-claim or counterclaim in a lawsuit) alleging that the Work
->       or a Contribution incorporated within the Work constitutes direct
->       or contributory patent infringement, then any patent licenses
->       granted to You under this License for that Work shall terminate
->       as of the date such litigation is filed.
-> 
->    4. Redistribution. You may reproduce and distribute copies of the
->       Work or Derivative Works thereof in any medium, with or without
->       modifications, and in Source or Object form, provided that You
->       meet the following conditions:
-> 
->       (a) You must give any other recipients of the Work or
->           Derivative Works a copy of this License; and
-> 
->       (b) You must cause any modified files to carry prominent notices
->           stating that You changed the files; and
-> 
->       (c) You must retain, in the Source form of any Derivative Works
->           that You distribute, all copyright, patent, trademark, and
->           attribution notices from the Source form of the Work,
->           excluding those notices that do not pertain to any part of
->           the Derivative Works; and
-> 
->       (d) If the Work includes a "NOTICE" text file as part of its
->           distribution, then any Derivative Works that You distribute must
->           include a readable copy of the attribution notices contained
->           within such NOTICE file, excluding those notices that do not
->           pertain to any part of the Derivative Works, in at least one
->           of the following places: within a NOTICE text file distributed
->           as part of the Derivative Works; within the Source form or
->           documentation, if provided along with the Derivative Works; or,
->           within a display generated by the Derivative Works, if and
->           wherever such third-party notices normally appear. The contents
->           of the NOTICE file are for informational purposes only and
->           do not modify the License. You may add Your own attribution
->           notices within Derivative Works that You distribute, alongside
->           or as an addendum to the NOTICE text from the Work, provided
->           that such additional attribution notices cannot be construed
->           as modifying the License.
-> 
->       You may add Your own copyright statement to Your modifications and
->       may provide additional or different license terms and conditions
->       for use, reproduction, or distribution of Your modifications, or
->       for any such Derivative Works as a whole, provided Your use,
->       reproduction, and distribution of the Work otherwise complies with
->       the conditions stated in this License.
-> 
->    5. Submission of Contributions. Unless You explicitly state otherwise,
->       any Contribution intentionally submitted for inclusion in the Work
->       by You to the Licensor shall be under the terms and conditions of
->       this License, without any additional terms or conditions.
->       Notwithstanding the above, nothing herein shall supersede or modify
->       the terms of any separate license agreement you may have executed
->       with Licensor regarding such Contributions.
-> 
->    6. Trademarks. This License does not grant permission to use the trade
->       names, trademarks, service marks, or product names of the Licensor,
->       except as required for reasonable and customary use in describing the
->       origin of the Work and reproducing the content of the NOTICE file.
-> 
->    7. Disclaimer of Warranty. Unless required by applicable law or
->       agreed to in writing, Licensor provides the Work (and each
->       Contributor provides its Contributions) on an "AS IS" BASIS,
->       WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
->       implied, including, without limitation, any warranties or conditions
->       of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
->       PARTICULAR PURPOSE. You are solely responsible for determining the
->       appropriateness of using or redistributing the Work and assume any
->       risks associated with Your exercise of permissions under this License.
-> 
->    8. Limitation of Liability. In no event and under no legal theory,
->       whether in tort (including negligence), contract, or otherwise,
->       unless required by applicable law (such as deliberate and grossly
->       negligent acts) or agreed to in writing, shall any Contributor be
->       liable to You for damages, including any direct, indirect, special,
->       incidental, or consequential damages of any character arising as a
->       result of this License or out of the use or inability to use the
->       Work (including but not limited to damages for loss of goodwill,
->       work stoppage, computer failure or malfunction, or any and all
->       other commercial damages or losses), even if such Contributor
->       has been advised of the possibility of such damages.
-> 
->    9. Accepting Warranty or Additional Liability. While redistributing
->       the Work or Derivative Works thereof, You may choose to offer,
->       and charge a fee for, acceptance of support, warranty, indemnity,
->       or other liability obligations and/or rights consistent with this
->       License. However, in accepting such obligations, You may act only
->       on Your own behalf and on Your sole responsibility, not on behalf
->       of any other Contributor, and only if You agree to indemnify,
->       defend, and hold each Contributor harmless for any liability
->       incurred by, or claims asserted against, such Contributor by reason
->       of your accepting any such warranty or additional liability.
-> 
->    END OF TERMS AND CONDITIONS
-> 
->    APPENDIX: How to apply the Apache License to your work.
-> 
->       To apply the Apache License to your work, attach the following
->       boilerplate notice, with the fields enclosed by brackets "[]"
->       replaced with your own identifying information. (Don't include
->       the brackets!)  The text should be enclosed in the appropriate
->       comment syntax for the file format. We also recommend that a
->       file or class name and description of purpose be included on the
->       same "printed page" as the copyright notice for easier
->       identification within third-party archives.
-> 
->    Copyright 2017 Vercel, Inc.
-> 
->    Licensed under the Apache License, Version 2.0 (the "License");
->    you may not use this file except in compliance with the License.
->    You may obtain a copy of the License at
-> 
->        http://www.apache.org/licenses/LICENSE-2.0
-> 
->    Unless required by applicable law or agreed to in writing, software
->    distributed under the License is distributed on an "AS IS" BASIS,
->    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
->    See the License for the specific language governing permissions and
->    limitations under the License.
 
 ---------------------------------------
 
@@ -1085,7 +876,7 @@ Repositories: https://github.com/sindresorhus/bundle-name, https://github.com/si
 
 ## cac
 License: MIT
-By: egoist
+By: egoist, Kevin Deng <sxzz@sxzz.moe>
 Repository: https://github.com/cacjs/cac
 
 > The MIT License (MIT)
@@ -2372,7 +2163,7 @@ Repository: https://github.com/css-modules/postcss-modules-values
 
 ## postcss-selector-parser
 License: MIT
-By: Ben Briggs, Chris Eppstein
+By: Maxime Thirouin, Ben Briggs, Chris Eppstein
 Repository: https://github.com/postcss/postcss-selector-parser
 
 > Copyright (c) Ben Briggs <beneb.info@gmail.com> (http://beneb.info)
@@ -2554,6 +2345,34 @@ Repository: https://github.com/jshttp/statuses
 > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 > THE SOFTWARE.
+
+---------------------------------------
+
+## std-env
+License: MIT
+Repository: https://github.com/unjs/std-env
+
+> MIT License
+> 
+> Copyright (c) Pooya Parsa <pooya@pi0.io>
+> 
+> Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the "Software"), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+> 
+> The above copyright notice and this permission notice shall be included in all
+> copies or substantial portions of the Software.
+> 
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+> SOFTWARE.
 
 ---------------------------------------
 
@@ -2828,7 +2647,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 
 </details>
 
-## Rust crates (559)
+## Rust crates (558)
 
 - adler2 2.0.1: 0BSD OR MIT OR Apache-2.0, used under MIT, https://github.com/oyvindln/adler2
 - aho-corasick 1.1.5: Unlicense OR MIT, used under MIT, https://github.com/BurntSushi/aho-corasick
@@ -2844,9 +2663,9 @@ Repository: https://github.com/sveltejs/zimmerframe
 - approx 0.5.1: Apache-2.0, https://github.com/brendanzab/approx
 - async-broadcast 0.7.2: MIT OR Apache-2.0, used under MIT, https://github.com/smol-rs/async-broadcast
 - async-channel 2.5.0: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/async-channel
-- async-executor 1.14.0: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/async-executor
+- async-executor 1.14.1: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/async-executor
 - async-io 2.6.0: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/async-io
-- async-lock 3.4.2: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/async-lock
+- async-lock 3.5.0: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/async-lock
 - async-process 2.5.0: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/async-process
 - async-recursion 1.2.0: MIT OR Apache-2.0, used under MIT, https://github.com/dcchut/async-recursion
 - async-signal 0.2.14: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/async-signal
@@ -2857,8 +2676,8 @@ Repository: https://github.com/sveltejs/zimmerframe
 - atomic 0.6.1: Apache-2.0/MIT, used under MIT, https://github.com/Amanieu/atomic-rs
 - atomic-waker 1.1.2: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/atomic-waker
 - auto-launch 0.6.0: MIT, https://github.com/zzzgydi/auto-launch.git
-- aws-lc-rs 1.18.2: ISC AND (Apache-2.0 OR ISC), used under ISC, https://github.com/aws/aws-lc-rs
-- aws-lc-sys 0.46.0: ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0), used under ISC AND Apache-2.0 AND MIT AND BSD-3-Clause, https://github.com/aws/aws-lc-rs
+- aws-lc-rs 1.19.0: ISC AND (Apache-2.0 OR ISC), used under ISC, https://github.com/aws/aws-lc-rs
+- aws-lc-sys 0.47.0: ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0), used under ISC AND Apache-2.0 AND MIT AND BSD-3-Clause, https://github.com/aws/aws-lc-rs
 - axum 0.8.9: MIT, https://github.com/tokio-rs/axum
 - axum-core 0.5.6: MIT, https://github.com/tokio-rs/axum
 - base64 0.21.7: MIT OR Apache-2.0, used under MIT, https://github.com/marshallpierce/rust-base64
@@ -2873,8 +2692,8 @@ Repository: https://github.com/sveltejs/zimmerframe
 - block-buffer 0.10.4: MIT OR Apache-2.0, used under MIT, https://github.com/RustCrypto/utils
 - block2 0.6.2: MIT, https://github.com/madsmtm/objc2
 - blocking 1.7.0: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/blocking
-- brotli 9.0.0: BSD-3-Clause AND MIT, https://github.com/dropbox/rust-brotli
-- brotli-decompressor 6.0.1: BSD-3-Clause/MIT, used under MIT, https://github.com/dropbox/rust-brotli-decompressor
+- brotli 9.1.1: BSD-3-Clause AND MIT, https://github.com/dropbox/rust-brotli
+- brotli-decompressor 6.3.1: BSD-3-Clause/MIT, used under MIT, https://github.com/dropbox/rust-brotli-decompressor
 - bs58 0.5.1: MIT/Apache-2.0, used under MIT, https://github.com/Nullus157/bs58-rs
 - bumpalo 3.20.3: MIT OR Apache-2.0, used under MIT, https://github.com/fitzgen/bumpalo
 - by_address 1.2.1: MIT OR Apache-2.0, used under MIT, https://github.com/mbrubeck/by_address
@@ -2890,6 +2709,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - castaway 0.2.4: MIT, https://github.com/sagebind/castaway
 - cfb 0.14.0: MIT, https://github.com/mdsteele/rust-cfb
 - cfg-if 1.0.5: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/cfg-if
+- chacha20 0.10.2: MIT OR Apache-2.0, used under MIT, https://github.com/RustCrypto/stream-ciphers
 - chrono 0.4.45: MIT OR Apache-2.0, used under MIT, https://github.com/chronotope/chrono
 - clap 4.6.7: MIT OR Apache-2.0, used under MIT, https://github.com/clap-rs/clap
 - clap_builder 4.6.7: MIT OR Apache-2.0, used under MIT, https://github.com/clap-rs/clap
@@ -2898,6 +2718,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - colorchoice 1.0.5: MIT OR Apache-2.0, used under MIT, https://github.com/rust-cli/anstyle.git
 - compact_str 0.9.1: MIT, https://github.com/ParkMyCar/compact_str
 - concurrent-queue 2.5.0: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/concurrent-queue
+- constant_time_eq 0.6.1: CC0-1.0 OR MIT-0 OR Apache-2.0, used under Apache-2.0, https://codeberg.org/cesarb/constant_time_eq
 - convert_case 0.10.0: MIT, https://github.com/rutrum/convert-case
 - cookie 0.18.2: MIT OR Apache-2.0, used under MIT, https://github.com/SergioBenitez/cookie-rs
 - core-foundation 0.10.1: MIT OR Apache-2.0, used under MIT, https://github.com/servo/core-foundation-rs
@@ -2906,7 +2727,8 @@ Repository: https://github.com/sveltejs/zimmerframe
 - core-graphics-types 0.2.0: MIT OR Apache-2.0, used under MIT, https://github.com/servo/core-foundation-rs
 - core_maths 0.1.1: MIT, https://github.com/robertbastian/core_maths
 - cpufeatures 0.2.17: MIT OR Apache-2.0, used under MIT, https://github.com/RustCrypto/utils
-- crc32fast 1.5.2: MIT OR Apache-2.0, used under MIT, https://github.com/srijs/rust-crc32fast
+- cpufeatures 0.3.1: MIT OR Apache-2.0, used under MIT, https://github.com/RustCrypto/utils
+- crc32fast 1.5.4: MIT OR Apache-2.0, used under MIT, https://github.com/srijs/rust-crc32fast
 - critical-section 1.2.0: MIT OR Apache-2.0, used under MIT, https://github.com/rust-embedded/critical-section
 - crossbeam-channel 0.5.17: MIT OR Apache-2.0, used under MIT, https://github.com/crossbeam-rs/crossbeam
 - crossbeam-utils 0.8.23: MIT OR Apache-2.0, used under MIT, https://github.com/crossbeam-rs/crossbeam
@@ -2922,9 +2744,6 @@ Repository: https://github.com/sveltejs/zimmerframe
 - darling_core 0.24.1: MIT, https://github.com/TedDriggs/darling
 - darling_macro 0.24.1: MIT, https://github.com/TedDriggs/darling
 - dbus 0.9.12: Apache-2.0/MIT, used under MIT, https://github.com/diwic/dbus-rs
-- defmt 1.2.0: MIT OR Apache-2.0, used under MIT, https://github.com/knurling-rs/defmt
-- defmt-macros 1.2.0: MIT OR Apache-2.0, used under MIT, https://github.com/knurling-rs/defmt
-- defmt-parser 1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/knurling-rs/defmt
 - deltae 0.3.2: MIT, https://gitlab.com/ryanobeirne/deltae.git
 - deranged 0.5.9: MIT OR Apache-2.0, used under MIT, https://github.com/jhpratt/deranged
 - derive_more 2.1.1: MIT, https://github.com/JelteF/derive_more
@@ -2950,7 +2769,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - enumflags2 0.7.12: MIT OR Apache-2.0, used under MIT, https://github.com/meithecatte/enumflags2
 - enumflags2_derive 0.7.12: MIT OR Apache-2.0, used under MIT, https://github.com/meithecatte/enumflags2
 - equivalent 1.0.3: Apache-2.0 OR MIT, used under MIT, https://github.com/indexmap-rs/equivalent
-- erased-serde 0.4.10: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/erased-serde
+- erased-serde 0.4.11: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/erased-serde
 - errno 0.3.14: MIT OR Apache-2.0, used under MIT, https://github.com/lambda-fairy/rust-errno
 - euclid 0.22.14: MIT OR Apache-2.0, used under MIT, https://github.com/servo/euclid
 - event-listener 5.4.2: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/event-listener
@@ -2962,15 +2781,15 @@ Repository: https://github.com/sveltejs/zimmerframe
 - fdeflate 0.3.7: MIT OR Apache-2.0, used under MIT, https://github.com/image-rs/fdeflate
 - field-offset 0.3.6: MIT OR Apache-2.0, used under MIT, https://github.com/Diggsey/rust-field-offset
 - filedescriptor 0.8.3: MIT, https://github.com/wezterm/wezterm
-- finl_unicode 1.5.0: (MIT OR Apache-2.0) AND Unicode-DFS-2016, used under MIT AND Unicode-DFS-2016, https://github.com/dahosek/finl_unicode
+- finl_unicode 1.5.1: (MIT OR Apache-2.0) AND Unicode-DFS-2016, used under MIT AND Unicode-DFS-2016, https://github.com/dahosek/finl_unicode
 - fixedbitset 0.4.2: MIT/Apache-2.0, used under MIT, https://github.com/petgraph/fixedbitset
-- fixedbitset 0.5.7: MIT OR Apache-2.0, used under MIT, https://github.com/petgraph/fixedbitset
-- flate2 1.1.10: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/flate2-rs
+- fixedbitset 0.5.9: MIT OR Apache-2.0, used under MIT, https://github.com/petgraph/fixedbitset
+- flate2 1.1.11: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/flate2-rs
 - flume 0.11.1: Apache-2.0/MIT, used under MIT, https://github.com/zesterer/flume
 - fnv 1.0.7: Apache-2.0 / MIT, used under MIT, https://github.com/servo/rust-fnv
 - foldhash 0.1.5: Zlib, https://github.com/orlp/foldhash
 - foldhash 0.2.0: Zlib, https://github.com/orlp/foldhash
-- fontdue 0.9.4: MIT OR Apache-2.0 OR Zlib, used under MIT, https://github.com/mooman219/fontdue
+- fontdue 0.9.5: MIT OR Apache-2.0 OR Zlib, used under MIT, https://github.com/mooman219/fontdue
 - foreign-types 0.5.0: MIT/Apache-2.0, used under MIT, https://github.com/sfackler/foreign-types
 - foreign-types-macros 0.2.4: MIT/Apache-2.0, used under MIT, https://github.com/sfackler/foreign-types
 - foreign-types-shared 0.3.1: MIT/Apache-2.0, used under MIT, https://github.com/sfackler/foreign-types
@@ -3023,14 +2842,14 @@ Repository: https://github.com/sveltejs/zimmerframe
 - hyper-util 0.1.21: MIT, https://github.com/hyperium/hyper-util
 - i2cdev 0.6.2: MIT/Apache-2.0, used under MIT, https://github.com/rust-embedded/rust-i2cdev
 - iana-time-zone 0.1.65: MIT OR Apache-2.0, used under MIT, https://github.com/strawlab/iana-time-zone
-- ico 0.5.0: MIT, https://github.com/mdsteele/rust-ico
-- icu_collections 2.3.0: Unicode-3.0, https://github.com/unicode-org/icu4x
-- icu_locale_core 2.3.0: Unicode-3.0, https://github.com/unicode-org/icu4x
-- icu_normalizer 2.3.0: Unicode-3.0, https://github.com/unicode-org/icu4x
-- icu_normalizer_data 2.3.0: Unicode-3.0, https://github.com/unicode-org/icu4x
-- icu_properties 2.3.0: Unicode-3.0, https://github.com/unicode-org/icu4x
-- icu_properties_data 2.3.0: Unicode-3.0, https://github.com/unicode-org/icu4x
-- icu_provider 2.3.1: Unicode-3.0, https://github.com/unicode-org/icu4x
+- ico 0.6.0: MIT, https://github.com/mdsteele/rust-ico
+- icu_collections 2.4.0: Unicode-3.0, https://github.com/unicode-org/icu4x
+- icu_locale_core 2.4.0: Unicode-3.0, https://github.com/unicode-org/icu4x
+- icu_normalizer 2.4.0: Unicode-3.0, https://github.com/unicode-org/icu4x
+- icu_normalizer_data 2.4.0: Unicode-3.0, https://github.com/unicode-org/icu4x
+- icu_properties 2.4.0: Unicode-3.0, https://github.com/unicode-org/icu4x
+- icu_properties_data 2.4.0: Unicode-3.0, https://github.com/unicode-org/icu4x
+- icu_provider 2.4.0: Unicode-3.0, https://github.com/unicode-org/icu4x
 - ident_case 1.0.1: MIT/Apache-2.0, used under MIT, https://github.com/TedDriggs/ident_case
 - idna 1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-url/
 - idna_adapter 1.2.2: Apache-2.0 OR MIT, used under MIT, https://github.com/hsivonen/idna_adapter
@@ -3045,11 +2864,11 @@ Repository: https://github.com/sveltejs/zimmerframe
 - is-wsl 0.4.0: MIT, https://github.com/TheLarkInn/is-wsl
 - is_terminal_polyfill 1.70.2: MIT OR Apache-2.0, used under MIT, https://github.com/polyfill-rs/is_terminal_polyfill
 - itertools 0.14.0: MIT OR Apache-2.0, used under MIT, https://github.com/rust-itertools/itertools
-- itoa 1.0.18: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/itoa
+- itoa 1.0.19: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/itoa
 - javascriptcore-rs 1.1.2: MIT, https://github.com/tauri-apps/javascriptcore-rs
 - javascriptcore-rs-sys 1.1.1: MIT, https://github.com/tauri-apps/javascriptcore-rs
-- jiff 0.2.38: Unlicense OR MIT, used under MIT, https://github.com/BurntSushi/jiff
-- jiff-core 0.1.1: Unlicense OR MIT, used under MIT, https://github.com/BurntSushi/jiff
+- jiff 0.2.41: Unlicense OR MIT, used under MIT, https://github.com/BurntSushi/jiff
+- jiff-core 0.1.4: Unlicense OR MIT, used under MIT, https://github.com/BurntSushi/jiff
 - jiff-tzdb 0.1.9: Unlicense OR MIT, used under MIT, https://github.com/BurntSushi/jiff
 - jiff-tzdb-platform 0.1.3: Unlicense OR MIT, used under MIT, https://github.com/BurntSushi/jiff
 - json-patch 4.2.0: MIT/Apache-2.0, used under MIT, https://github.com/idubrov/json-patch
@@ -3064,13 +2883,13 @@ Repository: https://github.com/sveltejs/zimmerframe
 - libdbus-sys 0.2.7: Apache-2.0/MIT, used under MIT, https://github.com/diwic/dbus-rs
 - libloading 0.7.4: ISC, https://github.com/nagisa/rust_libloading/
 - libm 0.2.16: MIT, https://github.com/rust-lang/compiler-builtins
-- libsqlite3-sys 0.38.2: MIT, https://github.com/rusqlite/rusqlite
+- libsqlite3-sys 0.39.1: MIT, https://github.com/rusqlite/rusqlite
 - line-clipping 0.3.8: MIT OR Apache-2.0, used under MIT, https://github.com/ratatui/line-clipping
 - linux-raw-sys 0.12.1: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT, used under MIT, https://github.com/sunfishcode/linux-raw-sys
 - litemap 0.8.3: Unicode-3.0, https://github.com/unicode-org/icu4x
 - litrs 1.0.1: MIT OR Apache-2.0, used under MIT, https://github.com/LukasKalbertodt/litrs
 - lock_api 0.4.14: MIT OR Apache-2.0, used under MIT, https://github.com/Amanieu/parking_lot
-- log 0.4.34: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/log
+- log 0.4.35: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/log
 - lru 0.18.5: MIT, https://github.com/jeromefroe/lru-rs.git
 - mac-notification-sys 0.6.15: MIT/Apache-2.0, used under MIT, https://github.com/h4llow3En/mac-notification-sys
 - mac_address 1.2.1: MIT OR Apache-2.0, used under MIT, https://github.com/repnop/mac_address
@@ -3080,7 +2899,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - memchr 2.8.3: Unlicense OR MIT, used under MIT, https://github.com/BurntSushi/memchr
 - memmem 0.1.1: MIT/Apache-2.0, used under MIT, http://github.com/jneem/memmem
 - memoffset 0.9.1: MIT, https://github.com/Gilnaa/memoffset
-- mime 0.3.17: MIT OR Apache-2.0, used under MIT, https://github.com/hyperium/mime
+- mime 0.3.18: MIT OR Apache-2.0, used under MIT, https://github.com/hyperium/mime
 - minimal-lexical 0.2.1: MIT/Apache-2.0, used under MIT, https://github.com/Alexhuszagh/minimal-lexical
 - miniz_oxide 0.8.9: MIT OR Zlib OR Apache-2.0, used under MIT, https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
 - miniz_oxide 0.9.1: MIT OR Zlib OR Apache-2.0, used under MIT, https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
@@ -3092,7 +2911,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - nix 0.29.0: MIT, https://github.com/nix-rust/nix
 - nix 0.31.3: MIT, https://github.com/nix-rust/nix
 - nom 7.1.3: MIT, https://github.com/Geal/nom
-- notify-rust 4.18.2: MIT OR Apache-2.0, used under MIT, https://github.com/hoodie/notify-rust
+- notify-rust 4.19.0: MIT OR Apache-2.0, used under MIT, https://github.com/hoodie/notify-rust
 - nu-ansi-term 0.50.3: MIT, https://github.com/nushell/nu-ansi-term
 - num-conv 0.2.2: MIT OR Apache-2.0, used under MIT, https://github.com/jhpratt/num-conv
 - num-derive 0.4.2: MIT OR Apache-2.0, used under MIT, https://github.com/rust-num/num-derive
@@ -3113,8 +2932,8 @@ Repository: https://github.com/sveltejs/zimmerframe
 - objc2-web-kit 0.3.2: Zlib OR Apache-2.0 OR MIT, used under MIT, https://github.com/madsmtm/objc2
 - once_cell 1.21.4: MIT OR Apache-2.0, used under MIT, https://github.com/matklad/once_cell
 - once_cell_polyfill 1.70.2: MIT OR Apache-2.0, used under MIT, https://github.com/polyfill-rs/once_cell_polyfill
-- open 5.4.4: MIT, https://github.com/Byron/open-rs
-- openssl-probe 0.2.1: MIT OR Apache-2.0, used under MIT, https://github.com/rustls/openssl-probe
+- open 5.4.5: MIT, https://github.com/Byron/open-rs
+- openssl-probe 0.2.2: MIT OR Apache-2.0, used under MIT, https://github.com/rustls/openssl-probe
 - option-ext 0.2.0: MPL-2.0, https://github.com/soc/option-ext.git
 - ordered-float 4.6.0: MIT, https://github.com/reem/rust-ordered-float
 - ordered-stream 0.2.0: MIT OR Apache-2.0, used under MIT, https://github.com/danieldg/ordered-stream
@@ -3128,10 +2947,11 @@ Repository: https://github.com/sveltejs/zimmerframe
 - parking_lot 0.12.5: MIT OR Apache-2.0, used under MIT, https://github.com/Amanieu/parking_lot
 - parking_lot_core 0.9.12: MIT OR Apache-2.0, used under MIT, https://github.com/Amanieu/parking_lot
 - percent-encoding 2.3.2: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-url/
-- pest 2.9.4: MIT OR Apache-2.0, used under MIT, https://github.com/pest-parser/pest
-- pest_derive 2.9.4: MIT OR Apache-2.0, used under MIT, https://github.com/pest-parser/pest
-- pest_generator 2.9.4: MIT OR Apache-2.0, used under MIT, https://github.com/pest-parser/pest
-- pest_meta 2.9.4: MIT OR Apache-2.0, used under MIT, https://github.com/pest-parser/pest
+- pest 2.9.5: MIT OR Apache-2.0, used under MIT, https://github.com/pest-parser/pest
+- pest_derive 2.9.5: MIT OR Apache-2.0, used under MIT, https://github.com/pest-parser/pest
+- pest_generator 2.9.5: MIT OR Apache-2.0, used under MIT, https://github.com/pest-parser/pest
+- pest_meta 2.9.5: MIT OR Apache-2.0, used under MIT, https://github.com/pest-parser/pest
+- pest_stack_guard 1.0.1: MIT OR Apache-2.0, used under MIT, https://github.com/pest-parser/pest_stack_guard
 - phf 0.11.3: MIT, https://github.com/rust-phf/rust-phf
 - phf 0.13.1: MIT, https://github.com/rust-phf/rust-phf
 - phf_generator 0.11.3: MIT, https://github.com/rust-phf/rust-phf
@@ -3142,14 +2962,12 @@ Repository: https://github.com/sveltejs/zimmerframe
 - phf_shared 0.13.1: MIT, https://github.com/rust-phf/rust-phf
 - pin-project-lite 0.2.17: Apache-2.0 OR MIT, used under MIT, https://github.com/taiki-e/pin-project-lite
 - piper 0.2.5: MIT OR Apache-2.0, used under MIT, https://github.com/smol-rs/piper
-- plist 1.10.1: MIT, https://github.com/ebarnard/rust-plist/
-- png 0.17.16: MIT OR Apache-2.0, used under MIT, https://github.com/image-rs/image-png
+- plist 1.10.3: MIT, https://github.com/ebarnard/rust-plist/
 - png 0.18.1: MIT OR Apache-2.0, used under MIT, https://github.com/image-rs/image-png
 - polling 3.11.0: Apache-2.0 OR MIT, used under MIT, https://github.com/smol-rs/polling
 - portable-atomic 1.15.0: Apache-2.0 OR MIT, used under MIT, https://github.com/taiki-e/portable-atomic
 - potential_utf 0.1.6: Unicode-3.0, https://github.com/unicode-org/icu4x
 - powerfmt 0.2.1: MIT OR Apache-2.0, used under MIT, https://github.com/jhpratt/powerfmt
-- ppv-lite86 0.2.21: MIT OR Apache-2.0, used under MIT, https://github.com/cryptocorrosion/cryptocorrosion
 - precomputed-hash 0.1.1: MIT, https://github.com/emilio/precomputed-hash
 - proc-macro-crate 1.3.1: MIT OR Apache-2.0, used under MIT, https://github.com/bkchr/proc-macro-crate
 - proc-macro-crate 2.0.2: MIT OR Apache-2.0, used under MIT, https://github.com/bkchr/proc-macro-crate
@@ -3157,15 +2975,14 @@ Repository: https://github.com/sveltejs/zimmerframe
 - proc-macro-error 1.0.4: MIT OR Apache-2.0, used under MIT, https://gitlab.com/CreepySkeleton/proc-macro-error
 - proc-macro-error-attr 1.0.4: MIT OR Apache-2.0, used under MIT, https://gitlab.com/CreepySkeleton/proc-macro-error
 - proc-macro2 1.0.107: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/proc-macro2
-- psm 0.1.24: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/stacker/
+- psm 0.1.32: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/stacker/
 - pxfm 0.1.30: BSD-3-Clause OR Apache-2.0, used under BSD-3-Clause, https://github.com/awxkee/pxfm
 - quick-xml 0.42.0: MIT, https://github.com/tafia/quick-xml
 - quote 1.0.47: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/quote
+- rand 0.10.3: MIT OR Apache-2.0, used under MIT, https://github.com/rust-random/rand
 - rand 0.8.8: MIT OR Apache-2.0, used under MIT, https://github.com/rust-random/rand
-- rand 0.9.5: MIT OR Apache-2.0, used under MIT, https://github.com/rust-random/rand
-- rand_chacha 0.9.0: MIT OR Apache-2.0, used under MIT, https://github.com/rust-random/rand
+- rand_core 0.10.1: MIT OR Apache-2.0, used under MIT, https://github.com/rust-random/rand_core
 - rand_core 0.6.4: MIT OR Apache-2.0, used under MIT, https://github.com/rust-random/rand
-- rand_core 0.9.5: MIT OR Apache-2.0, used under MIT, https://github.com/rust-random/rand
 - ratatui 0.30.2: MIT, https://github.com/ratatui/ratatui
 - ratatui-core 0.1.2: MIT, https://github.com/ratatui/ratatui
 - ratatui-crossterm 0.1.2: MIT, https://github.com/ratatui/ratatui
@@ -3179,19 +2996,19 @@ Repository: https://github.com/sveltejs/zimmerframe
 - regex 1.13.1: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/regex
 - regex-automata 0.4.18: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/regex
 - regex-syntax 0.8.11: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/regex
-- rfd 0.16.0: MIT, https://github.com/PolyMeilex/rfd
+- rfd 0.17.2: MIT, https://github.com/PolyMeilex/rfd
 - ring 0.17.14: Apache-2.0 AND ISC, https://github.com/briansmith/ring
 - rumqttc 0.25.1: Apache-2.0, https://github.com/bytebeamio/rumqtt
-- rusqlite 0.40.2: MIT, https://github.com/rusqlite/rusqlite
-- rust_xlsxwriter 0.100.0: MIT OR Apache-2.0, used under MIT, https://github.com/jmcnamara/rust_xlsxwriter
+- rusqlite 0.41.1: MIT, https://github.com/rusqlite/rusqlite
+- rust_xlsxwriter 0.102.0: MIT OR Apache-2.0, used under MIT, https://github.com/jmcnamara/rust_xlsxwriter
 - rustc-hash 2.1.3: Apache-2.0 OR MIT, used under MIT, https://github.com/rust-lang/rustc-hash
-- rustix 1.1.5: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT, used under MIT, https://github.com/bytecodealliance/rustix
+- rustix 1.1.6: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT, used under MIT, https://github.com/bytecodealliance/rustix
 - rustls 0.23.46: Apache-2.0 OR ISC OR MIT, used under MIT, https://github.com/rustls/rustls
 - rustls-native-certs 0.8.5: Apache-2.0 OR ISC OR MIT, used under MIT, https://github.com/rustls/rustls-native-certs
 - rustls-pemfile 2.2.0: Apache-2.0 OR ISC OR MIT, used under MIT, https://github.com/rustls/pemfile
 - rustls-pki-types 1.15.1: MIT OR Apache-2.0, used under MIT, https://github.com/rustls/pki-types
 - rustls-webpki 0.102.8: ISC, https://github.com/rustls/webpki
-- rustls-webpki 0.103.15: ISC, https://github.com/rustls/webpki
+- rustls-webpki 0.103.16: ISC, https://github.com/rustls/webpki
 - rustversion 1.0.23: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/rustversion
 - ryu 1.0.23: Apache-2.0 OR BSL-1.0, used under Apache-2.0, https://github.com/dtolnay/ryu
 - same-file 1.0.6: Unlicense/MIT, used under MIT, https://github.com/BurntSushi/same-file
@@ -3214,7 +3031,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - serde_path_to_error 0.1.20: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/path-to-error
 - serde_repr 0.1.21: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/serde-repr
 - serde_spanned 0.6.9: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
-- serde_spanned 1.1.2: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
+- serde_spanned 1.1.3: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
 - serde_urlencoded 0.7.1: MIT/Apache-2.0, used under MIT, https://github.com/nox/serde_urlencoded
 - serde_with 3.24.0: MIT OR Apache-2.0, used under MIT, https://github.com/jonasbb/serde_with/
 - serde_with_macros 3.24.0: MIT OR Apache-2.0, used under MIT, https://github.com/jonasbb/serde_with/
@@ -3229,7 +3046,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - simd-adler32 0.3.10: MIT, https://github.com/mcountryman/simd-adler32
 - siphasher 1.0.4: MIT OR Apache-2.0, used under MIT, https://github.com/jedisct1/rust-siphash
 - slab 0.4.12: MIT, https://github.com/tokio-rs/slab
-- smallvec 1.16.3: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-smallvec
+- smallvec 1.16.5: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-smallvec
 - smappservice-rs 0.1.3: MIT, https://github.com/gethopp/smappservice-rs
 - socket2 0.6.5: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/socket2
 - softbuffer 0.4.8: MIT OR Apache-2.0, used under MIT, https://github.com/rust-windowing/softbuffer
@@ -3248,22 +3065,22 @@ Repository: https://github.com/sveltejs/zimmerframe
 - symlink 0.1.0: MIT/Apache-2.0, used under MIT, https://gitlab.com/chris-morgan/symlink
 - syn 1.0.109: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/syn
 - syn 2.0.119: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/syn
-- syn 3.0.9: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/syn
+- syn 3.0.10: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/syn
 - sync_wrapper 1.0.2: Apache-2.0, https://github.com/Actyx/sync_wrapper
 - synstructure 0.14.0: MIT, https://github.com/mystor/synstructure
 - sys-locale 0.3.2: MIT OR Apache-2.0, used under MIT, https://github.com/1Password/sys-locale
-- tao 0.37.1: Apache-2.0, https://github.com/tauri-apps/tao
-- tauri 2.12.4: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
-- tauri-codegen 2.7.3: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
-- tauri-macros 2.7.3: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
+- tao 0.37.2: Apache-2.0, https://github.com/tauri-apps/tao
+- tauri 2.12.5: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
+- tauri-codegen 2.7.4: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
+- tauri-macros 2.7.4: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
 - tauri-plugin-autostart 2.7.0: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/plugins-workspace
-- tauri-plugin-dialog 2.8.3: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/plugins-workspace
+- tauri-plugin-dialog 2.8.4: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/plugins-workspace
 - tauri-plugin-fs 2.7.1: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/plugins-workspace
-- tauri-plugin-notification 2.7.0: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/plugins-workspace
+- tauri-plugin-notification 2.8.0: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/plugins-workspace
 - tauri-plugin-opener 2.7.2: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/plugins-workspace
-- tauri-plugin-single-instance 2.5.4: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/plugins-workspace
+- tauri-plugin-single-instance 2.5.5: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/plugins-workspace
 - tauri-runtime 2.12.2: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
-- tauri-runtime-wry 2.12.2: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
+- tauri-runtime-wry 2.12.3: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
 - tauri-utils 2.10.2: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/tauri
 - tauri-winrt-notification 0.8.1: MIT OR Apache-2.0, used under MIT, https://github.com/tauri-apps/winrt-notification
 - tempfile 3.27.0: MIT OR Apache-2.0, used under MIT, https://github.com/Stebalien/tempfile
@@ -3280,21 +3097,21 @@ Repository: https://github.com/sveltejs/zimmerframe
 - time 0.3.55: MIT OR Apache-2.0, used under MIT, https://github.com/time-rs/time
 - time-core 0.1.9: MIT OR Apache-2.0, used under MIT, https://github.com/time-rs/time
 - time-macros 0.2.32: MIT OR Apache-2.0, used under MIT, https://github.com/time-rs/time
-- tinystr 0.8.4: Unicode-3.0, https://github.com/unicode-org/icu4x
+- tinystr 0.8.5: Unicode-3.0, https://github.com/unicode-org/icu4x
 - tinyvec 1.13.3: Zlib OR Apache-2.0 OR MIT, used under MIT, https://github.com/Lokathor/tinyvec
-- tokio 1.53.3: MIT, https://github.com/tokio-rs/tokio
+- tokio 1.54.1: MIT, https://github.com/tokio-rs/tokio
 - tokio-macros 2.7.2: MIT, https://github.com/tokio-rs/tokio
 - tokio-rustls 0.26.6: MIT OR Apache-2.0, used under MIT, https://github.com/rustls/tokio-rustls
 - tokio-stream 0.1.19: MIT, https://github.com/tokio-rs/tokio
 - tokio-util 0.7.20: MIT, https://github.com/tokio-rs/tokio
-- toml 1.1.8+spec-1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
+- toml 1.2.1+spec-1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
 - toml_datetime 0.6.3: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
-- toml_datetime 1.1.2+spec-1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
+- toml_datetime 1.1.3+spec-1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
 - toml_edit 0.19.15: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
 - toml_edit 0.20.2: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
-- toml_edit 0.25.17+spec-1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
+- toml_edit 0.25.19+spec-1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
 - toml_parser 1.1.5+spec-1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
-- toml_writer 1.1.3+spec-1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
+- toml_writer 1.2.0+spec-1.1.0: MIT OR Apache-2.0, used under MIT, https://github.com/toml-rs/toml
 - tower 0.5.3: MIT, https://github.com/tower-rs/tower
 - tower-layer 0.3.3: MIT, https://github.com/tower-rs/tower
 - tower-service 0.3.3: MIT, https://github.com/tower-rs/tower
@@ -3307,7 +3124,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - tray-icon 0.25.1: MIT OR Apache-2.0, used under MIT, https://github.com/tauri-apps/tray-icon
 - try-lock 0.2.5: MIT, https://github.com/seanmonstar/try-lock
 - ttf-parser 0.25.1: MIT OR Apache-2.0, used under MIT, https://github.com/harfbuzz/ttf-parser
-- typed-path 0.12.3: MIT OR Apache-2.0, used under MIT, https://github.com/chipsenkbeil/typed-path
+- typed-path 0.13.0: MIT OR Apache-2.0, used under MIT, https://github.com/chipsenkbeil/typed-path
 - typeid 1.0.3: MIT OR Apache-2.0, used under MIT, https://github.com/dtolnay/typeid
 - typenum 1.20.1: MIT OR Apache-2.0, used under MIT, https://github.com/paholg/typenum
 - ucd-trie 0.1.7: MIT OR Apache-2.0, used under MIT, https://github.com/BurntSushi/ucd-generate
@@ -3315,16 +3132,17 @@ Repository: https://github.com/sveltejs/zimmerframe
 - unicode-ident 1.0.27: (MIT OR Apache-2.0) AND Unicode-3.0, used under MIT AND Unicode-3.0, https://github.com/dtolnay/unicode-ident
 - unicode-segmentation 1.13.3: MIT OR Apache-2.0, used under MIT, https://github.com/unicode-rs/unicode-segmentation
 - unicode-truncate 2.0.1: MIT OR Apache-2.0, used under MIT, https://github.com/Aetf/unicode-truncate
-- unicode-width 0.2.2: MIT OR Apache-2.0, used under MIT, https://github.com/unicode-rs/unicode-width
+- unicode-width 0.2.3: MIT OR Apache-2.0, used under MIT, https://github.com/unicode-rs/unicode-width
 - untrusted 0.9.0: ISC, https://github.com/briansmith/untrusted
-- ureq 3.5.0: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/ureq
-- ureq-proto 0.6.5: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/ureq-proto
+- ureq 3.5.1: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/ureq
+- ureq-proto 0.7.1: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/ureq-proto
 - url 2.5.8: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-url
 - urlpattern 0.6.0: MIT, https://github.com/denoland/rust-urlpattern
 - utf8-zero 0.8.1: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/utf8-zero
-- utf8_iter 1.0.4: Apache-2.0 OR MIT, used under MIT, https://github.com/hsivonen/utf8_iter
+- utf8_iter 1.1.0: Apache-2.0 OR MIT, used under MIT, https://github.com/hsivonen/utf8_iter
 - utf8parse 0.2.2: Apache-2.0 OR MIT, used under MIT, https://github.com/alacritty/vte
-- uuid 1.28.0: Apache-2.0 OR MIT, used under MIT, https://github.com/uuid-rs/uuid
+- utf_types 1.0.0: Apache-2.0 OR MIT, used under MIT, https://github.com/hsivonen/utf_types
+- uuid 1.29.2: Apache-2.0 OR MIT, used under MIT, https://github.com/uuid-rs/uuid
 - vtparse 0.6.2: MIT, https://github.com/wez/wezterm
 - walkdir 2.5.0: Unlicense/MIT, used under MIT, https://github.com/BurntSushi/walkdir
 - want 0.3.2: MIT, https://github.com/seanmonstar/want
@@ -3355,43 +3173,43 @@ Repository: https://github.com/sveltejs/zimmerframe
 - windows-registry 0.6.1: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
 - windows-result 0.4.1: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
 - windows-strings 0.5.1: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
-- windows-sys 0.60.2: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
 - windows-sys 0.61.2: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
-- windows-targets 0.53.5: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
 - windows-threading 0.2.1: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
 - windows-version 0.1.7: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
-- windows_x86_64_gnu 0.53.1: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
-- windows_x86_64_msvc 0.53.1: MIT OR Apache-2.0, used under MIT, https://github.com/microsoft/windows-rs
 - winnow 0.5.40: MIT, https://github.com/winnow-rs/winnow
-- winnow 1.0.4: MIT, https://github.com/winnow-rs/winnow
+- winnow 1.0.5: MIT, https://github.com/winnow-rs/winnow
 - winreg 0.56.0: MIT, https://github.com/gentoo90/winreg-rs
 - writeable 0.6.4: Unicode-3.0, https://github.com/unicode-org/icu4x
-- wry 0.57.0: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/wry
+- wry 0.57.1: Apache-2.0 OR MIT, used under MIT, https://github.com/tauri-apps/wry
 - x11 2.21.0: MIT, https://github.com/AltF02/x11-rs.git
 - x11-dl 2.21.0: MIT, https://github.com/AltF02/x11-rs.git
-- yoke 0.8.3: Unicode-3.0, https://github.com/unicode-org/icu4x
+- yoke 0.8.4: Unicode-3.0, https://github.com/unicode-org/icu4x
 - yoke-derive 0.8.4: Unicode-3.0, https://github.com/unicode-org/icu4x
 - zbus 5.19.0: MIT, https://github.com/z-galaxy/zbus/
+- zbus 6.2.1: MIT, https://github.com/z-galaxy/zbus/
 - zbus_macros 5.19.0: MIT, https://github.com/z-galaxy/zbus/
+- zbus_macros 6.2.1: MIT, https://github.com/z-galaxy/zbus/
 - zbus_names 4.3.5: MIT, https://github.com/z-galaxy/zbus/
-- zcheapstr 1.1.0: MIT, https://github.com/z-galaxy/zcheapstr/
-- zerocopy 0.8.63: BSD-2-Clause OR Apache-2.0 OR MIT, used under MIT, https://github.com/google/zerocopy
+- zbus_utils 6.1.0: MIT, https://github.com/z-galaxy/zbus/
+- zcheapstr 1.2.0: MIT, https://github.com/z-galaxy/zcheapstr/
 - zerofrom 0.1.8: Unicode-3.0, https://github.com/unicode-org/icu4x
 - zerofrom-derive 0.1.8: Unicode-3.0, https://github.com/unicode-org/icu4x
 - zeroize 1.9.1: Apache-2.0 OR MIT, used under MIT, https://github.com/RustCrypto/utils
+- zeroize_derive 1.5.0: Apache-2.0 OR MIT, used under MIT, https://github.com/RustCrypto/utils
 - zerotrie 0.2.5: Unicode-3.0, https://github.com/unicode-org/icu4x
-- zerovec 0.11.8: Unicode-3.0, https://github.com/unicode-org/icu4x
-- zerovec-derive 0.11.6: Unicode-3.0, https://github.com/unicode-org/icu4x
-- zip 9.0.4: MIT, https://github.com/zip-rs/zip2
+- zerovec 0.11.9: Unicode-3.0, https://github.com/unicode-org/icu4x
+- zerovec-derive 0.11.7: Unicode-3.0, https://github.com/unicode-org/icu4x
+- zip 9.5.0: MIT, https://github.com/zip-rs/zip2
 - zlib-rs 0.6.8: Zlib, https://github.com/trifectatechfoundation/zlib-rs
 - zmij 1.0.23: MIT, https://github.com/dtolnay/zmij
 - zopfli 0.8.4: Apache-2.0, https://github.com/zopfli-rs/zopfli
+- zruntime 0.2.2: MIT, https://github.com/z-galaxy/zruntime
 - zvariant 5.15.1: MIT, https://github.com/z-galaxy/zbus/
 - zvariant_derive 5.15.1: MIT, https://github.com/z-galaxy/zbus/
 - zvariant_utils 4.2.0: MIT, https://github.com/z-galaxy/zbus/
 
 <details>
-<summary>MIT: adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.104, async-channel 2.5.0, async-executor 1.14.0, async-io 2.6.0, async-lock 3.4.2, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, async-trait 0.1.92, atk 0.18.2, atk-sys 0.18.2, atomic-waker 1.1.2, blocking 1.7.0, cairo-rs 0.18.5, cairo-sys-rs 0.18.2, camino 1.2.6, cargo-platform 0.1.9, cargo_metadata 0.19.2, concurrent-queue 2.5.0, ctor 1.0.13, ctrlc 3.5.2, displaydoc 0.2.7, dtoa 1.0.11, dyn-clone 1.0.20, endi 1.1.1, erased-serde 0.4.10, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, finl_unicode 1.5.0, flume 0.11.1, futures-lite 2.6.1, gdk 0.18.2, gdk-pixbuf 0.18.5, gdk-pixbuf-sys 0.18.0, gdk-sys 0.18.2, gdkwayland-sys 0.18.2, gdkx11 0.18.2, gdkx11-sys 0.18.2, gio 0.18.4, gio-sys 0.18.1, glib 0.18.5, glib-macros 0.18.5, glib-sys 0.18.1, gobject-sys 0.18.0, gtk 0.18.2, gtk-sys 0.18.2, gtk3-macros 0.18.2, indoc 2.0.8, itoa 1.0.18, lazy_static 1.5.1, linux-raw-sys 0.12.1, minimal-lexical 0.2.1, once_cell 1.21.4, ordered-stream 0.2.0, pango 0.18.3, pango-sys 0.18.0, parking 2.2.1, pest 2.9.4, pest_derive 2.9.4, pest_generator 2.9.4, pest_meta 2.9.4, pin-project-lite 0.2.17, piper 0.2.5, polling 3.11.0, portable-atomic 1.15.0, proc-macro-crate 1.3.1, proc-macro-crate 2.0.2, proc-macro-crate 3.5.0, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, rustix 1.1.5, rustversion 1.0.23, semver 1.0.28, serde 1.0.229, serde-untagged 0.1.9, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_path_to_error 0.1.20, serde_repr 0.1.21, servo_arc 0.4.3, siphasher 1.0.4, syn 1.0.109, syn 2.0.119, syn 3.0.9, thiserror 1.0.69, thiserror 2.0.21, thiserror-impl 1.0.69, thiserror-impl 2.0.21, tinyvec 1.13.3, typed-path 0.12.3, typeid 1.0.3, utf8-zero 0.8.1, winnow 0.5.40, winnow 1.0.4, x11 2.21.0, x11-dl 2.21.0, zmij 1.0.23, zvariant_utils 4.2.0</summary>
+<summary>MIT: adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.104, async-channel 2.5.0, async-executor 1.14.1, async-io 2.6.0, async-lock 3.5.0, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, async-trait 0.1.92, atk 0.18.2, atk-sys 0.18.2, atomic-waker 1.1.2, blocking 1.7.0, cairo-rs 0.18.5, cairo-sys-rs 0.18.2, camino 1.2.6, cargo-platform 0.1.9, cargo_metadata 0.19.2, concurrent-queue 2.5.0, ctor 1.0.13, ctrlc 3.5.2, displaydoc 0.2.7, dtoa 1.0.11, dyn-clone 1.0.20, endi 1.1.1, erased-serde 0.4.11, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, finl_unicode 1.5.1, flume 0.11.1, futures-lite 2.6.1, gdk 0.18.2, gdk-pixbuf 0.18.5, gdk-pixbuf-sys 0.18.0, gdk-sys 0.18.2, gdkwayland-sys 0.18.2, gdkx11 0.18.2, gdkx11-sys 0.18.2, gio 0.18.4, gio-sys 0.18.1, glib 0.18.5, glib-macros 0.18.5, glib-sys 0.18.1, gobject-sys 0.18.0, gtk 0.18.2, gtk-sys 0.18.2, gtk3-macros 0.18.2, indoc 2.0.8, itoa 1.0.19, lazy_static 1.5.1, linux-raw-sys 0.12.1, minimal-lexical 0.2.1, once_cell 1.21.4, ordered-stream 0.2.0, pango 0.18.3, pango-sys 0.18.0, parking 2.2.1, pest 2.9.5, pest_derive 2.9.5, pest_generator 2.9.5, pest_meta 2.9.5, pest_stack_guard 1.0.1, pin-project-lite 0.2.17, piper 0.2.5, polling 3.11.0, portable-atomic 1.15.0, proc-macro-crate 1.3.1, proc-macro-crate 2.0.2, proc-macro-crate 3.5.0, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, rustix 1.1.6, rustversion 1.0.23, semver 1.0.28, serde 1.0.229, serde-untagged 0.1.9, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_path_to_error 0.1.20, serde_repr 0.1.21, servo_arc 0.4.3, siphasher 1.0.4, syn 1.0.109, syn 2.0.119, syn 3.0.10, thiserror 1.0.69, thiserror 2.0.21, thiserror-impl 1.0.69, thiserror-impl 2.0.21, tinyvec 1.13.3, typed-path 0.13.0, typeid 1.0.3, utf8-zero 0.8.1, winnow 0.5.40, winnow 1.0.5, x11 2.21.0, x11-dl 2.21.0, zmij 1.0.23, zvariant_utils 4.2.0</summary>
 
 ```text
 Permission is hereby granted, free of charge, to any
@@ -3422,7 +3240,7 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: aho-corasick 1.1.5, byteorder 1.5.0, byteorder-lite 0.1.0, jiff 0.2.38, jiff-core 0.1.1, jiff-tzdb 0.1.9, jiff-tzdb-platform 0.1.3, memchr 2.8.3, ucd-trie 0.1.7, walkdir 2.5.0</summary>
+<summary>MIT: aho-corasick 1.1.5, byteorder 1.5.0, byteorder-lite 0.1.0, jiff 0.2.41, jiff-core 0.1.4, jiff-tzdb 0.1.9, jiff-tzdb-platform 0.1.3, memchr 2.8.3, ucd-trie 0.1.7, walkdir 2.5.0</summary>
 
 ```text
 The MIT License (MIT)
@@ -3451,7 +3269,7 @@ THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: anstream 1.0.0, anstyle 1.0.14, anstyle-parse 1.0.0, anstyle-query 1.1.5, anstyle-wincon 3.0.11, clap 4.6.7, clap_builder 4.6.7, clap_derive 4.6.7, clap_lex 1.1.1, colorchoice 1.0.5, is_terminal_polyfill 1.70.2, once_cell_polyfill 1.70.2, serde_spanned 0.6.9, serde_spanned 1.1.2, toml 1.1.8+spec-1.1.0, toml_datetime 1.1.2+spec-1.1.0, toml_edit 0.19.15, toml_edit 0.20.2, toml_edit 0.25.17+spec-1.1.0, toml_parser 1.1.5+spec-1.1.0, toml_writer 1.1.3+spec-1.1.0</summary>
+<summary>MIT: anstream 1.0.0, anstyle 1.0.14, anstyle-parse 1.0.0, anstyle-query 1.1.5, anstyle-wincon 3.0.11, clap 4.6.7, clap_builder 4.6.7, clap_derive 4.6.7, clap_lex 1.1.1, colorchoice 1.0.5, is_terminal_polyfill 1.70.2, once_cell_polyfill 1.70.2, serde_spanned 0.6.9, serde_spanned 1.1.3, toml 1.2.1+spec-1.1.0, toml_datetime 1.1.3+spec-1.1.0, toml_edit 0.19.15, toml_edit 0.20.2, toml_edit 0.25.19+spec-1.1.0, toml_parser 1.1.5+spec-1.1.0, toml_writer 1.2.0+spec-1.1.0</summary>
 
 ```text
 Copyright (c) Individual contributors
@@ -3728,7 +3546,7 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: bit-vec 0.6.3, heck 0.4.1, heck 0.5.0, unicode-segmentation 1.13.3, unicode-width 0.2.2</summary>
+<summary>MIT: bit-vec 0.6.3, heck 0.4.1, heck 0.5.0, unicode-segmentation 1.13.3, unicode-width 0.2.3</summary>
 
 ```text
 Copyright (c) 2015 The Rust Project Developers
@@ -3761,7 +3579,7 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: bitflags 1.3.2, bitflags 2.13.2, glob 0.3.4, log 0.4.34, memmem 0.1.1, num-derive 0.4.2, num-traits 0.2.19, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11</summary>
+<summary>MIT: bitflags 1.3.2, bitflags 2.13.2, glob 0.3.4, log 0.4.35, memmem 0.1.1, num-derive 0.4.2, num-traits 0.2.19, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11</summary>
 
 ```text
 Copyright (c) 2014 The Rust Project Developers
@@ -3854,7 +3672,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: brotli-decompressor 6.0.1</summary>
+<summary>MIT: brotli-decompressor 6.3.1</summary>
 
 ```text
 Copyright (c) Daniel Reiter Horn <danielrh@dropbox.com>, The Brotli Authors
@@ -4083,10 +3901,43 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: cfg-if 1.0.5, openssl-probe 0.2.1, socket2 0.6.5, stacker 0.1.25, toml_datetime 0.6.3</summary>
+<summary>MIT: cfg-if 1.0.5, openssl-probe 0.2.2, socket2 0.6.5, stacker 0.1.25, toml_datetime 0.6.3</summary>
 
 ```text
 Copyright (c) 2014 Alex Crichton
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
+</details>
+
+<details>
+<summary>MIT: chacha20 0.10.2, zeroize_derive 1.5.0</summary>
+
+```text
+Copyright (c) 2019-2026 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -4550,7 +4401,40 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: crc32fast 1.5.2</summary>
+<summary>MIT: cpufeatures 0.3.1</summary>
+
+```text
+Copyright (c) 2020-2026 The RustCrypto Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
+</details>
+
+<details>
+<summary>MIT: crc32fast 1.5.4</summary>
 
 ```text
 MIT License
@@ -4789,39 +4673,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-</details>
-
-<details>
-<summary>MIT: defmt 1.2.0, defmt-macros 1.2.0, defmt-parser 1.1.0</summary>
-
-```text
-Copyright (c) Ferrous Systems
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 ```
 
 </details>
@@ -5482,7 +5333,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: fixedbitset 0.4.2, fixedbitset 0.5.7</summary>
+<summary>MIT: fixedbitset 0.4.2, fixedbitset 0.5.9</summary>
 
 ```text
 Copyright (c) 2015-2017
@@ -5515,7 +5366,7 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: flate2 1.1.10</summary>
+<summary>MIT: flate2 1.1.11</summary>
 
 ```text
 Copyright (c) 2014-2026 Alex Crichton
@@ -5581,7 +5432,7 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: fontdue 0.9.4</summary>
+<summary>MIT: fontdue 0.9.5</summary>
 
 ```text
 MIT License
@@ -6255,7 +6106,7 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: ico 0.5.0</summary>
+<summary>MIT: ico 0.6.0</summary>
 
 ```text
 MIT License
@@ -7045,7 +6896,7 @@ Copyright notices are retained in src/* files where relevant.
 </details>
 
 <details>
-<summary>MIT: libsqlite3-sys 0.38.2, rusqlite 0.40.2</summary>
+<summary>MIT: libsqlite3-sys 0.39.1, rusqlite 0.41.1</summary>
 
 libsqlite3-sys: Contains SQLite, which is in the public domain.
 
@@ -7261,7 +7112,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: mime 0.3.17</summary>
+<summary>MIT: mime 0.3.18</summary>
 
 ```text
 Copyright (c) 2014 Sean McArthur
@@ -7466,7 +7317,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: notify-rust 4.18.2</summary>
+<summary>MIT: notify-rust 4.19.0</summary>
 
 ```text
 MIT License
@@ -7849,7 +7700,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: open 5.4.4</summary>
+<summary>MIT: open 5.4.5</summary>
 
 ```text
 The MIT License (MIT)
@@ -7968,7 +7819,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: plist 1.10.1</summary>
+<summary>MIT: plist 1.10.3</summary>
 
 ```text
 Copyright (c) 2015 Edward Barnard
@@ -7995,7 +7846,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: png 0.17.16, png 0.18.1</summary>
+<summary>MIT: png 0.18.1</summary>
 
 ```text
 Copyright (c) 2015 nwin
@@ -8050,39 +7901,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-</details>
-
-<details>
-<summary>MIT: ppv-lite86 0.2.21</summary>
-
-```text
-Copyright (c) 2019 The CryptoCorrosion Contributors
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 ```
 
 </details>
@@ -8146,7 +7964,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: psm 0.1.24</summary>
+<summary>MIT: psm 0.1.32</summary>
 
 ```text
 Copyright © 2018, Simonas Kazlauskas
@@ -8201,11 +8019,44 @@ THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: rand 0.8.8, rand 0.9.5, rand_chacha 0.9.0, rand_core 0.6.4, rand_core 0.9.5</summary>
+<summary>MIT: rand 0.10.3, rand 0.8.8, rand_core 0.6.4</summary>
 
 ```text
 Copyright 2018 Developers of the Rand project
 Copyright (c) 2014 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
+</details>
+
+<details>
+<summary>MIT: rand_core 0.10.1</summary>
+
+```text
+Copyright (c) 2018-2026 The Rand Project Developers
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -8349,7 +8200,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: rfd 0.16.0</summary>
+<summary>MIT: rfd 0.17.2</summary>
 
 ```text
 MIT License
@@ -8378,7 +8229,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: rust_xlsxwriter 0.100.0</summary>
+<summary>MIT: rust_xlsxwriter 0.102.0</summary>
 
 ```text
 MIT License
@@ -8799,7 +8650,7 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: smallvec 1.16.3</summary>
+<summary>MIT: smallvec 1.16.5</summary>
 
 ```text
 Copyright (c) 2018 The Servo Project Developers
@@ -8888,7 +8739,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: spin 0.9.9, zip 9.0.4</summary>
+<summary>MIT: spin 0.9.9, zip 9.5.0</summary>
 
 ```text
 The MIT License (MIT)
@@ -9143,7 +8994,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: tauri 2.12.4, tauri-codegen 2.7.3, tauri-macros 2.7.3, tauri-plugin-autostart 2.7.0, tauri-plugin-dialog 2.8.3, tauri-plugin-fs 2.7.1, tauri-plugin-notification 2.7.0, tauri-plugin-opener 2.7.2, tauri-runtime 2.12.2, tauri-runtime-wry 2.12.2, tauri-utils 2.10.2, tauri-winrt-notification 0.8.1</summary>
+<summary>MIT: tauri 2.12.5, tauri-codegen 2.7.4, tauri-macros 2.7.4, tauri-plugin-autostart 2.7.0, tauri-plugin-dialog 2.8.4, tauri-plugin-fs 2.7.1, tauri-plugin-notification 2.8.0, tauri-plugin-opener 2.7.2, tauri-runtime 2.12.2, tauri-runtime-wry 2.12.3, tauri-utils 2.10.2, tauri-winrt-notification 0.8.1</summary>
 
 ```text
 MIT License
@@ -9172,7 +9023,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: tauri-plugin-single-instance 2.5.4</summary>
+<summary>MIT: tauri-plugin-single-instance 2.5.5</summary>
 
 ```text
 MIT License
@@ -9349,7 +9200,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: tokio 1.53.3, tokio-stream 0.1.19, tokio-util 0.7.20</summary>
+<summary>MIT: tokio 1.54.1, tokio-stream 0.1.19, tokio-util 0.7.20</summary>
 
 ```text
 MIT License
@@ -9653,7 +9504,7 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: ureq 3.5.0</summary>
+<summary>MIT: ureq 3.5.1</summary>
 
 ```text
 MIT License
@@ -9682,7 +9533,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: ureq-proto 0.6.5</summary>
+<summary>MIT: ureq-proto 0.7.1</summary>
 
 ```text
 Copyright 2022 Martin Algesten
@@ -9726,7 +9577,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: utf8_iter 1.0.4</summary>
+<summary>MIT: utf8_iter 1.1.0, utf_types 1.0.0</summary>
 
 ```text
 Copyright Mozilla Foundation
@@ -9792,7 +9643,7 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: uuid 1.28.0</summary>
+<summary>MIT: uuid 1.29.2</summary>
 
 ```text
 Copyright (c) 2014 The Rust Project Developers
@@ -10185,7 +10036,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-registry 0.6.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.60.2, windows-sys 0.61.2, windows-targets 0.53.5, windows-threading 0.2.1, windows-version 0.1.7, windows_x86_64_gnu 0.53.1, windows_x86_64_msvc 0.53.1</summary>
+<summary>MIT: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-registry 0.6.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.61.2, windows-threading 0.2.1, windows-version 0.1.7</summary>
 
 ```text
 MIT License
@@ -10241,7 +10092,7 @@ THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: wry 0.57.0</summary>
+<summary>MIT: wry 0.57.1</summary>
 
 ```text
 MIT License
@@ -10270,7 +10121,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: zbus 5.19.0, zbus_macros 5.19.0, zbus_names 4.3.5, zvariant 5.15.1, zvariant_derive 5.15.1</summary>
+<summary>MIT: zbus 5.19.0, zbus 6.2.1, zbus_macros 5.19.0, zbus_macros 6.2.1, zbus_names 4.3.5, zbus_utils 6.1.0, zvariant 5.15.1, zvariant_derive 5.15.1</summary>
 
 ```text
 Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
@@ -10303,43 +10154,10 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: zcheapstr 1.1.0</summary>
+<summary>MIT: zcheapstr 1.2.0</summary>
 
 ```text
 Copyright (c) 2026 Zeeshan Ali Khan & zcheapstr contributors
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-```
-
-</details>
-
-<details>
-<summary>MIT: zerocopy 0.8.63</summary>
-
-```text
-Copyright 2023 The Fuchsia Authors
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -10402,7 +10220,46 @@ DEALINGS IN THE SOFTWARE.
 </details>
 
 <details>
-<summary>ISC: aws-lc-rs 1.18.2</summary>
+<summary>MIT: zruntime 0.2.2</summary>
+
+```text
+Copyright (c) 2026 Zeeshan Ali Khan & zruntime contributors
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+The broadcast channel (`src/broadcast.rs`), its tests (`src/tests/broadcast.rs`) and its
+benchmark (`benches/broadcast.rs`) come from the async-broadcast crate
+(https://github.com/smol-rs/async-broadcast), under the license above and this notice:
+
+Copyright (c) 2020 Yoshua Wuyts, Stjepan Glavina & Zeeshan Ali Khan
+```
+
+</details>
+
+<details>
+<summary>ISC: aws-lc-rs 1.19.0</summary>
 
 ```text
 SPDX-License-Identifier: ISC AND (Apache-2.0 OR ISC)
@@ -10632,7 +10489,7 @@ THIS SOFTWARE.
 </details>
 
 <details>
-<summary>ISC: rustls-webpki 0.102.8, rustls-webpki 0.103.15</summary>
+<summary>ISC: rustls-webpki 0.102.8, rustls-webpki 0.103.16</summary>
 
 ```text
 Except as otherwise noted, this project is licensed under the following
@@ -11070,145 +10927,7 @@ Apache License
 </details>
 
 <details>
-<summary>Apache-2.0: dunce 1.0.5</summary>
-
-```text
-Creative Commons Legal Code
-
-CC0 1.0 Universal
-
-    CREATIVE COMMONS CORPORATION IS NOT A LAW FIRM AND DOES NOT PROVIDE
-    LEGAL SERVICES. DISTRIBUTION OF THIS DOCUMENT DOES NOT CREATE AN
-    ATTORNEY-CLIENT RELATIONSHIP. CREATIVE COMMONS PROVIDES THIS
-    INFORMATION ON AN "AS-IS" BASIS. CREATIVE COMMONS MAKES NO WARRANTIES
-    REGARDING THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS
-    PROVIDED HEREUNDER, AND DISCLAIMS LIABILITY FOR DAMAGES RESULTING FROM
-    THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS PROVIDED
-    HEREUNDER.
-
-Statement of Purpose
-
-The laws of most jurisdictions throughout the world automatically confer
-exclusive Copyright and Related Rights (defined below) upon the creator
-and subsequent owner(s) (each and all, an "owner") of an original work of
-authorship and/or a database (each, a "Work").
-
-Certain owners wish to permanently relinquish those rights to a Work for
-the purpose of contributing to a commons of creative, cultural and
-scientific works ("Commons") that the public can reliably and without fear
-of later claims of infringement build upon, modify, incorporate in other
-works, reuse and redistribute as freely as possible in any form whatsoever
-and for any purposes, including without limitation commercial purposes.
-These owners may contribute to the Commons to promote the ideal of a free
-culture and the further production of creative, cultural and scientific
-works, or to gain reputation or greater distribution for their Work in
-part through the use and efforts of others.
-
-For these and/or other purposes and motivations, and without any
-expectation of additional consideration or compensation, the person
-associating CC0 with a Work (the "Affirmer"), to the extent that he or she
-is an owner of Copyright and Related Rights in the Work, voluntarily
-elects to apply CC0 to the Work and publicly distribute the Work under its
-terms, with knowledge of his or her Copyright and Related Rights in the
-Work and the meaning and intended legal effect of CC0 on those rights.
-
-1. Copyright and Related Rights. A Work made available under CC0 may be
-protected by copyright and related or neighboring rights ("Copyright and
-Related Rights"). Copyright and Related Rights include, but are not
-limited to, the following:
-
-  i. the right to reproduce, adapt, distribute, perform, display,
-     communicate, and translate a Work;
- ii. moral rights retained by the original author(s) and/or performer(s);
-iii. publicity and privacy rights pertaining to a person's image or
-     likeness depicted in a Work;
- iv. rights protecting against unfair competition in regards to a Work,
-     subject to the limitations in paragraph 4(a), below;
-  v. rights protecting the extraction, dissemination, use and reuse of data
-     in a Work;
- vi. database rights (such as those arising under Directive 96/9/EC of the
-     European Parliament and of the Council of 11 March 1996 on the legal
-     protection of databases, and under any national implementation
-     thereof, including any amended or successor version of such
-     directive); and
-vii. other similar, equivalent or corresponding rights throughout the
-     world based on applicable law or treaty, and any national
-     implementations thereof.
-
-2. Waiver. To the greatest extent permitted by, but not in contravention
-of, applicable law, Affirmer hereby overtly, fully, permanently,
-irrevocably and unconditionally waives, abandons, and surrenders all of
-Affirmer's Copyright and Related Rights and associated claims and causes
-of action, whether now known or unknown (including existing as well as
-future claims and causes of action), in the Work (i) in all territories
-worldwide, (ii) for the maximum duration provided by applicable law or
-treaty (including future time extensions), (iii) in any current or future
-medium and for any number of copies, and (iv) for any purpose whatsoever,
-including without limitation commercial, advertising or promotional
-purposes (the "Waiver"). Affirmer makes the Waiver for the benefit of each
-member of the public at large and to the detriment of Affirmer's heirs and
-successors, fully intending that such Waiver shall not be subject to
-revocation, rescission, cancellation, termination, or any other legal or
-equitable action to disrupt the quiet enjoyment of the Work by the public
-as contemplated by Affirmer's express Statement of Purpose.
-
-3. Public License Fallback. Should any part of the Waiver for any reason
-be judged legally invalid or ineffective under applicable law, then the
-Waiver shall be preserved to the maximum extent permitted taking into
-account Affirmer's express Statement of Purpose. In addition, to the
-extent the Waiver is so judged Affirmer hereby grants to each affected
-person a royalty-free, non transferable, non sublicensable, non exclusive,
-irrevocable and unconditional license to exercise Affirmer's Copyright and
-Related Rights in the Work (i) in all territories worldwide, (ii) for the
-maximum duration provided by applicable law or treaty (including future
-time extensions), (iii) in any current or future medium and for any number
-of copies, and (iv) for any purpose whatsoever, including without
-limitation commercial, advertising or promotional purposes (the
-"License"). The License shall be deemed effective as of the date CC0 was
-applied by Affirmer to the Work. Should any part of the License for any
-reason be judged legally invalid or ineffective under applicable law, such
-partial invalidity or ineffectiveness shall not invalidate the remainder
-of the License, and in such case Affirmer hereby affirms that he or she
-will not (i) exercise any of his or her remaining Copyright and Related
-Rights in the Work or (ii) assert any associated claims and causes of
-action with respect to the Work, in either case contrary to Affirmer's
-express Statement of Purpose.
-
-4. Limitations and Disclaimers.
-
- a. No trademark or patent rights held by Affirmer are waived, abandoned,
-    surrendered, licensed or otherwise affected by this document.
- b. Affirmer offers the Work as-is and makes no representations or
-    warranties of any kind concerning the Work, express, implied,
-    statutory or otherwise, including without limitation warranties of
-    title, merchantability, fitness for a particular purpose, non
-    infringement, or the absence of latent or other defects, accuracy, or
-    the present or absence of errors, whether or not discoverable, all to
-    the greatest extent permissible under applicable law.
- c. Affirmer disclaims responsibility for clearing rights of other persons
-    that may apply to the Work or any use thereof, including without
-    limitation any person's Copyright and Related Rights in the Work.
-    Further, Affirmer disclaims responsibility for obtaining any necessary
-    consents, permissions or other rights required for any use of the
-    Work.
- d. Affirmer understands and acknowledges that Creative Commons is not a
-    party to this document and has no duty or obligation with respect to
-    this CC0 or use of the Work.
-```
-
-</details>
-
-<details>
-<summary>Apache-2.0: rumqttc 0.25.1</summary>
-
-```text
-The package carries no license file; the standard Apache-2.0 text applies (see "Standard license texts").
-```
-
-</details>
-
-<details>
-<summary>Apache-2.0: ryu 1.0.23, sync_wrapper 1.0.2</summary>
+<summary>Apache-2.0: constant_time_eq 0.6.1, ryu 1.0.23, sync_wrapper 1.0.2</summary>
 
 ```text
 Apache License
@@ -11392,7 +11111,145 @@ END OF TERMS AND CONDITIONS
 </details>
 
 <details>
-<summary>Apache-2.0: tao 0.37.1</summary>
+<summary>Apache-2.0: dunce 1.0.5</summary>
+
+```text
+Creative Commons Legal Code
+
+CC0 1.0 Universal
+
+    CREATIVE COMMONS CORPORATION IS NOT A LAW FIRM AND DOES NOT PROVIDE
+    LEGAL SERVICES. DISTRIBUTION OF THIS DOCUMENT DOES NOT CREATE AN
+    ATTORNEY-CLIENT RELATIONSHIP. CREATIVE COMMONS PROVIDES THIS
+    INFORMATION ON AN "AS-IS" BASIS. CREATIVE COMMONS MAKES NO WARRANTIES
+    REGARDING THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS
+    PROVIDED HEREUNDER, AND DISCLAIMS LIABILITY FOR DAMAGES RESULTING FROM
+    THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS PROVIDED
+    HEREUNDER.
+
+Statement of Purpose
+
+The laws of most jurisdictions throughout the world automatically confer
+exclusive Copyright and Related Rights (defined below) upon the creator
+and subsequent owner(s) (each and all, an "owner") of an original work of
+authorship and/or a database (each, a "Work").
+
+Certain owners wish to permanently relinquish those rights to a Work for
+the purpose of contributing to a commons of creative, cultural and
+scientific works ("Commons") that the public can reliably and without fear
+of later claims of infringement build upon, modify, incorporate in other
+works, reuse and redistribute as freely as possible in any form whatsoever
+and for any purposes, including without limitation commercial purposes.
+These owners may contribute to the Commons to promote the ideal of a free
+culture and the further production of creative, cultural and scientific
+works, or to gain reputation or greater distribution for their Work in
+part through the use and efforts of others.
+
+For these and/or other purposes and motivations, and without any
+expectation of additional consideration or compensation, the person
+associating CC0 with a Work (the "Affirmer"), to the extent that he or she
+is an owner of Copyright and Related Rights in the Work, voluntarily
+elects to apply CC0 to the Work and publicly distribute the Work under its
+terms, with knowledge of his or her Copyright and Related Rights in the
+Work and the meaning and intended legal effect of CC0 on those rights.
+
+1. Copyright and Related Rights. A Work made available under CC0 may be
+protected by copyright and related or neighboring rights ("Copyright and
+Related Rights"). Copyright and Related Rights include, but are not
+limited to, the following:
+
+  i. the right to reproduce, adapt, distribute, perform, display,
+     communicate, and translate a Work;
+ ii. moral rights retained by the original author(s) and/or performer(s);
+iii. publicity and privacy rights pertaining to a person's image or
+     likeness depicted in a Work;
+ iv. rights protecting against unfair competition in regards to a Work,
+     subject to the limitations in paragraph 4(a), below;
+  v. rights protecting the extraction, dissemination, use and reuse of data
+     in a Work;
+ vi. database rights (such as those arising under Directive 96/9/EC of the
+     European Parliament and of the Council of 11 March 1996 on the legal
+     protection of databases, and under any national implementation
+     thereof, including any amended or successor version of such
+     directive); and
+vii. other similar, equivalent or corresponding rights throughout the
+     world based on applicable law or treaty, and any national
+     implementations thereof.
+
+2. Waiver. To the greatest extent permitted by, but not in contravention
+of, applicable law, Affirmer hereby overtly, fully, permanently,
+irrevocably and unconditionally waives, abandons, and surrenders all of
+Affirmer's Copyright and Related Rights and associated claims and causes
+of action, whether now known or unknown (including existing as well as
+future claims and causes of action), in the Work (i) in all territories
+worldwide, (ii) for the maximum duration provided by applicable law or
+treaty (including future time extensions), (iii) in any current or future
+medium and for any number of copies, and (iv) for any purpose whatsoever,
+including without limitation commercial, advertising or promotional
+purposes (the "Waiver"). Affirmer makes the Waiver for the benefit of each
+member of the public at large and to the detriment of Affirmer's heirs and
+successors, fully intending that such Waiver shall not be subject to
+revocation, rescission, cancellation, termination, or any other legal or
+equitable action to disrupt the quiet enjoyment of the Work by the public
+as contemplated by Affirmer's express Statement of Purpose.
+
+3. Public License Fallback. Should any part of the Waiver for any reason
+be judged legally invalid or ineffective under applicable law, then the
+Waiver shall be preserved to the maximum extent permitted taking into
+account Affirmer's express Statement of Purpose. In addition, to the
+extent the Waiver is so judged Affirmer hereby grants to each affected
+person a royalty-free, non transferable, non sublicensable, non exclusive,
+irrevocable and unconditional license to exercise Affirmer's Copyright and
+Related Rights in the Work (i) in all territories worldwide, (ii) for the
+maximum duration provided by applicable law or treaty (including future
+time extensions), (iii) in any current or future medium and for any number
+of copies, and (iv) for any purpose whatsoever, including without
+limitation commercial, advertising or promotional purposes (the
+"License"). The License shall be deemed effective as of the date CC0 was
+applied by Affirmer to the Work. Should any part of the License for any
+reason be judged legally invalid or ineffective under applicable law, such
+partial invalidity or ineffectiveness shall not invalidate the remainder
+of the License, and in such case Affirmer hereby affirms that he or she
+will not (i) exercise any of his or her remaining Copyright and Related
+Rights in the Work or (ii) assert any associated claims and causes of
+action with respect to the Work, in either case contrary to Affirmer's
+express Statement of Purpose.
+
+4. Limitations and Disclaimers.
+
+ a. No trademark or patent rights held by Affirmer are waived, abandoned,
+    surrendered, licensed or otherwise affected by this document.
+ b. Affirmer offers the Work as-is and makes no representations or
+    warranties of any kind concerning the Work, express, implied,
+    statutory or otherwise, including without limitation warranties of
+    title, merchantability, fitness for a particular purpose, non
+    infringement, or the absence of latent or other defects, accuracy, or
+    the present or absence of errors, whether or not discoverable, all to
+    the greatest extent permissible under applicable law.
+ c. Affirmer disclaims responsibility for clearing rights of other persons
+    that may apply to the Work or any use thereof, including without
+    limitation any person's Copyright and Related Rights in the Work.
+    Further, Affirmer disclaims responsibility for obtaining any necessary
+    consents, permissions or other rights required for any use of the
+    Work.
+ d. Affirmer understands and acknowledges that Creative Commons is not a
+    party to this document and has no duty or obligation with respect to
+    this CC0 or use of the Work.
+```
+
+</details>
+
+<details>
+<summary>Apache-2.0: rumqttc 0.25.1</summary>
+
+```text
+The package carries no license file; the standard Apache-2.0 text applies (see "Standard license texts").
+```
+
+</details>
+
+<details>
+<summary>Apache-2.0: tao 0.37.2</summary>
 
 ```text
 Apache License
@@ -11810,7 +11667,7 @@ Apache License
 </details>
 
 <details>
-<summary>Unicode-3.0: icu_collections 2.3.0, icu_locale_core 2.3.0, icu_normalizer 2.3.0, icu_normalizer_data 2.3.0, icu_properties 2.3.0, icu_properties_data 2.3.0, icu_provider 2.3.1, litemap 0.8.3, potential_utf 0.1.6, tinystr 0.8.4, writeable 0.6.4, yoke 0.8.3, yoke-derive 0.8.4, zerofrom 0.1.8, zerofrom-derive 0.1.8, zerotrie 0.2.5, zerovec 0.11.8, zerovec-derive 0.11.6</summary>
+<summary>Unicode-3.0: icu_collections 2.4.0, icu_locale_core 2.4.0, icu_normalizer 2.4.0, icu_normalizer_data 2.4.0, icu_properties 2.4.0, icu_properties_data 2.4.0, icu_provider 2.4.0, litemap 0.8.3, potential_utf 0.1.6, tinystr 0.8.5, writeable 0.6.4, yoke 0.8.4, yoke-derive 0.8.4, zerofrom 0.1.8, zerofrom-derive 0.1.8, zerotrie 0.2.5, zerovec 0.11.9, zerovec-derive 0.11.7</summary>
 
 ```text
 UNICODE LICENSE V3
@@ -13193,7 +13050,7 @@ have been licensed under extremely permissive terms.
 </details>
 
 <details>
-<summary>BSD-3-Clause AND MIT: brotli 9.0.0</summary>
+<summary>BSD-3-Clause AND MIT: brotli 9.1.1</summary>
 
 ```text
 Copyright (c) 2016 Dropbox, Inc.
@@ -13235,7 +13092,7 @@ THE SOFTWARE.
 </details>
 
 <details>
-<summary>ISC AND Apache-2.0 AND MIT AND BSD-3-Clause: aws-lc-sys 0.46.0</summary>
+<summary>ISC AND Apache-2.0 AND MIT AND BSD-3-Clause: aws-lc-sys 0.47.0</summary>
 
 ````text
 AWS Libcrypto (AWS-LC)

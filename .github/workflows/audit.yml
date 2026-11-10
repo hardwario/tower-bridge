@@ -1,0 +1,38 @@
+name: Audit
+
+# Security advisories for the Rust crates and npm packages in the lockfiles.
+# New advisories appear for releases already out (1.1.0 shipped two that were
+# published after it was built), so this also runs once a week.
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.lock, package-lock.json, .cargo/audit.toml, .github/workflows/audit.yml]
+  pull_request:
+    paths: [Cargo.lock, package-lock.json, .cargo/audit.toml, .github/workflows/audit.yml]
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      # Ignored advisories, each with its reason: .cargo/audit.toml.
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      - run: cargo audit
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      # Low ones are known and unreachable (deepmerge in the Svelte plugin,
+      # merging the project's own config at build time).
+      - run: npm audit --audit-level=moderate

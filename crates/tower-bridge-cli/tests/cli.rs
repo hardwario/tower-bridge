@@ -312,6 +312,21 @@ fn config_takes_negative_numbers_null_and_masks_every_secret() {
         .assert()
         .success()
         .stdout("(my-secret\n");
+    // Too short for a token: refused, not swapped for a random one.
+    cli(&d)
+        .args(["config", "set", "api.token", "mytoken"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("16 characters"));
+    cli(&d)
+        .args(["config", "set", "api.token", "a-token-of-twenty-chars"])
+        .assert()
+        .success();
+    cli(&d)
+        .args(["config", "get", "api.token"])
+        .assert()
+        .success()
+        .stdout("a-token-of-twenty-chars\n");
     cli(&d)
         .args(["--simulate", "toolbox", "scan"])
         .assert()

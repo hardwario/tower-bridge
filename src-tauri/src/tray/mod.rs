@@ -514,7 +514,12 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
         }
         "open" => crate::window::show_dashboard(app),
         "open_at_login" => crate::autostart::toggle(app),
-        "mqtt" => toggle_mqtt(app),
+        // Off the main thread: a settings save holding the settings lock
+        // may be waiting for the main thread (to update this menu).
+        "mqtt" => {
+            let app = app.clone();
+            std::thread::spawn(move || toggle_mqtt(&app));
+        }
         "quit" => app.exit(0),
         _ => {}
     }

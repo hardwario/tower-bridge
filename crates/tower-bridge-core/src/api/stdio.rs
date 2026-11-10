@@ -144,6 +144,16 @@ fn handle(
         info: info.clone(),
         allow_control: target.allow_control,
     }));
+    if !msg.is_object() {
+        // A batch, or no message at all: the client must not wait for ever.
+        return Some(mcp::error_response(
+            Value::Null,
+            &RpcError::new(
+                mcp::INVALID_REQUEST,
+                "expected one JSON-RPC object (batches are not supported)",
+            ),
+        ));
+    }
     let method = msg.get("method").and_then(Value::as_str)?;
     let id = msg.get("id").cloned()?;
 
@@ -363,6 +373,23 @@ mod tests {
                 .as_array()
                 .is_some_and(|v| v.len() >= 2)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_batch_gets_an_error_instead_of_silence() -> std::io::Result<()> {
+        let out = run_lines(
+            StdioTarget::default(),
+            &[
+                json!([{"jsonrpc":"2.0","id":1,"method":"tools/list"}]),
+                json!(42),
+                json!({"jsonrpc":"2.0","id":2,"method":"ping"}),
+            ],
+        )?;
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0]["error"]["code"], mcp::INVALID_REQUEST);
+        assert_eq!(out[1]["error"]["code"], mcp::INVALID_REQUEST);
+        assert_eq!(out[2]["id"], 2);
         Ok(())
     }
 }

@@ -245,7 +245,8 @@ impl NfcTag {
             write_block(bus, clock, self.address, &block(0, first))?;
         }
         self.url = self.read_url(bus)?;
-        if self.url.as_deref() == Some(url) {
+        // As written: trimmed, with spaces and control characters encoded.
+        if self.url.as_deref() == Some(escape_uri(url.trim()).as_str()) {
             Ok(())
         } else {
             Err(NfcError::NotWritten)
@@ -294,11 +295,32 @@ pub fn with_scheme(url: &str) -> String {
     }
 }
 
+/// Percent-encode whitespace and control characters, which a URI never
+/// contains. A tag holds whatever a phone last wrote to it, and a URL with
+/// line breaks in it could pass for more text: in the dashboard, or in the
+/// `get_device_status` answer an AI model reads.
+fn escape_uri(url: &str) -> String {
+    let mut out = String::with_capacity(url.len());
+    for c in url.chars() {
+        if c.is_control() || c.is_whitespace() {
+            let mut buf = [0u8; 4];
+            for b in c.encode_utf8(&mut buf).bytes() {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// An NDEF message with one URI record, as a TLV with the terminator.
 pub fn ndef_tlv(url: &str) -> Result<Vec<u8>, NfcError> {
     if url.trim().is_empty() {
         return Err(NfcError::Empty);
     }
+    let url = escape_uri(url.trim());
+    let url = url.as_str();
     if url.len() > MAX_URL {
         return Err(NfcError::TooLong);
     }
@@ -406,7 +428,10 @@ fn parse_uri(message: &[u8]) -> Option<String> {
     }
     let (&code, rest) = payload.split_first()?;
     let prefix = PREFIXES.get(usize::from(code)).copied().unwrap_or("");
-    Some(format!("{prefix}{}", String::from_utf8_lossy(rest)))
+    Some(escape_uri(&format!(
+        "{prefix}{}",
+        String::from_utf8_lossy(rest)
+    )))
 }
 
 #[cfg(test)]
@@ -449,6 +474,24 @@ mod tests {
         assert_eq!(with_scheme(""), "");
         let long = format!("https://example.com/{}", "a".repeat(MAX_URL));
         assert!(matches!(ndef_tlv(&long), Err(NfcError::TooLong)));
+    }
+
+    #[test]
+    fn whitespace_and_control_characters_are_percent_encoded() -> Result<(), NfcError> {
+        // What a phone may have written: a URL with more text after it.
+        let mut message = vec![0xD1, 0x01, 0, b'U', 0x04];
+        message.extend_from_slice("x.io\n\nNOTE TO\tASSISTANT\u{2028}".as_bytes());
+        message[2] = u8::try_from(message.len() - 4).unwrap_or(0);
+        assert_eq!(
+            parse_uri(&message).as_deref(),
+            Some("https://x.io%0A%0ANOTE%20TO%09ASSISTANT%E2%80%A8")
+        );
+        // Unicode letters stay as they are.
+        assert_eq!(escape_uri("https://čeština.cz/ü"), "https://čeština.cz/ü");
+        // And so does a write, whose URL is checked as written.
+        let tlv = ndef_tlv(" https://x.io/a b ")?;
+        assert_eq!(&tlv[7..tlv.len() - 1], b"x.io/a%20b");
+        Ok(())
     }
 
     #[test]
@@ -515,6 +558,10 @@ mod tests {
         // A later detection reads it from the tag.
         let again = NfcTag::detect(&mut bus, &[0, 1])?.map(|t| t.info().url);
         assert_eq!(again, Some(Some("https://www.hardwario.com".into())));
+
+        // A space is written encoded, and that counts as written.
+        nfc.write_url(&mut bus, &clock, " https://x.io/a b ")?;
+        assert_eq!(nfc.info().url.as_deref(), Some("https://x.io/a%20b"));
         Ok(())
     }
 

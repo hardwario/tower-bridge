@@ -86,10 +86,10 @@
       >
     </span>
     {#each KEYS as k (k)}
-      <span
-        class="value tabular"
-        class:off={line.hidden}
-        aria-label="{line.name}, {t().common[k]}, {unitLabel(metric, unit)}"
+      <!-- The context as hidden text before the value: an aria-label on a
+           span is not read everywhere, and where it is, it hides the number. -->
+      <span class="value tabular" class:off={line.hidden}
+        ><span class="visually-hidden">{line.name}, {t().common[k]}, {unitLabel(metric, unit)}: </span
         >{line.stats ? fmtValue(metric, line.stats[k], unit) : NO_VALUE}</span
       >
     {/each}
@@ -196,5 +196,13 @@
     padding-left: 2px;
     font-size: 11px;
     color: var(--text-muted);
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 </style>

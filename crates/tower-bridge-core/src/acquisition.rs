@@ -33,6 +33,8 @@ const RELAY_CHANNELS: [u8; 2] = [0, 1];
 /// A measurement cycle takes about a second; one is not started when a relay
 /// pulse ends sooner than this, so the pulse ends on time.
 const PULSE_GUARD: Duration = Duration::from_millis(1500);
+/// Between two attempts to switch back at the end of a pulse.
+const PULSE_RETRY: Duration = Duration::from_secs(1);
 /// Attempts to switch back after a pulse whose return failed.
 const PULSE_RETRIES: u8 = 5;
 /// How often relay commands are checked while a measurement waits for its
@@ -297,11 +299,34 @@ enum Exit {
 #[derive(Clone, Copy, Debug)]
 struct PendingPulse {
     due: Instant,
-    /// Unix ms of `due`, for reporting.
+    /// Unix ms of `due`, for reporting, and for the end after a sleep.
     until_ms: i64,
     back: bool,
     /// Failed attempts to switch back.
     retries: u8,
+}
+
+impl PendingPulse {
+    /// Time left until the pulse ends. `Instant` stands still while the
+    /// computer sleeps (on macOS and Linux), so a pulse running into a sleep
+    /// would end that much late; the wall clock catches up at the wake.
+    /// Whichever ends it first wins: a pulse never runs longer than asked.
+    /// Another attempt to switch back, a second from now by either clock.
+    fn retry(self) -> Self {
+        Self {
+            due: Instant::now() + PULSE_RETRY,
+            until_ms: unix_ms() + PULSE_RETRY.as_millis() as i64,
+            retries: self.retries + 1,
+            ..self
+        }
+    }
+
+    fn left(&self) -> Duration {
+        let wall = u64::try_from(self.until_ms.saturating_sub(unix_ms())).unwrap_or(0);
+        self.due
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_millis(wall))
+    }
 }
 
 /// What a wait on a connected bridge can act on.
@@ -635,11 +660,7 @@ impl Worker {
         if let Err(e) = self.move_relay(bus, relay, p.back) {
             if relay.is_some() && p.retries < PULSE_RETRIES {
                 warn!("relay pulse could not switch back, trying again: {e}");
-                self.pulse = Some(PendingPulse {
-                    due: Instant::now() + Duration::from_secs(1),
-                    retries: p.retries + 1,
-                    ..p
-                });
+                self.pulse = Some(p.retry());
             } else {
                 warn!("relay pulse could not switch back: {e}");
                 // No pulse any more: the state shown loses its end time.
@@ -721,7 +742,7 @@ impl Worker {
     ) -> bool {
         let mut used = false;
         loop {
-            if self.pulse.is_some_and(|p| p.due <= Instant::now()) {
+            if self.pulse.is_some_and(|p| p.left().is_zero()) {
                 self.finish_pulse(bus, relay);
                 used = true;
             }
@@ -882,7 +903,7 @@ impl Worker {
 
             // Let a relay pulse that ends during the probes or the cycle end first.
             if let Some(p) = self.pulse {
-                let left = p.due.saturating_duration_since(Instant::now());
+                let left = p.left();
                 if left < PULSE_GUARD {
                     let session = Session {
                         bus: &mut *bus,
@@ -970,7 +991,10 @@ impl Worker {
             {
                 self.report_sensors(&device, &sensors);
             }
-            if failed_cycles >= FAILED_CYCLES_REOPEN {
+            // Reopening the bridge forgets a running relay pulse, which would
+            // leave the relay switched over for good; the bus itself works
+            // (the relay still answers), so the reopen waits for its end.
+            if failed_cycles >= FAILED_CYCLES_REOPEN && self.pulse.is_none() {
                 return Exit::Lost(BusError::Protocol("no sensor responds".into()));
             }
             if failed_cycles == FAILED_CYCLES_REDETECT {
@@ -1021,7 +1045,10 @@ impl Worker {
         let deadline = Instant::now() + d;
         loop {
             let now = Instant::now();
-            let pulse_due = self.pulse.filter(|_| target.is_some()).map(|p| p.due);
+            let pulse_due = self
+                .pulse
+                .filter(|_| target.is_some())
+                .map(|p| now + p.left());
             if let (Some(due), Some(s)) = (pulse_due, target.as_mut())
                 && due <= now
             {
@@ -1571,6 +1598,30 @@ mod tests {
         assert!(back.is_some());
         assert!(started.elapsed() >= MIN_PULSE);
         acq.shutdown(Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_pulse_ends_by_the_wall_clock_after_a_sleep() {
+        // As after a sleep: the monotonic clock says an hour to go, the wall
+        // clock that the end has passed.
+        let slept = PendingPulse {
+            due: Instant::now() + Duration::from_secs(3600),
+            until_ms: unix_ms() - 1000,
+            back: false,
+            retries: 0,
+        };
+        assert!(slept.left().is_zero());
+        let running = PendingPulse {
+            until_ms: unix_ms() + 60_000,
+            ..slept
+        };
+        assert!(running.left() > Duration::from_secs(59));
+        assert!(running.left() <= Duration::from_secs(60));
+        // A failed switch back is tried again a second later, by both
+        // clocks: the pulse's own end has passed on the wall clock.
+        let retry = slept.retry();
+        assert!(retry.left() > Duration::from_millis(900));
+        assert_eq!(retry.retries, 1);
     }
 
     #[test]

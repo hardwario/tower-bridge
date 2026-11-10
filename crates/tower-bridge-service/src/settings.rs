@@ -515,17 +515,7 @@ impl Settings {
             Ok(v) => v,
             Err(e) => return Parsed::NotJson(e.to_string()),
         };
-        snake_case_keys(&mut v);
-        // Files from before versioning are version 1.
-        if let Some(map) = v.as_object_mut() {
-            map.entry("version").or_insert(serde_json::json!(1));
-        }
-        if v["version"].as_u64().is_some_and(|n| n < 4) {
-            upgrade_mqtt_v3(&mut v);
-        }
-        if v["version"].as_u64().is_some_and(|n| n < 6) {
-            upgrade_ms_v5(&mut v);
-        }
+        migrate_json(&mut v);
         let (mut s, problem) = match serde_json::from_value::<Settings>(v.clone()) {
             Ok(s) => (s, None),
             Err(e) => (lenient(&v), Some(e.to_string())),
@@ -555,7 +545,18 @@ impl Settings {
         }
         let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let tmp = path.with_extension(format!("json.tmp-{}-{n}", std::process::id()));
-        let text = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
+        let mut value = serde_json::to_value(self).map_err(std::io::Error::other)?;
+        // Keys this build does not know stay: a newer build wrote them (the
+        // app next to an older CLI), and dropping them would turn its
+        // settings back to their defaults.
+        if let Ok(text) = std::fs::read_to_string(path)
+            && let Ok(mut old) =
+                serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}'))
+        {
+            migrate_json(&mut old);
+            keep_unknown(&mut value, &old);
+        }
+        let text = serde_json::to_string_pretty(&value).map_err(std::io::Error::other)?;
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create(true).truncate(true);
         #[cfg(unix)]
@@ -567,6 +568,40 @@ impl Settings {
         file.sync_all()?;
         drop(file);
         std::fs::rename(&tmp, path)
+    }
+}
+
+/// Bring the JSON of a settings file to the current form: snake_case keys,
+/// a version (1 when missing), and the upgrade steps that work on the JSON.
+fn migrate_json(v: &mut serde_json::Value) {
+    snake_case_keys(v);
+    // Files from before versioning are version 1.
+    if let Some(map) = v.as_object_mut() {
+        map.entry("version").or_insert(serde_json::json!(1));
+    }
+    if v["version"].as_u64().is_some_and(|n| n < 4) {
+        upgrade_mqtt_v3(v);
+    }
+    if v["version"].as_u64().is_some_and(|n| n < 6) {
+        upgrade_ms_v5(v);
+    }
+}
+
+/// Copy into `new` the keys of `old` it does not have, in nested objects
+/// too. Values of known keys are `new`'s. The chart colour of version 2 is
+/// known (read, never written) and stays out.
+fn keep_unknown(new: &mut serde_json::Value, old: &serde_json::Value) {
+    let (Some(new), Some(old)) = (new.as_object_mut(), old.as_object()) else {
+        return;
+    };
+    for (key, value) in old {
+        match new.get_mut(key) {
+            Some(known) => keep_unknown(known, value),
+            None if key == "color" && value.is_string() => {}
+            None => {
+                new.insert(key.clone(), value.clone());
+            }
+        }
     }
 }
 
@@ -1105,6 +1140,47 @@ mod tests {
         let s = s.validated();
         assert_eq!(s.sample_interval_ms, 2_000);
         assert_eq!(s.alerts.temperature.min, Some(10.0));
+    }
+
+    #[test]
+    fn a_save_keeps_the_settings_of_a_newer_build() -> std::io::Result<()> {
+        let (s, dir) = load_json(
+            "newer",
+            r#"{"version": 6, "theme": "dark", "future_setting": false,
+                "mqtt": {"host": "a", "future_mqtt": {"x": 1}}}"#,
+        )?;
+        assert_eq!(s.theme, ThemePref::Dark);
+        let path = dir.join("settings.json");
+        let mut changed = s.clone();
+        changed.mqtt.host = "b".into();
+        changed.save(&path)?;
+        let text = std::fs::read_to_string(&path)?;
+        let v: serde_json::Value = serde_json::from_str(&text).map_err(std::io::Error::other)?;
+        assert_eq!(v["future_setting"], false);
+        assert_eq!(v["mqtt"]["future_mqtt"]["x"], 1);
+        assert_eq!(v["mqtt"]["host"], "b");
+        assert_eq!(Settings::load(&path).0.mqtt.host, "b");
+        Ok(())
+    }
+
+    #[test]
+    fn a_save_drops_what_the_upgrade_steps_removed() -> std::io::Result<()> {
+        let (s, dir) = load_json(
+            "older",
+            r#"{"version": 3, "sampleInterval_s": 30,
+                "mqtt": {"mode": "builtin", "password": "secret", "allow_lan": true},
+                "charts": {"temperature": {"color": "red"}}}"#,
+        )?;
+        let path = dir.join("settings.json");
+        s.save(&path)?;
+        let text = std::fs::read_to_string(&path)?;
+        let v: serde_json::Value = serde_json::from_str(&text).map_err(std::io::Error::other)?;
+        assert!(!text.contains("secret"), "{text}");
+        assert!(v["mqtt"].get("allow_lan").is_none(), "{text}");
+        assert!(v["mqtt"].get("mode").is_none(), "{text}");
+        assert!(!text.contains("interval_s"), "{text}");
+        assert!(!text.contains("\"color\""), "{text}");
+        Ok(())
     }
 
     #[test]

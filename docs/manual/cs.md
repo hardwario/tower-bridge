@@ -123,7 +123,7 @@ Pro každou veličinu nastavte dolní limit (**Pod**) a horní limit (**Nad**). 
 ![Limity upozornění](images/cs/alerts.webp)
 
 - **Hystereze:** o kolik se hodnota musí vrátit dovnitř limitu, než upozornění skončí, aby hodnota blízko limitu nespouštěla upozornění znovu a znovu.
-- **Opakovat po:** nejkratší doba mezi dvěma oznámeními pro stejný limit.
+- **Opakovat po:** nejkratší doba mezi dvěma oznámeními pro stejný limit. Když hodnota opustí rozsah znovu dřív, oznámení přijde po uplynutí této doby, pokud je stále mimo rozsah.
 - **Oznámit návrat do normy:** oznámí i to, že je hodnota opět v rozsahu.
 - **Odpojení zařízení:** oznámí, když minutu nepřijde žádné měření.
 

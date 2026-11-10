@@ -222,8 +222,10 @@ fn poll_snapshots(access: Arc<Access>, lock_file: PathBuf, tx: Sender<Update>, w
                         access.describe()
                     ))
                 }
+                // What the other instance said (a token it refused, say),
+                // which "no answer" would hide.
                 Err(e) => Update::Snapshot(Err(match &*access {
-                    Access::Remote(_) => format!("no answer from {}", access.describe()),
+                    Access::Remote(_) => format!("{}: {e:#}", access.describe()),
                     Access::Local(_) => format!("{e:#}"),
                 })),
             };

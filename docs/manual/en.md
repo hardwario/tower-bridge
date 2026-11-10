@@ -123,7 +123,7 @@ Set a lower limit (**Below**) and an upper limit (**Above**) for each measuremen
 ![Alert limits](images/en/alerts.webp)
 
 - **Hysteresis:** how far the value must return inside the limit before the alert ends, so that a value close to the limit does not raise alerts again and again.
-- **Repeat after:** the shortest time between two notifications for the same limit.
+- **Repeat after:** the shortest time between two notifications for the same limit. A value that leaves its range again sooner is notified once this time has passed, if it is still out of range.
 - **Notify when back to normal:** also tells you when the value is in range again.
 - **Bridge disconnected:** notifies you when no measurement arrives for a minute.
 

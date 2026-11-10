@@ -375,10 +375,10 @@
           ticks: { show: false },
           size: compact ? 22 : 30,
           space: compact ? 64 : 76,
-          values: (u, splits) =>
+          values: (u, splits, _axis, _space, incr) =>
             splits.map((v) => {
               // Drop labels that would be cut off at the plot's edges.
-              const label = fmtAxis(v * 1000, spanMs(u));
+              const label = fmtAxis(v * 1000, spanMs(u), incr * 1000);
               const x = u.valToPos(v, "x");
               const half = label.length * 3.3;
               const w = u.bbox.width / uPlot.pxRatio;

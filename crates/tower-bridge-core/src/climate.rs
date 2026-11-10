@@ -265,7 +265,12 @@ impl ChannelSensors {
             self.sht30 = Part::found(Slot::Ready, sht30::ADDR);
             found = true;
         }
-        if !self.sht20.present() && answered(sht20::soft_reset(bus))?.is_some() {
+        // An HDC2080 at the same address would take the SHT20's commands as
+        // register pointers and read back nonsense (-46.85 °C from zeros).
+        if !self.sht20.present()
+            && !crate::sensors::identify::is_hdc2080(bus, sht20::ADDR)?
+            && answered(sht20::soft_reset(bus))?.is_some()
+        {
             clock.sleep(sht20::RESET_TIME);
             self.sht20 = Part::found(Slot::Ready, sht20::ADDR);
             found = true;
@@ -1295,6 +1300,41 @@ mod tests {
         let report = single(sensors.measure(&mut bus, &clock)?);
         assert!(report.errors.is_empty(), "{:?}", report.errors);
         assert_close(report.values.illuminance, 512.0, 0.5);
+        Ok(())
+    }
+
+    /// An HDC2080 (an older Humidity Tag): registers behind a pointer,
+    /// zeros apart from its manufacturer ID.
+    struct SimHdc2080 {
+        pointer: u8,
+    }
+
+    impl crate::bus::mock::SimDevice for SimHdc2080 {
+        fn write(&mut self, data: &[u8]) -> Result<(), BusError> {
+            self.pointer = *data.first().ok_or(BusError::DataNack)?;
+            Ok(())
+        }
+
+        fn read(&mut self, buf: &mut [u8]) -> Result<(), BusError> {
+            for (i, b) in buf.iter_mut().enumerate() {
+                *b = match self.pointer.wrapping_add(i as u8) {
+                    0xFC => 0x49,
+                    0xFD => 0x54,
+                    _ => 0,
+                };
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn an_hdc2080_is_not_taken_for_an_sht20() -> Result<(), BusError> {
+        let mut bus = MockBus::new();
+        bus.attach(0, 0x40, Box::new(SimHdc2080 { pointer: 0 }));
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        assert!(sensors.is_empty(), "{:?}", sensors.sources());
         Ok(())
     }
 

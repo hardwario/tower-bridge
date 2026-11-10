@@ -34,19 +34,35 @@
   }
   const dark = $derived(theme.effective === "dark");
 
+  let palette = $state<HTMLDivElement>();
+
+  /** A radio group: one Tab stop, the arrow keys move the choice (and keep it open). */
+  function paletteKey(e: KeyboardEvent) {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (step === undefined) return;
+    e.preventDefault();
+    const i = CHART_COLORS.indexOf(value);
+    onchange(CHART_COLORS[(i + step + CHART_COLORS.length) % CHART_COLORS.length]);
+    queueMicrotask(() => palette?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus());
+  }
+
   $effect(() => {
     if (!open) return;
     const away = (e: PointerEvent) => {
       if (!root.contains(e.target as Node)) open = false;
     };
+    // Captured, so it comes before the Dashboard's own Escape (which would
+    // also restore a maximized card), and marked as handled for it.
     const esc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") open = false;
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      open = false;
     };
     window.addEventListener("pointerdown", away);
-    window.addEventListener("keydown", esc);
+    window.addEventListener("keydown", esc, true);
     return () => {
       window.removeEventListener("pointerdown", away);
-      window.removeEventListener("keydown", esc);
+      window.removeEventListener("keydown", esc, true);
     };
   });
 </script>
@@ -64,7 +80,15 @@
     <span class="swatch" style:background={lineColor(value, dark)}></span>
   </button>
   {#if open}
-    <div class="palette" class:rightward role="radiogroup" aria-label={t().chart.lineColor}>
+    <div
+      class="palette"
+      class:rightward
+      role="radiogroup"
+      aria-label={t().chart.lineColor}
+      tabindex="-1"
+      bind:this={palette}
+      onkeydown={paletteKey}
+    >
       {#each CHART_COLORS as c (c)}
         <button
           type="button"
@@ -72,6 +96,7 @@
           class="choice"
           class:selected={c === value}
           aria-checked={c === value}
+          tabindex={c === value ? 0 : -1}
           title={t().chart.colors[c]}
           aria-label={t().chart.colors[c]}
           style:--c={lineColor(c, dark)}

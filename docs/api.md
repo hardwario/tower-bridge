@@ -34,8 +34,11 @@ network sees the token and the readings, and with *Allow changes* on can
 switch the relay or rewrite the NFC Tag with that token. Use it on a network
 you trust.
 
-The server serves up to 64 connections at once and closes a connection after
-30 seconds without traffic.
+The server serves up to 64 connections at once, at most 16 of them from one
+address on the network (local clients are not limited). It closes a
+connection that waited 30 seconds for an answer: idle after its last
+response, or with a request still not complete 30 seconds after its first
+byte.
 
 ## REST API
 
@@ -66,8 +69,8 @@ alerts carry their `channel`.
 | PUT | `/api/v1/relay` | `{"state": true}` or `false`; ends a running pulse *(changes)* |
 | POST | `/api/v1/relay/pulse` | Switch to a state for a while, then back. Body optional: `{"state": false, "duration_ms": 2000}`; defaults are the opposite state (or, while a pulse runs, extending it) and the configured length; `duration_ms` is held to 500 to 3600000 *(changes)* |
 | GET | `/api/v1/gps` | GPS Module: `{"channel": 0, "fix": true, "satellites": 9, "latitude": 50.771168, "longitude": 15.056328, "altitude": 374.2, "accuracy": 3.1, "time": 1792245600000}`; position, altitude (m above sea level) and accuracy (m) are `null` without a fix; 404 without a GPS Module |
-| GET | `/api/v1/nfc` | TOWER NFC Tag: `{"channel": 0, "address": 8, "part": "NT3H2111", "url": "https://www.hardwario.com", "formatted": true}`; `url` is `null` when the tag holds none; 404 `no_nfc` without a tag |
-| PUT | `/api/v1/nfc` | `{"url": "https://example.com"}`: write a URL that phones open when they touch the tag, at most 240 bytes; `https://` is added when the address has no scheme. Returns what the tag holds afterwards; 409 `not_formatted` when the tag is not NDEF formatted (format it with a phone app, for example NXP TagWriter) *(changes)* |
+| GET | `/api/v1/nfc` | TOWER NFC Tag: `{"channel": 0, "address": 8, "part": "NT3H2111", "url": "https://www.hardwario.com", "formatted": true}`; `url` is `null` when the tag holds none, and spaces, line breaks and other control characters in it are percent-encoded (`%20`, `%0A`), since anyone can rewrite a tag with a phone; 404 `no_nfc` without a tag |
+| PUT | `/api/v1/nfc` | `{"url": "https://example.com"}`: write a URL that phones open when they touch the tag, at most 240 bytes; `https://` is added when the address has no scheme, and spaces and control characters are percent-encoded. Returns what the tag holds afterwards; 409 `not_formatted` when the tag is not NDEF formatted (format it with a phone app, for example NXP TagWriter) *(changes)* |
 | GET | `/metrics` | Prometheus text format |
 
 Errors are JSON: `{"error": {"code": "…", "message": "…"}}`.

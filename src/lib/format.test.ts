@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { excelDateTimeFormat, fmtClock, fmtDate, fmtDateTime, fmtDayMonth, fmtDuration, fmtInput, fmtNumber, parseInput } from "./format";
+import { excelDateTimeFormat, fmtAxis, fmtClock, fmtDate, fmtDateTime, fmtDayMonth, fmtDuration, fmtInput, fmtNumber, parseInput } from "./format";
 import { i18n } from "./i18n/index.svelte";
 
 describe("format", () => {
@@ -31,6 +31,28 @@ describe("format", () => {
       i18n.decimal = "auto";
       i18n.set("en");
     }
+  });
+
+  it("never shows a minus zero", () => {
+    i18n.set("cs");
+    expect(fmtNumber(-0.04, 1)).toBe("0,0");
+    expect(fmtNumber(-0.05, 1)).toBe("-0,1");
+    expect(fmtNumber(-1e-16, 0)).toBe("0");
+    i18n.set("en");
+    expect(fmtNumber(-0.4, 0)).toBe("0");
+    expect(fmtNumber(-0.6, 0)).toBe("-1");
+  });
+
+  it("labels axis ticks hours apart over several days with the date once a day", () => {
+    i18n.set("en");
+    const midnight = new Date(2026, 10, 6, 0, 0).getTime();
+    const noon = new Date(2026, 10, 6, 12, 0).getTime();
+    const threeDays = 3 * 86_400_000;
+    expect(fmtAxis(midnight, threeDays, 12 * 3_600_000)).toBe(fmtDayMonth(midnight));
+    expect(fmtAxis(noon, threeDays, 12 * 3_600_000)).toBe(fmtClock(noon));
+    // A tick a day or more apart: always the date.
+    expect(fmtAxis(noon, 30 * 86_400_000, 86_400_000)).toBe(fmtDayMonth(noon));
+    expect(fmtAxis(noon, 86_400_000)).toBe(fmtClock(noon));
   });
 
   it("parses either separator", () => {

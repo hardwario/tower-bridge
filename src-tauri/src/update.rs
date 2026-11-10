@@ -174,7 +174,13 @@ impl Checker {
             state.checking = true;
             self.updates.publish(&self.app, state);
             let result = fetch(&self.url, &self.current);
-            due = SystemTime::now() + if result.is_ok() { INTERVAL } else { RETRY };
+            // An answer that cannot be used (a tag that is no version) will
+            // not change within the hour: asked again tomorrow.
+            let soon = matches!(&result, Err(CheckError::Network(_)));
+            due = SystemTime::now() + if soon { RETRY } else { INTERVAL };
+            let result = result.map_err(|e| match e {
+                CheckError::Network(e) | CheckError::Answer(e) => e,
+            });
             let mut state = self.updates.state();
             state.checking = false;
             // Switched off during the check: the result is not wanted.
@@ -229,20 +235,30 @@ impl Checker {
 }
 
 /// Ask for the newest release; it, when it is newer than `current`.
-fn fetch(url: &str, current: &Version) -> Result<Option<Release>, String> {
+fn fetch(url: &str, current: &Version) -> Result<Option<Release>, CheckError> {
+    let network = |e: ureq::Error| CheckError::Network(e.to_string());
     let body = agent()
         .get(url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
         .call()
-        .map_err(|e| e.to_string())?
+        .map_err(network)?
         .body_mut()
         .with_config()
         .limit(1 << 20)
         .read_to_string()
-        .map_err(|e| e.to_string())?;
-    let latest: Latest = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    newer(&latest, current)
+        .map_err(network)?;
+    let latest: Latest =
+        serde_json::from_str(&body).map_err(|e| CheckError::Answer(e.to_string()))?;
+    newer(&latest, current).map_err(CheckError::Answer)
+}
+
+/// Why a check failed: no answer (offline, a limit reached), or an answer
+/// that cannot be used.
+#[derive(Debug)]
+enum CheckError {
+    Network(String),
+    Answer(String),
 }
 
 /// The part of GitHub's release that matters here.
@@ -265,6 +281,11 @@ fn newer(latest: &Latest, current: &Version) -> Result<Option<Release>, String> 
     let tag = &latest.tag_name;
     let version = Version::parse(tag.strip_prefix('v').unwrap_or(tag))
         .map_err(|e| format!("unexpected release tag {tag:?}: {e}"))?;
+    // A release candidate published without the pre-release mark is no
+    // update for everyone.
+    if !version.pre.is_empty() {
+        return Ok(None);
+    }
     Ok((version > *current).then(|| Release {
         version: version.to_string(),
         url: format!("{REPOSITORY}/releases/tag/{tag}"),
@@ -344,6 +365,8 @@ mod tests {
         let mut draft = latest("v2.0.0");
         draft.draft = true;
         assert_eq!(newer(&draft, &current()), Ok(None));
+        // Not marked as one, but its version says so.
+        assert_eq!(newer(&latest("v2.0.0-rc.1"), &current()), Ok(None));
     }
 
     #[test]

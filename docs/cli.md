@@ -72,6 +72,7 @@ tower-bridge-cli export --from 2026-10-01 --to 2026-10-08 > october.csv
 tower-bridge-cli alerts               # limits, active alerts, recent alert log
 tower-bridge-cli config set mqtt.host broker.local
 tower-bridge-cli config get api.token # the REST and MCP token (secrets show only by their own key)
+tower-bridge-cli config set api.token <token>  # your own token: at least 16 characters
 ```
 
 `--help` after any command lists its options. `--simulate` uses a simulated
