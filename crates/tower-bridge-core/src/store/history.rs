@@ -65,8 +65,13 @@ impl Series {
 }
 
 /// Columnar history, ready for uPlot (`t` in seconds). Each metric has one
-/// series per entry of `channels`, all aligned with `t`; a channel without a
-/// value in a bucket has `null` there.
+/// series per entry of `channels` (and `sensors`), all aligned with `t`; a
+/// series without a value in a bucket has `null` there.
+///
+/// A series is a channel's (`sensors[i]` null), or one of its further
+/// sensors' (`sensors[i]` its id, e.g. `sht20-40`): `channels` then names
+/// the same channel more than once. Series are ordered by channel, the
+/// channel's own first, then the further sensors by id.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct History {
@@ -74,8 +79,11 @@ pub struct History {
     pub to: i64,
     pub bucket_ms: i64,
     pub t: Vec<f64>,
-    /// I2C channels with readings in the range, ascending.
+    /// The I2C channel of each series, ascending.
     pub channels: Vec<u8>,
+    /// The further sensor of each series, `None` for the channel's own.
+    #[serde(default)]
+    pub sensors: Vec<Option<String>>,
     pub temperature: Vec<Series>,
     pub humidity: Vec<Series>,
     pub illuminance: Vec<Series>,
@@ -85,10 +93,28 @@ pub struct History {
 }
 
 impl History {
-    /// The series of `metric` measured on `channel`.
+    /// The series of `metric` measured on `channel` (the channel's own).
     pub fn series(&self, metric: crate::model::Metric, channel: u8) -> Option<&Series> {
+        self.series_of(metric, channel, None)
+    }
+
+    /// The further sensor of series `i` (`None` for a channel's own, also
+    /// from a history without `sensors`).
+    pub fn sensor(&self, i: usize) -> Option<&str> {
+        self.sensors.get(i).and_then(|s| s.as_deref())
+    }
+
+    /// The series of `metric` of `channel`'s further `sensor`, or of the
+    /// channel's own with `None`.
+    pub fn series_of(
+        &self,
+        metric: crate::model::Metric,
+        channel: u8,
+        sensor: Option<&str>,
+    ) -> Option<&Series> {
         use crate::model::Metric;
-        let i = self.channels.iter().position(|c| *c == channel)?;
+        let i = (0..self.channels.len())
+            .find(|&i| self.channels[i] == channel && self.sensor(i) == sensor)?;
         match metric {
             Metric::Temperature => self.temperature.get(i),
             Metric::Humidity => self.humidity.get(i),
@@ -103,10 +129,11 @@ impl History {
 /// Metrics in the query, in `Metric::ALL` order.
 const METRICS: usize = crate::model::Metric::ALL.len();
 
-/// One aggregated row of the query: a bucket of one channel.
+/// One aggregated row of the query: a bucket of one series.
 struct Row {
     bucket: i64,
     channel: u8,
+    sensor: Option<String>,
     /// avg, min, max per metric.
     values: [[Option<f64>; 3]; METRICS],
 }
@@ -122,24 +149,75 @@ pub fn bucket_for(span_ms: i64, max_points: usize, sample_interval_ms: i64) -> i
         .unwrap_or(30 * 24 * HOUR)
 }
 
+/// The tables of the channels' series, and of the further sensors'.
+#[derive(Clone, Copy)]
+enum Table {
+    Channels,
+    Sensors,
+}
+
+impl Table {
+    fn readings(self) -> &'static str {
+        match self {
+            Table::Channels => "readings",
+            Table::Sensors => "sensor_readings",
+        }
+    }
+
+    fn hourly(self) -> &'static str {
+        match self {
+            Table::Channels => "readings_hourly",
+            Table::Sensors => "sensor_readings_hourly",
+        }
+    }
+
+    /// The columns that name a series, after the bucket.
+    fn key(self) -> &'static str {
+        match self {
+            Table::Channels => "channel, NULL",
+            Table::Sensors => "channel, sensor",
+        }
+    }
+
+    fn group(self) -> &'static str {
+        match self {
+            Table::Channels => "b, channel",
+            Table::Sensors => "b, channel, sensor",
+        }
+    }
+}
+
 /// Buckets of the readings themselves.
-const FROM_READINGS: &str = "SELECT (ts / ?1) * ?1 AS b, channel,
+fn from_readings(table: Table) -> String {
+    let (readings, key, group) = (table.readings(), table.key(), table.group());
+    format!(
+        "SELECT (ts / ?1) * ?1 AS b, {key},
         AVG(temperature), MIN(temperature), MAX(temperature),
         AVG(humidity), MIN(humidity), MAX(humidity),
         AVG(illuminance), MIN(illuminance), MAX(illuminance),
         AVG(pressure), MIN(pressure), MAX(pressure),
         AVG(co2), MIN(co2), MAX(co2),
         AVG(voc), MIN(voc), MAX(voc)
-    FROM readings WHERE ts >= ?2 AND ts < ?3
-    GROUP BY b, channel ORDER BY b, channel";
+    FROM {readings} WHERE ts >= ?2 AND ts < ?3
+    GROUP BY {group} ORDER BY {group}"
+    )
+}
 
 /// Buckets of hours: the whole hours inside the range from the hourly
 /// summary, the parts of the first and last hour from the readings, so a
 /// bucket holds exactly the readings of `[from, to)` as with
-/// `FROM_READINGS`. `?4` is the first whole hour, `?5` the end of the last;
+/// `from_readings`. `?4` is the first whole hour, `?5` the end of the last;
 /// the edges are `[from, ?6)` and `[?7, to)`, two ranges SQLite looks up by
 /// the index (one condition with an OR inside made it scan the whole range).
-const FROM_HOURS: &str = "SELECT (hour / ?1) * ?1 AS b, channel,
+fn from_hours(table: Table) -> String {
+    let (readings, hourly, key, group) =
+        (table.readings(), table.hourly(), table.key(), table.group());
+    let sensor = match table {
+        Table::Channels => "",
+        Table::Sensors => " sensor,",
+    };
+    format!(
+        "SELECT (hour / ?1) * ?1 AS b, {key},
         SUM(temperature_sum) / SUM(temperature_n), MIN(temperature_min), MAX(temperature_max),
         SUM(humidity_sum) / SUM(humidity_n), MIN(humidity_min), MAX(humidity_max),
         SUM(illuminance_sum) / SUM(illuminance_n), MIN(illuminance_min), MAX(illuminance_max),
@@ -147,23 +225,50 @@ const FROM_HOURS: &str = "SELECT (hour / ?1) * ?1 AS b, channel,
         SUM(co2_sum) / SUM(co2_n), MIN(co2_min), MAX(co2_max),
         SUM(voc_sum) / SUM(voc_n), MIN(voc_min), MAX(voc_max)
     FROM (
-        SELECT hour, channel, temperature_sum, temperature_n, temperature_min, temperature_max, humidity_sum, humidity_n, humidity_min, humidity_max, illuminance_sum, illuminance_n, illuminance_min, illuminance_max, pressure_sum, pressure_n, pressure_min, pressure_max, co2_sum, co2_n, co2_min, co2_max, voc_sum, voc_n, voc_min, voc_max
-            FROM readings_hourly WHERE hour >= ?4 AND hour < ?5
+        SELECT hour, channel,{sensor} temperature_sum, temperature_n, temperature_min, temperature_max, humidity_sum, humidity_n, humidity_min, humidity_max, illuminance_sum, illuminance_n, illuminance_min, illuminance_max, pressure_sum, pressure_n, pressure_min, pressure_max, co2_sum, co2_n, co2_min, co2_max, voc_sum, voc_n, voc_min, voc_max
+            FROM {hourly} WHERE hour >= ?4 AND hour < ?5
         UNION ALL
-        SELECT (ts / 3600000) * 3600000, channel,
+        SELECT (ts / 3600000) * 3600000, channel,{sensor}
                 temperature, temperature IS NOT NULL, temperature, temperature,
                 humidity, humidity IS NOT NULL, humidity, humidity,
                 illuminance, illuminance IS NOT NULL, illuminance, illuminance,
                 pressure, pressure IS NOT NULL, pressure, pressure,
                 co2, co2 IS NOT NULL, co2, co2,
                 voc, voc IS NOT NULL, voc, voc
-            FROM readings WHERE (ts >= ?2 AND ts < ?6) OR (ts >= ?7 AND ts < ?3)
+            FROM {readings} WHERE (ts >= ?2 AND ts < ?6) OR (ts >= ?7 AND ts < ?3)
     )
-    GROUP BY b, channel ORDER BY b, channel";
+    GROUP BY {group} ORDER BY {group}"
+    )
+}
 
-/// The aggregated rows of `[from, to)` in buckets of `bucket` ms.
+/// The aggregated rows of `[from, to)` in buckets of `bucket` ms, of the
+/// channels and their further sensors, ordered by bucket and series.
 fn rows(conn: &Connection, bucket: i64, from: i64, to: i64, hours: bool) -> Result<Vec<Row>> {
-    let mut stmt = conn.prepare_cached(if hours { FROM_HOURS } else { FROM_READINGS })?;
+    let mut rows = table_rows(conn, Table::Channels, bucket, from, to, hours)?;
+    let sensors = table_rows(conn, Table::Sensors, bucket, from, to, hours)?;
+    if !sensors.is_empty() {
+        rows.extend(sensors);
+        rows.sort_by(|a, b| {
+            (a.bucket, a.channel, &a.sensor).cmp(&(b.bucket, b.channel, &b.sensor))
+        });
+    }
+    Ok(rows)
+}
+
+fn table_rows(
+    conn: &Connection,
+    table: Table,
+    bucket: i64,
+    from: i64,
+    to: i64,
+    hours: bool,
+) -> Result<Vec<Row>> {
+    let sql = if hours {
+        from_hours(table)
+    } else {
+        from_readings(table)
+    };
+    let mut stmt = conn.prepare_cached(&sql)?;
     let floor = from.div_euclid(HOUR) * HOUR;
     let first_whole = if floor == from {
         from
@@ -178,12 +283,13 @@ fn rows(conn: &Connection, bucket: i64, from: i64, to: i64, hours: bool) -> Resu
         let mut values = [[None; 3]; METRICS];
         for (m, v) in values.iter_mut().enumerate() {
             for (k, x) in v.iter_mut().enumerate() {
-                *x = r.get(2 + m * 3 + k)?;
+                *x = r.get(3 + m * 3 + k)?;
             }
         }
         Ok(Row {
             bucket: r.get(0)?,
             channel: r.get(1)?,
+            sensor: r.get(2)?,
             values,
         })
     };
@@ -228,9 +334,10 @@ pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
     let hours = bucket % HOUR == 0;
     let rows = rows(conn, bucket, q.from, q.to, hours)?;
 
-    let mut channels: Vec<u8> = rows.iter().map(|r| r.channel).collect();
-    channels.sort_unstable();
-    channels.dedup();
+    let mut series: Vec<(u8, Option<String>)> =
+        rows.iter().map(|r| (r.channel, r.sensor.clone())).collect();
+    series.sort_unstable();
+    series.dedup();
 
     // Bucket starts, with a null row wherever data is missing for longer than
     // a few samples, so the chart breaks the line.
@@ -253,7 +360,7 @@ pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
     t.sort_unstable();
 
     let n = t.len();
-    let empty = || vec![Series::with_len(n); channels.len()];
+    let empty = || vec![Series::with_len(n); series.len()];
     let mut h = History {
         from: q.from,
         to: q.to,
@@ -262,7 +369,8 @@ pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
         t: t.iter()
             .map(|(b, _)| (b + bucket / 2) as f64 / 1000.0)
             .collect(),
-        channels: channels.clone(),
+        channels: series.iter().map(|(c, _)| *c).collect(),
+        sensors: series.iter().map(|(_, s)| s.clone()).collect(),
         temperature: empty(),
         humidity: empty(),
         illuminance: empty(),
@@ -275,10 +383,13 @@ pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
         while i < n && !(t[i].0 == r.bucket && t[i].1) {
             i += 1;
         }
-        let Some(c) = channels.iter().position(|c| *c == r.channel) else {
+        let Some(c) = series
+            .iter()
+            .position(|(c, s)| *c == r.channel && *s == r.sensor)
+        else {
             continue;
         };
-        for (m, series) in [
+        for (m, metric_series) in [
             &mut h.temperature,
             &mut h.humidity,
             &mut h.illuminance,
@@ -291,7 +402,7 @@ pub fn query(conn: &Connection, q: &HistoryQuery) -> Result<History> {
         {
             let [avg, min, max] = r.values[m];
             if i < n {
-                series[c].set(i, avg, min, max);
+                metric_series[c].set(i, avg, min, max);
             }
         }
     }
@@ -304,6 +415,50 @@ mod tests {
     use crate::store::Store;
     use crate::store::tests::reading;
     use rusqlite::Connection;
+
+    #[test]
+    fn a_further_sensor_has_a_series_of_its_own() -> Result<()> {
+        use crate::model::Metric;
+        let mut s = Store::open_in_memory()?;
+        let mut batch = Vec::new();
+        for i in 0..(3 * 24 * 60) {
+            let ts = i * MINUTE;
+            batch.push(reading(ts, 20.0));
+            let mut tag = reading(ts, 5.0);
+            tag.sensor = Some("sht20-40".into());
+            batch.push(tag);
+            let mut other = reading(ts, 30.0);
+            other.channel = 1;
+            batch.push(other);
+        }
+        s.insert_many(&batch)?;
+        // Minutes from the readings, hours from the summary.
+        for span in [2 * HOUR, 3 * 24 * HOUR] {
+            let h = query(
+                s.conn(),
+                &HistoryQuery {
+                    from: 0,
+                    to: span,
+                    max_points: 100,
+                    sample_interval_ms: MINUTE,
+                },
+            )?;
+            assert_eq!(h.channels, vec![0, 0, 1]);
+            assert_eq!(h.sensors, vec![None, Some("sht20-40".into()), None]);
+            let avg = |sensor, channel| {
+                h.series_of(Metric::Temperature, channel, sensor)
+                    .and_then(|s| s.avg.iter().flatten().next().copied())
+            };
+            assert_eq!(avg(None, 0), Some(20.0));
+            assert_eq!(avg(Some("sht20-40"), 0), Some(5.0));
+            assert_eq!(avg(None, 1), Some(30.0));
+            assert_eq!(
+                h.series(Metric::Temperature, 0).map(|s| s.avg.len()),
+                Some(h.t.len())
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn bucket_selection() {
@@ -485,7 +640,10 @@ mod tests {
         )?;
         let plan: Vec<String> = s
             .conn()
-            .prepare(&format!("EXPLAIN QUERY PLAN {FROM_HOURS}"))?
+            .prepare(&format!(
+                "EXPLAIN QUERY PLAN {}",
+                from_hours(Table::Channels)
+            ))?
             .query_map(params![HOUR, 0, 1, 2, 3, 4, 5], |r| r.get::<_, String>(3))?
             .collect::<rusqlite::Result<_>>()?;
         assert!(

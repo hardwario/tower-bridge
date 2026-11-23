@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   CHART_COLORS,
   bandColor,
-  channelColor,
   chartStyle,
-  hiddenChannels,
+  hiddenLines,
   lineColor,
-  withChannelColor,
-  withChannelHidden,
+  lineColorOf,
+  withLineColor,
+  withLineHidden,
 } from "./palette";
 
 describe("chart palette", () => {
@@ -47,25 +47,41 @@ describe("chart palette", () => {
 
   it("changes one channel's colour", () => {
     const style = chartStyle(undefined, "pressure");
-    const next = withChannelColor(style, 1, "graphite");
+    const next = withLineColor(style, "1", "graphite");
     expect(next.colors).toEqual(["violet", "graphite"]);
     expect(style.colors).toEqual(["violet", "green"]);
-    expect(channelColor(next, "pressure", 1)).toBe("graphite");
-    expect(channelColor(style, "pressure", 5)).toBe("green");
+    expect(lineColorOf(next, "pressure", "1")).toBe("graphite");
+    expect(lineColorOf(style, "pressure", "5")).toBe("green");
+  });
+
+  it("gives a further sensor a colour of its own (GitHub issue #2)", () => {
+    const style = chartStyle(undefined, "humidity");
+    const lines = ["0", "0/sht20-40", "0/sht30-44", "1"];
+    // Free colours after the channels' blue and pink, each sensor its own.
+    expect(lineColorOf(style, "humidity", "0/sht20-40", lines)).toBe("green");
+    expect(lineColorOf(style, "humidity", "0/sht30-44", lines)).toBe("gold");
+    const picked = withLineColor(style, "0/sht20-40", "teal");
+    expect(picked.colors).toEqual(style.colors);
+    expect(picked.sensor_colors).toEqual({ "0/sht20-40": "teal" });
+    expect(lineColorOf(picked, "humidity", "0/sht20-40", lines)).toBe("teal");
+    const off = withLineHidden(style, "0/sht20-40", true);
+    expect(off.hidden_sensors).toEqual(["0/sht20-40"]);
+    expect(off.hidden_channels).toEqual([]);
+    expect([...hiddenLines(off, lines)]).toEqual(["0/sht20-40"]);
   });
 
   it("hides and shows a channel's line, never all of them", () => {
     const style = chartStyle(undefined, "humidity");
     expect(style.hidden_channels).toEqual([]);
-    const off = withChannelHidden(style, 1, true);
+    const off = withLineHidden(style, "1", true);
     expect(off.hidden_channels).toEqual([1]);
     expect(style.hidden_channels).toEqual([]);
-    expect([...hiddenChannels(off, [0, 1])]).toEqual([1]);
+    expect([...hiddenLines(off, ["0", "1"])]).toEqual(["1"]);
     // A single line, or every line hidden: all show.
-    expect(hiddenChannels(off, [1]).size).toBe(0);
-    expect(hiddenChannels(withChannelHidden(off, 0, true), [0, 1]).size).toBe(0);
-    expect(withChannelHidden(withChannelHidden(off, 0, true), 1, false).hidden_channels).toEqual([0]);
-    expect(withChannelHidden(off, 1, true).hidden_channels).toEqual([1]);
+    expect(hiddenLines(off, ["1"]).size).toBe(0);
+    expect(hiddenLines(withLineHidden(off, "0", true), ["0", "1"]).size).toBe(0);
+    expect(withLineHidden(withLineHidden(off, "0", true), "1", false).hidden_channels).toEqual([0]);
+    expect(withLineHidden(off, "1", true).hidden_channels).toEqual([1]);
   });
 
   it("makes a translucent band from a line colour", () => {

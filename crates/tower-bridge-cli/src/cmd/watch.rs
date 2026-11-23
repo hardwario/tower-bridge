@@ -29,6 +29,7 @@ pub fn watch(ctx: &Ctx, out: Out, count: Option<u32>) -> Result<()> {
     let mut printer = Printer {
         out,
         unit,
+        sources: Vec::new(),
         count,
         printed: 0,
         gps_fix: None,
@@ -57,6 +58,8 @@ pub fn watch(ctx: &Ctx, out: Out, count: Option<u32>) -> Result<()> {
 struct Printer {
     out: Out,
     unit: TemperatureUnit,
+    /// The sources last reported, to name further sensors.
+    sources: Vec<tower_bridge_core::model::SensorSource>,
     count: Option<u32>,
     printed: u32,
     /// The last GPS fix printed as text (the position comes every 5 s).
@@ -74,11 +77,18 @@ impl Printer {
             }
             writeln!(stdout, "{v}")?;
         } else {
-            let mut text = format!(
-                "{}  {}",
-                output::time(r.ts),
-                self.out.style.dim(&format!("I²C {}", r.channel))
-            );
+            let place = match &r.sensor {
+                None => format!("I²C {}", r.channel),
+                Some(id) => {
+                    let module = self
+                        .sources
+                        .iter()
+                        .find(|s| s.channel == r.channel && s.id == *id)
+                        .map_or("sensor", |s| s.module.name());
+                    format!("I²C {} · {module} {id}", r.channel)
+                }
+            };
+            let mut text = format!("{}  {}", output::time(r.ts), self.out.style.dim(&place));
             for metric in Metric::ALL {
                 if let Some(v) = r.values.get(metric) {
                     text += &format!(
@@ -110,7 +120,8 @@ impl Printer {
         Ok(())
     }
 
-    fn device(&self, d: &DeviceState) -> Result<()> {
+    fn device(&mut self, d: &DeviceState) -> Result<()> {
+        self.sources = d.sources().to_vec();
         self.meta(
             "device",
             json!({ "device": d }),
@@ -157,7 +168,7 @@ impl Printer {
     }
 
     fn alert(&self, a: &AlertEvent) -> Result<()> {
-        let text = output::alert(a, self.unit);
+        let text = output::alert(a, self.unit, &self.sources);
         let text = match a.kind {
             AlertKind::Triggered => format!("alert: {text}"),
             AlertKind::Recovered => format!("alert over: {text}"),
@@ -207,6 +218,7 @@ fn alert_event(a: &ActiveAlert, kind: AlertKind, ts: i64, value: f64) -> AlertEv
         ts,
         metric: a.metric,
         channel: a.channel,
+        sensor: a.sensor.clone(),
         bound: a.bound,
         kind,
         value,
@@ -219,7 +231,7 @@ fn alert_event(a: &ActiveAlert, kind: AlertKind, ts: i64, value: f64) -> AlertEv
 /// what changed.
 fn poll(access: &Access, p: &mut Printer, stop: &Receiver<()>) -> Result<()> {
     let ticker = tick(Duration::from_secs(1));
-    let mut seen: HashMap<u8, i64> = HashMap::new();
+    let mut seen: HashMap<(u8, Option<String>), i64> = HashMap::new();
     // The starting state, as the service here would report it; readings
     // already there are not new.
     let mut last: Snapshot = access.snapshot()?;
@@ -228,7 +240,7 @@ fn poll(access: &Access, p: &mut Printer, stop: &Receiver<()>) -> Result<()> {
     p.nfc(last.nfc.as_ref())?;
     p.gps(last.gps.as_ref())?;
     for r in &last.latest {
-        seen.insert(r.channel, r.ts);
+        seen.insert((r.channel, r.sensor.clone()), r.ts);
     }
     loop {
         select! {
@@ -247,7 +259,7 @@ fn poll(access: &Access, p: &mut Printer, stop: &Receiver<()>) -> Result<()> {
                 if now.gps != last.gps {
                     p.gps(now.gps.as_ref())?;
                 }
-                let key = |a: &ActiveAlert| (a.metric, a.channel, a.bound);
+                let key = |a: &ActiveAlert| (a.metric, a.channel, a.sensor.clone(), a.bound);
                 for a in &now.active_alerts {
                     if !last.active_alerts.iter().any(|b| key(b) == key(a)) {
                         p.alert(&alert_event(a, AlertKind::Triggered, a.since, a.value))?;
@@ -258,7 +270,7 @@ fn poll(access: &Access, p: &mut Printer, stop: &Receiver<()>) -> Result<()> {
                         let value = now
                             .latest
                             .iter()
-                            .find(|r| r.channel == a.channel)
+                            .find(|r| r.channel == a.channel && r.sensor == a.sensor)
                             .and_then(|r| r.values.get(a.metric))
                             .unwrap_or(a.value);
                         let ts = tower_bridge_core::acquisition::unix_ms();
@@ -266,10 +278,11 @@ fn poll(access: &Access, p: &mut Printer, stop: &Receiver<()>) -> Result<()> {
                     }
                 }
                 for r in &now.latest {
-                    if seen.get(&r.channel).is_some_and(|ts| *ts >= r.ts) {
+                    let series = (r.channel, r.sensor.clone());
+                    if seen.get(&series).is_some_and(|ts| *ts >= r.ts) {
                         continue;
                     }
-                    seen.insert(r.channel, r.ts);
+                    seen.insert(series, r.ts);
                     if p.reading(r)? {
                         return Ok(());
                     }

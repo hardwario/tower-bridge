@@ -1,9 +1,11 @@
 <script lang="ts" module>
   import type { WindowStats } from "../chart-group.svelte";
+  import type { LineKey } from "../series";
   import type { ChartColor } from "../types";
 
-  /** One line of a chart with several I²C channels. */
+  /** One line of a chart with several lines (I²C channels, or further sensors on one). */
   export interface LegendLine {
+    key: LineKey;
     channel: number;
     /** Module measuring it, e.g. "Humidity Tag" (with the channel when two read the same). */
     name: string;
@@ -41,9 +43,9 @@
     lines: LegendLine[];
     style: ChartStyle;
     onchange: (style: ChartStyle) => void;
-    oncolor: (channel: number, color: ChartColor) => void;
-    /** Show or hide a channel's line. */
-    ontoggle: (channel: number, hidden: boolean) => void;
+    oncolor: (key: LineKey, color: ChartColor) => void;
+    /** Show or hide a line. */
+    ontoggle: (key: LineKey, hidden: boolean) => void;
   } = $props();
 
   const KEYS = ["min", "avg", "max"] as const;
@@ -67,14 +69,14 @@
       <span class="sample"></span>{t().common[k]}
     </button>
   {/each}
-  {#each lines as line (line.channel)}
+  {#each lines as line (line.key)}
     <!-- The last line in sight stays: an empty chart says nothing. -->
     {@const last = !line.hidden && shown <= 1}
     <span class="source" class:off={line.hidden}>
       <ColorPicker
         value={line.color}
         label="{t().chart.lineColor}: {line.name}"
-        onchange={(c) => oncolor(line.channel, c)}
+        onchange={(c) => oncolor(line.key, c)}
       />
       <button
         type="button"
@@ -82,7 +84,7 @@
         aria-pressed={!line.hidden}
         aria-disabled={last}
         title={`${line.name} · ${fill(t().common.channel, { n: line.channel })}\n${last ? t().chart.keepOneLine : t().chart.toggleLine}`}
-        onclick={() => !last && ontoggle(line.channel, !line.hidden)}>{line.name}</button
+        onclick={() => !last && ontoggle(line.key, !line.hidden)}>{line.name}</button
       >
     </span>
     {#each KEYS as k (k)}

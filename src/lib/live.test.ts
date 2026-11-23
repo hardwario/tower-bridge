@@ -24,9 +24,16 @@ describe("live state", () => {
         module: "climate_module_r1",
         sensor: "TMP112",
         address: 0x48,
+        id: "tmp112-48",
+        primary: true,
       },
     ];
     expect(pruneLatest([reading(0), reading(1)], sources).map((r) => r.channel)).toEqual([0]);
     expect(pruneLatest([reading(1)], [])).toEqual([]);
+    // A further sensor's reading goes with the sensor, not with its channel.
+    const tag = { ...reading(0), sensor: "sht20-40" };
+    expect(pruneLatest([reading(0), tag], sources)).toEqual([reading(0)]);
+    const further = { ...sources[0], id: "sht20-40", primary: false };
+    expect(pruneLatest([reading(0), tag], [...sources, further])).toHaveLength(2);
   });
 });

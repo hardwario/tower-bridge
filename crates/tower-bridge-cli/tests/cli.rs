@@ -93,7 +93,10 @@ fn status_relay_and_nfc_on_the_simulated_bridge() {
         .assert()
         .success()
         .stdout(predicate::str::contains("TOWER Climate Module R2"))
-        .stdout(predicate::str::contains("Temperature"));
+        .stdout(predicate::str::contains("Temperature"))
+        // GitHub issue #2: the tags next to the Climate Module are measured.
+        .stdout(predicate::str::contains("TOWER Humidity Tag"))
+        .stdout(predicate::str::contains("SHT20 0x40 (sht20-40)"));
     let json = cli(&d)
         .args(["--simulate", "--json", "status"])
         .assert()
@@ -102,11 +105,25 @@ fn status_relay_and_nfc_on_the_simulated_bridge() {
         serde_json::from_slice(&json.get_output().stdout).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(v["status"]["device"]["status"], "ready");
     assert_eq!(v["via"], "this process");
-    assert!(
-        v["status"]["latest"]
-            .as_array()
-            .is_some_and(|l| l.len() == 2),
-        "a reading per channel"
+    let latest = v["status"]["latest"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let channels: Vec<&serde_json::Value> = latest
+        .iter()
+        .filter(|r| r.get("sensor").is_none())
+        .collect();
+    assert_eq!(channels.len(), 2, "a reading per channel: {latest:?}");
+    let mut further: Vec<&str> = latest
+        .iter()
+        .filter(|r| r["channel"] == 0)
+        .filter_map(|r| r["sensor"].as_str())
+        .collect();
+    further.sort_unstable();
+    assert_eq!(
+        further,
+        ["sht20-40", "tmp112-48"],
+        "and one per further sensor"
     );
 
     cli(&d)

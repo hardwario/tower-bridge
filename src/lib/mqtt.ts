@@ -22,7 +22,9 @@ const ORDER: (Metric | "altitude")[] = ["temperature", "humidity", "illuminance"
 
 /**
  * The topics published now, with their units: each measured value on its
- * channel (altitude where there is pressure), the relay and the app's status.
+ * channel (altitude where there is pressure), then once more one level down
+ * per sensor (`tower/humidity/0/sht20-40`, so a Humidity Tag next to a
+ * Climate Module has its own), the relay and the app's status.
  */
 export function mqttTopics(
   prefix: string,
@@ -33,10 +35,18 @@ export function mqttTopics(
   const p = sanitizePrefix(prefix);
   const rows: [string, string][] = [];
   const channels = [...new Set(sources.map((s) => s.channel))].sort((a, b) => a - b);
-  for (const c of channels) {
-    const measured = new Set<string>(sources.filter((s) => s.channel === c).map((s) => s.metric));
+  const withAltitude = (list: SensorSource[]) => {
+    const measured = new Set<string>(list.map((s) => s.metric));
     if (measured.has("pressure")) measured.add("altitude");
-    for (const m of ORDER) if (measured.has(m)) rows.push([`${p}/${m}/${c}`, UNITS[m]]);
+    return ORDER.filter((m) => measured.has(m));
+  };
+  for (const c of channels) {
+    const here = sources.filter((s) => s.channel === c);
+    for (const m of withAltitude(here.filter((s) => s.primary !== false))) rows.push([`${p}/${m}/${c}`, UNITS[m]]);
+    const ids = [...new Set(here.map((s) => s.id).filter((id) => id))].sort();
+    for (const id of ids) {
+      for (const m of withAltitude(here.filter((s) => s.id === id))) rows.push([`${p}/${m}/${c}/${id}`, UNITS[m]]);
+    }
   }
   if (relay) rows.push([`${p}/relay/${relay.channel}`, "true | false | null"]);
   if (gps) {

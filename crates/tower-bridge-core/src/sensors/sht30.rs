@@ -6,7 +6,10 @@ use super::SensorError;
 use super::crc::crc8;
 use crate::bus::{BusError, I2cBus};
 
+/// The Climate Module R2's address (a Humidity Tag R4 can be set to it).
 pub const ADDR: u8 = 0x45;
+/// A Humidity Tag R4's default address (twr-sdk `twr_tag_humidity.c`).
+pub const TAG_ADDR: u8 = 0x44;
 pub const CMD_SOFT_RESET: [u8; 2] = [0x30, 0xA2];
 /// Single shot, high repeatability, no clock stretching.
 pub const CMD_MEASURE: [u8; 2] = [0x24, 0x00];
@@ -14,18 +17,18 @@ pub const CMD_MEASURE: [u8; 2] = [0x24, 0x00];
 pub const MEASURE_TIME: Duration = Duration::from_millis(20);
 pub const RESET_TIME: Duration = Duration::from_millis(2);
 
-pub fn soft_reset(bus: &mut dyn I2cBus) -> Result<(), BusError> {
-    bus.write(ADDR, &CMD_SOFT_RESET)
+pub fn soft_reset(bus: &mut dyn I2cBus, addr: u8) -> Result<(), BusError> {
+    bus.write(addr, &CMD_SOFT_RESET)
 }
 
-pub fn trigger(bus: &mut dyn I2cBus) -> Result<(), BusError> {
-    bus.write(ADDR, &CMD_MEASURE)
+pub fn trigger(bus: &mut dyn I2cBus, addr: u8) -> Result<(), BusError> {
+    bus.write(addr, &CMD_MEASURE)
 }
 
 /// Read the result of a triggered measurement: (°C, %RH).
-pub fn fetch(bus: &mut dyn I2cBus) -> Result<(f64, f64), SensorError> {
+pub fn fetch(bus: &mut dyn I2cBus, addr: u8) -> Result<(f64, f64), SensorError> {
     let mut b = [0u8; 6];
-    bus.read(ADDR, &mut b)?;
+    bus.read(addr, &mut b)?;
     decode(&b)
 }
 

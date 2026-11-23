@@ -215,7 +215,7 @@ fn draw_values(frame: &mut Frame, app: &App, area: Rect) {
         let value = snap
             .latest
             .iter()
-            .find(|r| r.channel == channel)
+            .find(|r| r.channel == channel && r.sensor.is_none())
             .and_then(|r| r.values.get(metric));
         let text = match value {
             Some(v) => output::value(metric, Some(v), app.unit),
@@ -236,6 +236,26 @@ fn draw_values(frame: &mut Frame, app: &App, area: Rect) {
                 Style::new().fg(CHANNEL[usize::from(channel) % 2]),
             ),
         ]));
+        // Further sensors of the metric on the channel, under its row.
+        for s in sources
+            .iter()
+            .filter(|s| s.channel == channel && s.metric == metric && !s.primary)
+        {
+            let value = snap
+                .latest
+                .iter()
+                .find(|r| r.channel == channel && r.sensor.as_deref() == Some(s.id.as_str()))
+                .and_then(|r| r.values.get(metric));
+            let text = match value {
+                Some(v) => output::value(metric, Some(v), app.unit),
+                None => "…".into(),
+            };
+            lines.push(Line::from(vec![
+                TextSpan::raw("   "),
+                TextSpan::styled(format!("{:<10}", s.module.name()), dim()),
+                TextSpan::styled(format!("{text:>12}"), Style::new()),
+            ]));
+        }
     }
     if lines.is_empty() {
         lines.push(Line::styled("No sensors.", dim()));
@@ -258,7 +278,11 @@ type Run = Vec<(f64, f64)>;
 pub(super) fn segments(app: &App, metric: Metric, from: f64) -> Vec<(u8, Vec<Run>)> {
     let mut lines: Vec<(u8, Vec<Run>)> = Vec::new();
     if let Some(h) = &app.history {
-        for channel in &h.channels {
+        for (i, channel) in h.channels.iter().enumerate() {
+            // The channels' own lines (further sensors are listed only).
+            if h.sensor(i).is_some() {
+                continue;
+            }
             let Some(series) = h.series(metric, *channel) else {
                 continue;
             };
@@ -283,7 +307,7 @@ pub(super) fn segments(app: &App, metric: Metric, from: f64) -> Vec<(u8, Vec<Run
     // The latest value continues the last run (the history is reloaded only
     // every half minute).
     if let Some(snap) = &app.snap {
-        for r in &snap.latest {
+        for r in snap.latest.iter().filter(|r| r.sensor.is_none()) {
             let Some(v) = r.values.get(metric) else {
                 continue;
             };

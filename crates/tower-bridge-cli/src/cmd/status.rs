@@ -65,11 +65,14 @@ pub fn print_snapshot(out: Out, snap: &Snapshot, via: &str) {
             &format!("I²C channel {channel}"),
             &output::modules_on(sources, channel).join(", "),
         );
-        let reading = snap.latest.iter().find(|r| r.channel == channel);
+        let reading = snap
+            .latest
+            .iter()
+            .find(|r| r.channel == channel && r.sensor.is_none());
         for metric in Metric::ALL {
             if !sources
                 .iter()
-                .any(|x| x.channel == channel && x.metric == metric)
+                .any(|x| x.channel == channel && x.metric == metric && x.primary)
             {
                 continue;
             }
@@ -85,6 +88,58 @@ pub fn print_snapshot(out: Out, snap: &Snapshot, via: &str) {
                 line(out, "  Altitude", &format!("{alt:.0} m"));
             }
         }
+        // Further sensors of a metric the channel has (a Humidity Tag next
+        // to a Climate Module), each with its own values.
+        let mut further: Vec<&tower_bridge_core::model::SensorSource> = Vec::new();
+        for x in sources
+            .iter()
+            .filter(|x| x.channel == channel && !x.primary)
+        {
+            if !further.iter().any(|f| f.id == x.id) {
+                further.push(x);
+            }
+        }
+        for f in further {
+            let reading = snap
+                .latest
+                .iter()
+                .find(|r| r.channel == channel && r.sensor.as_deref() == Some(f.id.as_str()));
+            line(
+                out,
+                &format!("  {}", f.module.name()),
+                &s.dim(&format!("{} 0x{:02X} ({})", f.sensor, f.address, f.id)),
+            );
+            for x in sources
+                .iter()
+                .filter(|x| x.channel == channel && x.id == f.id && !x.primary)
+            {
+                let v = reading.and_then(|r| r.values.get(x.metric));
+                let text = match v {
+                    Some(_) => output::value(x.metric, v, snap.unit),
+                    None => s.dim("waiting for a value"),
+                };
+                line(
+                    out,
+                    &format!("    {}", output::metric_name(x.metric)),
+                    &text,
+                );
+            }
+        }
+    }
+    for w in snap.device.warnings() {
+        line(
+            out,
+            "Warning",
+            &s.warn(&format!(
+                "{} {} at 0x{:02X} on I²C channel {} gives garbled values: another device answers at \
+                 the same address. Move the tag to I²C channel {}.",
+                w.module.name(),
+                w.sensor,
+                w.address,
+                w.channel,
+                if w.channel == 0 { 1 } else { 0 }
+            )),
+        );
     }
     if let Some(r) = snap.relay {
         line(
@@ -125,9 +180,9 @@ pub fn print_snapshot(out: Out, snap: &Snapshot, via: &str) {
             out,
             "Alert",
             &s.bad(&format!(
-                "{} on I²C channel {} {bound} {limit}: {value}, since {}",
+                "{} on {} {bound} {limit}: {value}, since {}",
                 output::metric_name(a.metric),
-                a.channel,
+                output::place(sources, a.channel, a.sensor.as_deref()),
                 output::time(a.since)
             )),
         );

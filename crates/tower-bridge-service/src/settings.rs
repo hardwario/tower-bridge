@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tower_bridge_core::alerts::AlertRules;
 use tower_bridge_core::bus::discovery::BackendPref;
-use tower_bridge_core::climate::ChannelMode;
+use tower_bridge_core::climate::{ChannelMode, ClimateR1};
 use tower_bridge_core::model::{Metric, STANDARD_SEA_LEVEL_PA};
 use tracing::warn;
 
@@ -174,6 +174,9 @@ impl ChartColor {
 /// I2C channels with their own line colour.
 pub const CHART_CHANNELS: usize = 2;
 
+/// Further sensors with a colour or hidden line kept per metric.
+const MAX_SENSOR_STYLES: usize = 32;
+
 /// How one metric's charts look on the dashboard and in the history.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "snake_case")]
@@ -186,6 +189,12 @@ pub struct ChartStyle {
     pub show_max: bool,
     /// I2C channels whose lines the user hid; never all of them.
     pub hidden_channels: Vec<u8>,
+    /// Line colour of each further sensor on a channel (a Humidity Tag next
+    /// to a Climate Module), by `<channel>/<sensor id>`, e.g. `0/sht20-40`;
+    /// a sensor without one gets a free colour.
+    pub sensor_colors: std::collections::BTreeMap<String, ChartColor>,
+    /// Further sensors whose lines the user hid, as `<channel>/<sensor id>`.
+    pub hidden_sensors: Vec<String>,
     /// Settings version 2 and older had one colour, now channel 0's.
     #[serde(skip_serializing)]
     color: Option<ChartColor>,
@@ -200,6 +209,8 @@ impl Default for ChartStyle {
             show_avg: true,
             show_max: false,
             hidden_channels: Vec::new(),
+            sensor_colors: std::collections::BTreeMap::new(),
+            hidden_sensors: Vec::new(),
             color: None,
         }
     }
@@ -282,6 +293,17 @@ impl ChartStyles {
             if hidden.len() == CHART_CHANNELS {
                 hidden.clear();
             }
+            // Keys of further sensors only, and a bounded number of them.
+            let sensor_key = |k: &String| k.len() <= 32 && k.split_once('/').is_some();
+            style.sensor_colors.retain(|k, _| sensor_key(k));
+            while style.sensor_colors.len() > MAX_SENSOR_STYLES {
+                style.sensor_colors.pop_last();
+            }
+            let hidden = &mut style.hidden_sensors;
+            hidden.retain(sensor_key);
+            hidden.sort_unstable();
+            hidden.dedup();
+            hidden.truncate(MAX_SENSOR_STYLES);
         }
     }
 }
@@ -362,6 +384,10 @@ pub struct Settings {
     pub retention_days: u32,
     pub sea_level_pressure_pa: f64,
     pub i2c_channel: ChannelMode,
+    /// How the parts at the Climate Module R1 addresses are named on I2C
+    /// channel 0 and 1: `auto` (a Climate Module R1 when all four of its
+    /// parts answer), `module` or `tags`.
+    pub climate_r1: [ClimateR1; 2],
     pub backend: BackendPref,
     pub alerts: AlertRules,
     pub notify_device_lost: bool,
@@ -388,6 +414,7 @@ impl Default for Settings {
             retention_days: 90,
             sea_level_pressure_pa: STANDARD_SEA_LEVEL_PA,
             i2c_channel: ChannelMode::Auto,
+            climate_r1: [ClimateR1::Auto; 2],
             backend: BackendPref::Auto,
             alerts: AlertRules::default(),
             notify_device_lost: true,

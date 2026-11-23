@@ -27,30 +27,30 @@ const history: History = {
 
 describe("chart data", () => {
   it("finds a channel's series", () => {
-    expect(seriesOf(history, "temperature", 1)?.avg).toEqual([null, null, 5, 7]);
-    expect(seriesOf(history, "temperature", 2)).toBeNull();
-    expect(seriesOf(null, "temperature", 0)).toBeNull();
+    expect(seriesOf(history, "temperature", "1")?.avg).toEqual([null, null, 5, 7]);
+    expect(seriesOf(history, "temperature", "2")).toBeNull();
+    expect(seriesOf(null, "temperature", "0")).toBeNull();
   });
 
   it("computes statistics per channel and window", () => {
-    expect(windowStats(history, "temperature", 0, null)).toEqual({
+    expect(windowStats(history, "temperature", "0", null)).toEqual({
       min: 19,
       max: 24,
       avg: 21.5,
     });
-    expect(windowStats(history, "temperature", 1, null)).toEqual({
+    expect(windowStats(history, "temperature", "1", null)).toEqual({
       min: 4,
       max: 8,
       avg: 6,
     });
     // Only the buckets inside the zoom window count.
-    expect(windowStats(history, "temperature", 0, [25, 45])).toEqual({
+    expect(windowStats(history, "temperature", "0", [25, 45])).toEqual({
       min: 21,
       max: 24,
       avg: 22.5,
     });
-    expect(windowStats(history, "humidity", 0, null)).toBeNull();
-    expect(windowStats(history, "temperature", 3, null)).toBeNull();
+    expect(windowStats(history, "humidity", "0", null)).toBeNull();
+    expect(windowStats(history, "temperature", "3", null)).toBeNull();
   });
 
   it("spans the data of every channel", () => {

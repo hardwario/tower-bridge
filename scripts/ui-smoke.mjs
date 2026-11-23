@@ -58,6 +58,7 @@ for (const state of ["not_found", "no_module", "permission"]) {
     ],
   ]);
 }
+CASES.push(["lang=de&collision=1", [["tab", "data"]]]);
 CASES.push([
   "lang=sk&tags=0&relay=unknown",
   [
@@ -66,6 +67,20 @@ CASES.push([
   ],
 ]);
 CASES.push(["lang=pl&gap=2", [["tab", "data"]]]);
+// GitHub issue #2: a Humidity Tag and a Temperature Tag next to the Climate
+// Module on channel 0, each with lines of their own.
+for (const theme of ["light", "dark"]) {
+  CASES.push([
+    `lang=cs&theme=${theme}&sensors=1`,
+    [
+      ["hover", "article.metric .u-over"],
+      ["click", ".legend button.name"],
+      ["tab", "data"],
+      ["tab", "alerts"],
+      ["tab", "settings"],
+    ],
+  ]);
+}
 // The sidebar folded to its icons, and every tab reached that way.
 CASES.push([
   "lang=de&theme=dark&relay=true",

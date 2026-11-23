@@ -931,14 +931,51 @@ impl SimDevice for SimMpl3115a2 {
     }
 }
 
+/// Two devices at one address on one channel (a Lux Meter Tag next to a
+/// Climate Module, both at 0x44): both take every write, and a read gets
+/// their answers ANDed bit by bit, as the open-drain bus does.
+pub struct SimCollision {
+    pub a: Box<dyn SimDevice>,
+    pub b: Box<dyn SimDevice>,
+}
+
+impl SimDevice for SimCollision {
+    fn write(&mut self, data: &[u8]) -> Result<(), BusError> {
+        let a = self.a.write(data);
+        let b = self.b.write(data);
+        a.or(b)
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<(), BusError> {
+        let mut other = vec![0u8; buf.len()];
+        match (self.a.read(buf), self.b.read(&mut other)) {
+            (Ok(()), Ok(())) => {
+                for (x, y) in buf.iter_mut().zip(other) {
+                    *x &= y;
+                }
+                Ok(())
+            }
+            (Ok(()), Err(_)) => Ok(()),
+            (Err(_), Ok(())) => {
+                buf.copy_from_slice(&other);
+                Ok(())
+            }
+            (Err(e), Err(_)) => Err(e),
+        }
+    }
+}
+
 /// A simulated bridge whose environment drifts slowly, for running the app
-/// without hardware: a Climate Module R2, a Relay Module, a CO2 Module, a
+/// without hardware: a Climate Module R2 with a Humidity Tag and a Temperature
+/// Tag next to it (each a series of its own), a Relay Module, a CO2 Module, a
 /// VOC-LP Tag and an NFC Tag on channel 0, and the Humidity, Lux Meter and
 /// Barometer Tags (somewhere a bit cooler and brighter) and a GPS Module with
 /// a fix on channel 1.
 pub struct SimulatedBridge {
     bus: MockBus,
     env: SharedEnv,
+    /// The tags next to the Climate Module on channel 0.
+    beside: SharedEnv,
     tags: SharedEnv,
     lp8: Arc<Mutex<SimLp8>>,
     sgp: Arc<Mutex<SimSgpc3>>,
@@ -950,7 +987,10 @@ impl SimulatedBridge {
     pub fn new() -> Self {
         let env: SharedEnv = Arc::new(Mutex::new(Values::default()));
         let tags: SharedEnv = Arc::new(Mutex::new(Values::default()));
+        let beside: SharedEnv = Arc::new(Mutex::new(Values::default()));
         let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, env.clone());
+        bus.attach(0, 0x40, Box::new(SimSht20::new(beside.clone())));
+        bus.attach(0, 0x48, Box::new(SimTmp112::new(beside.clone())));
         bus.attach(0, crate::relay::ADDR_DEFAULT, Box::new(SimTca9534a::new()));
         bus.attach(1, 0x40, Box::new(SimSht20::new(tags.clone())));
         bus.attach(1, 0x44, Box::new(SimOpt3001::new(tags.clone())));
@@ -962,6 +1002,7 @@ impl SimulatedBridge {
         let mut s = Self {
             bus,
             env,
+            beside,
             tags,
             lp8,
             sgp,
@@ -993,6 +1034,9 @@ impl SimulatedBridge {
         if let Ok(mut env) = self.env.lock() {
             *env = values;
         }
+        if let Ok(mut env) = self.beside.lock() {
+            *env = simulated_beside(values);
+        }
         if let Ok(mut env) = self.tags.lock() {
             *env = Values {
                 temperature: tags.temperature.map(|t| t - 3.5),
@@ -1017,6 +1061,16 @@ impl SimulatedBridge {
             gps.position = Some((50.771168 + n3 * 2e-5, 15.056328 - n3 * 2e-5, 374.5 + n3));
             gps.satellites = 9;
         }
+    }
+}
+
+/// What the tags next to the simulated Climate Module measure: a little
+/// warmer and drier, near a radiator.
+pub fn simulated_beside(climate: Values) -> Values {
+    Values {
+        temperature: climate.temperature.map(|t| t + 1.4),
+        humidity: climate.humidity.map(|h| (h - 4.5).max(0.0)),
+        ..Values::default()
     }
 }
 

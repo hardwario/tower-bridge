@@ -7,6 +7,7 @@
   import Rich from "../lib/components/Rich.svelte";
   import { fill, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
+  import { collisionText, warningsOf } from "../lib/source";
 
   const d = $derived(live.device);
   const linux = $derived(live.app?.os === "linux");
@@ -87,6 +88,10 @@
   {:else}
     <Banner kind="error" title={b.errorTitle}>{fill(b.errorBody, { message: d.message })}</Banner>
   {/if}
+{:else if d.status === "ready" && warningsOf(d).length}
+  <Banner kind="warning" title={b.collisionTitle}>
+    {warningsOf(d).map(collisionText).join(" ")}
+  </Banner>
 {:else if d.status === "no_module"}
   <Banner kind="warning" title={b.noModuleTitle}>
     {b.noModuleBody}

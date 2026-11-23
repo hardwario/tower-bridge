@@ -97,6 +97,11 @@ impl Values {
 }
 
 /// A timestamped reading from the sensors on one switch channel of a bridge.
+///
+/// A channel's reading carries one value per metric, from the channel's
+/// primary source of each metric (see [`SensorSource::primary`]). A sensor
+/// that measures a metric the channel already has (a Humidity Tag next to a
+/// Climate Module) sends readings of its own, with `sensor` set to its id.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Reading {
@@ -108,6 +113,10 @@ pub struct Reading {
     /// I2C switch channel the values come from.
     #[serde(default)]
     pub channel: u8,
+    /// The sensor (see [`sensor_id`]) of a further sensor's reading; absent
+    /// for the channel's reading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensor: Option<String>,
     #[serde(flatten)]
     pub values: Values,
     /// Altitude in metres derived from pressure and the configured sea-level reference.
@@ -237,7 +246,34 @@ pub enum DeviceState {
         /// Which sensor provides each value on each channel, ordered by
         /// channel and metric.
         sources: Vec<SensorSource>,
+        /// Parts whose data suggest a second device at their address.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        warnings: Vec<BusWarning>,
     },
+}
+
+/// A part whose data suggest that a second device answers at its address on
+/// the same channel (a Lux Meter Tag next to a Climate Module, both at
+/// 0x44): both answer every read, and the values come out garbled. The tag
+/// belongs on the other channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BusWarning {
+    pub channel: u8,
+    /// 7-bit I2C address.
+    pub address: u8,
+    /// Sensor part, e.g. `MPL3115A2`.
+    pub sensor: String,
+    /// The module the part was taken for.
+    pub module: ModuleKind,
+    pub kind: BusWarningKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BusWarningKind {
+    /// Two devices at one address, from repeated checksum errors or values
+    /// that cannot be right.
+    AddressCollision,
 }
 
 /// The sensor behind one value: switch channel, module, part and I2C address.
@@ -250,6 +286,34 @@ pub struct SensorSource {
     pub sensor: String,
     /// 7-bit I2C address.
     pub address: u8,
+    /// Stable id of the part on its channel, e.g. `tmp112-48` (see
+    /// [`sensor_id`]): it names the series of a further sensor and its MQTT
+    /// topic, and does not change when the module is named differently.
+    #[serde(default)]
+    pub id: String,
+    /// Whether this is the channel's source of the metric, the one whose
+    /// values go into the channel's reading. Every other source of the same
+    /// metric on the channel has a series of its own, named by `id`.
+    #[serde(default = "yes")]
+    pub primary: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl SensorSource {
+    /// The series of this source's values: `None` for the channel's
+    /// series, else the sensor's id.
+    pub fn series(&self) -> Option<&str> {
+        (!self.primary).then_some(self.id.as_str())
+    }
+}
+
+/// A sensor's id on its channel: the part and its address in hex, e.g.
+/// `sht20-40`. Lower case, so it fits MQTT topics and Prometheus labels.
+pub fn sensor_id(part: &str, address: u8) -> String {
+    format!("{}-{address:02x}", part.to_ascii_lowercase())
 }
 
 /// The modules on each channel, in channel order, without repeats.
@@ -261,47 +325,43 @@ pub fn modules(sources: &[SensorSource]) -> Vec<(u8, ModuleKind)> {
 }
 
 /// Which source of `metric` an alert on `channel` comes from, for a
-/// notification: `None` while only one channel measures the metric, else the
-/// module names (`Humidity Tag`), with the channel when both channels carry
-/// the same modules (`Humidity Tag, channel 1`). `channel_name` is the
-/// channel in the reader's language, with `{n}` for its number.
+/// notification: `None` while only one series measures the metric, else the
+/// module name (`Humidity Tag`), with the channel when another channel's
+/// series has the same name (`Humidity Tag, channel 1`), or the part and
+/// address when the other one is on the same channel (`Lux Meter Tag,
+/// OPT3001 0x45`). `sensor` is the further sensor's id, `None` for the
+/// channel's series. `channel_name` is the channel in the reader's
+/// language, with `{n}` for its number.
 pub fn source_label(
     sources: &[SensorSource],
     metric: Metric,
     channel: u8,
+    sensor: Option<&str>,
     channel_name: &str,
 ) -> Option<String> {
     let channel_text = channel_name.replace("{n}", &channel.to_string());
-    let names = |c: u8| -> Vec<&str> {
-        let mut n: Vec<&str> = sources
-            .iter()
-            .filter(|s| s.metric == metric && s.channel == c)
-            .map(|s| s.module.name())
-            .collect();
-        n.dedup();
-        n
-    };
-    let mut channels: Vec<u8> = sources
-        .iter()
-        .filter(|s| s.metric == metric)
-        .map(|s| s.channel)
-        .collect();
-    channels.sort_unstable();
-    channels.dedup();
-    if channels.len() < 2 {
+    let of_metric: Vec<&SensorSource> = sources.iter().filter(|s| s.metric == metric).collect();
+    if of_metric.len() < 2 {
         return None;
     }
-    let mine = names(channel);
-    if mine.is_empty() {
+    let Some(mine) = of_metric
+        .iter()
+        .find(|s| s.channel == channel && s.series() == sensor)
+    else {
         return Some(channel_text);
-    }
-    let same = channels.iter().any(|&c| c != channel && names(c) == mine);
-    let label = mine.join(", ");
-    Some(if same {
-        format!("{label}, {channel_text}")
+    };
+    let label = mine.module.name();
+    let twins: Vec<&&SensorSource> = of_metric
+        .iter()
+        .filter(|s| s.module == mine.module && (s.channel, &s.id) != (mine.channel, &mine.id))
+        .collect();
+    if twins.iter().any(|s| s.channel == channel) {
+        Some(format!("{label}, {} 0x{:02X}", mine.sensor, mine.address))
+    } else if twins.is_empty() {
+        Some(label.to_string())
     } else {
-        label
-    })
+        Some(format!("{label}, {channel_text}"))
+    }
 }
 
 /// Human readable list, e.g. `Climate Module R1 (channel 0), Humidity Tag,
@@ -332,6 +392,14 @@ impl DeviceState {
 
     pub fn is_ready(&self) -> bool {
         matches!(self, DeviceState::Ready { .. })
+    }
+
+    /// Suspected address collisions while ready, otherwise none.
+    pub fn warnings(&self) -> &[BusWarning] {
+        match self {
+            DeviceState::Ready { warnings, .. } => warnings,
+            _ => &[],
+        }
     }
 
     /// Sensor sources while ready, otherwise none.
@@ -375,6 +443,8 @@ mod tests {
             module,
             sensor: "X".into(),
             address: 0,
+            id: "x-00".into(),
+            primary: true,
         }
     }
 
@@ -383,7 +453,7 @@ mod tests {
         let t = Metric::Temperature;
         let one = [source(t, 0, ModuleKind::ClimateModuleR1)];
         assert_eq!(
-            source_label(&one, t, 0, "channel {n}"),
+            source_label(&one, t, 0, None, "channel {n}"),
             None,
             "a single source needs no label"
         );
@@ -392,11 +462,11 @@ mod tests {
             source(t, 1, ModuleKind::HumidityTag),
         ];
         assert_eq!(
-            source_label(&two, t, 1, "channel {n}").as_deref(),
+            source_label(&two, t, 1, None, "channel {n}").as_deref(),
             Some("Humidity Tag")
         );
         assert_eq!(
-            source_label(&two, t, 0, "channel {n}").as_deref(),
+            source_label(&two, t, 0, None, "channel {n}").as_deref(),
             Some("Climate Module R1")
         );
         let twins = [
@@ -404,13 +474,72 @@ mod tests {
             source(t, 1, ModuleKind::HumidityTag),
         ];
         assert_eq!(
-            source_label(&twins, t, 1, "channel {n}").as_deref(),
+            source_label(&twins, t, 1, None, "channel {n}").as_deref(),
             Some("Humidity Tag, channel 1")
         );
         assert_eq!(
-            source_label(&two, t, 5, "channel {n}").as_deref(),
+            source_label(&two, t, 5, None, "channel {n}").as_deref(),
             Some("channel 5")
         );
+    }
+
+    #[test]
+    fn source_labels_tell_sensors_on_one_channel_apart() {
+        let t = Metric::Temperature;
+        let further = |module, sensor: &str, address| SensorSource {
+            metric: t,
+            channel: 0,
+            module,
+            sensor: sensor.into(),
+            address,
+            id: sensor_id(sensor, address),
+            primary: false,
+        };
+        let sources = [
+            SensorSource {
+                sensor: "SHT30".into(),
+                address: 0x45,
+                id: "sht30-45".into(),
+                ..source(t, 0, ModuleKind::ClimateModuleR2)
+            },
+            further(ModuleKind::HumidityTag, "SHT20", 0x40),
+            further(ModuleKind::TemperatureTag, "TMP112", 0x48),
+            further(ModuleKind::TemperatureTag, "TMP112", 0x49),
+        ];
+        assert_eq!(
+            source_label(&sources, t, 0, None, "channel {n}").as_deref(),
+            Some("Climate Module R2")
+        );
+        assert_eq!(
+            source_label(&sources, t, 0, Some("sht20-40"), "channel {n}").as_deref(),
+            Some("Humidity Tag")
+        );
+        assert_eq!(
+            source_label(&sources, t, 0, Some("tmp112-49"), "channel {n}").as_deref(),
+            Some("Temperature Tag, TMP112 0x49")
+        );
+    }
+
+    #[test]
+    fn sensor_ids_are_part_and_address() {
+        assert_eq!(sensor_id("SHT20", 0x40), "sht20-40");
+        assert_eq!(sensor_id("MPL3115A2", 0x60), "mpl3115a2-60");
+    }
+
+    #[test]
+    fn a_reading_names_its_sensor_only_when_it_has_one() -> Result<(), serde_json::Error> {
+        let mut r = Reading {
+            ts: 1,
+            device: "ft260".into(),
+            channel: 0,
+            sensor: None,
+            values: Values::default(),
+            altitude: None,
+        };
+        assert!(serde_json::to_value(&r)?.get("sensor").is_none());
+        r.sensor = Some("sht20-40".into());
+        assert_eq!(serde_json::to_value(&r)?["sensor"], "sht20-40");
+        Ok(())
     }
 
     #[test]

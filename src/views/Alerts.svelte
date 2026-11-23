@@ -9,7 +9,8 @@
   import { fmtDateTime, fmtWithUnit } from "../lib/format";
   import { fill, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
-  import { channelLabel, metricChannels } from "../lib/source";
+  import { lineKey } from "../lib/series";
+  import { lineLabel, metricLines } from "../lib/source";
   import { METRICS, OPTIONAL_METRICS, type AlertLogEntry } from "../lib/types";
 
   let log = $state<AlertLogEntry[]>([]);
@@ -47,7 +48,7 @@
   {#if live.settings}
     {@const s = live.settings}
     <Section title={t().alerts.thresholds} description={t().alerts.thresholdsHint}>
-      {#each METRICS.filter((m) => !OPTIONAL_METRICS.includes(m) || s.alerts[m].enabled || metricChannels(live.device, m, null, live.latest, false).length) as m (m)}
+      {#each METRICS.filter((m) => !OPTIONAL_METRICS.includes(m) || s.alerts[m].enabled || metricLines(live.device, m, null, live.latest, false).length) as m (m)}
         <ThresholdRow
           metric={m}
           rule={s.alerts[m]}
@@ -81,7 +82,7 @@
       {#if log.length === 0}
         <div class="empty muted">{t().alerts.none}</div>
       {:else}
-        {#each log as e (`${e.ts}-${e.metric}-${e.channel}-${e.bound}-${e.kind}`)}
+        {#each log as e (`${e.ts}-${e.metric}-${lineKey(e.channel, e.sensor)}-${e.bound}-${e.kind}`)}
           <div class="entry">
             <span class="kind" class:recovered={e.kind === "recovered"}>
               <Icon name={e.kind === "recovered" ? "check" : "warning"} size={14} />
@@ -93,8 +94,8 @@
             </span>
             <span class="what"
               >{t().metrics[e.metric]}
-              {#if e.channel !== 0 || metricChannels(live.device, e.metric, null, live.latest).length > 1}
-                <span class="muted">({channelLabel(live.device, e.metric, e.channel)})</span>
+              {#if e.channel !== 0 || e.sensor || metricLines(live.device, e.metric, null, live.latest).length > 1}
+                <span class="muted">({lineLabel(live.device, e.metric, lineKey(e.channel, e.sensor))})</span>
               {/if}
               <span class="nowrap">{fmtWithUnit(e.metric, e.value, unit)}</span></span
             >

@@ -160,6 +160,7 @@ impl Service {
             AcqConfig {
                 interval: Duration::from_millis(settings.sample_interval_ms),
                 channel: settings.i2c_channel,
+                climate_r1: settings.climate_r1,
                 state_dir: Some(paths.data_dir.clone()),
             },
             opener,
@@ -275,9 +276,33 @@ fn seed_simulated_history(store: &mut Store, interval_ms: u64) {
                 ts,
                 device: "SIMULATED".into(),
                 channel,
+                sensor: None,
                 values,
                 altitude: None,
             });
+            // The Humidity and Temperature Tags next to the Climate Module.
+            if channel == 0 {
+                let beside = tower_bridge_core::bus::mock::simulated_beside(values);
+                for (sensor, values) in [
+                    ("sht20-40", beside),
+                    (
+                        "tmp112-48",
+                        tower_bridge_core::model::Values {
+                            humidity: None,
+                            ..beside
+                        },
+                    ),
+                ] {
+                    batch.push(tower_bridge_core::model::Reading {
+                        ts,
+                        device: "SIMULATED".into(),
+                        channel,
+                        sensor: Some(sensor.into()),
+                        values,
+                        altitude: None,
+                    });
+                }
+            }
         }
         if batch.len() == 10_000 {
             let _ = store.insert_many(&batch);

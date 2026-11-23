@@ -30,7 +30,7 @@
   <Icon name="info" size={14} />
   <span class="popover" class:rightward role="tooltip">
     <span class="title">{t().common.source}</span>
-    {#each sources as source (source.channel)}
+    {#each sources as source, i (`${source.channel}:${source.address}:${i}`)}
       <span class="entry">
         <span class="module">{source.module}</span>
         <!-- Wraps only between the steps, never inside one. -->

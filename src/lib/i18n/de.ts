@@ -77,6 +77,9 @@ export const de: Messages = {
     noModuleTitle: "Keine Sensoren gefunden",
     noModuleBody:
       "Das Bridge Module ist verbunden, aber weder ein Climate Module noch ein Sensor-Tag antwortet. Prüfen Sie, ob sie fest eingesteckt sind.",
+    collisionTitle: "Zwei Geräte an einer I²C-Adresse",
+    collisionBody:
+      "{module} {sensor} an Adresse {address} auf Kanal {channel} liefert verfälschte Werte: An derselben Adresse antwortet ein weiteres Gerät, zum Beispiel ein Lux Meter Tag oder Barometer Tag neben einem Climate Module. Stecken Sie den Tag auf Kanal {other} um.",
     updateTitle: "Update verfügbar: {version}",
     updateBody:
       "Eine neue Version von TOWER Bridge steht zum Download bereit. Einstellungen und Verlauf bleiben erhalten.",
@@ -254,6 +257,12 @@ export const de: Messages = {
     channelHint: "Wo nach dem Climate Module und Sensor-Tags gesucht wird; „Automatisch“ nutzt beide Kanäle.",
     channelAuto: "Automatisch",
     channelN: "Kanal {n}",
+    climateR1: "Climate Module R1 oder Tags, Kanal {n}",
+    climateR1Hint:
+      "Ein Climate Module R1 hat dieselben Chips an denselben Adressen wie ein Humidity, Temperature, Lux Meter und Barometer Tag. „Automatisch“ hält alle vier zusammen für ein Climate Module R1.",
+    climateR1Auto: "Automatisch",
+    climateR1Module: "Climate Module R1",
+    climateR1Tags: "Einzelne Tags",
     mqtt: {
       title: "MQTT",
       description:

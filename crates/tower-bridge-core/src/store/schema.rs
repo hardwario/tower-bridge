@@ -70,6 +70,47 @@ const MIGRATIONS: &[&str] = &[
                SUM(co2), COUNT(co2), MIN(co2), MAX(co2),
                SUM(voc), COUNT(voc), MIN(voc), MAX(voc)
         FROM readings GROUP BY 1, 2;",
+    // 5: further sensors on a channel (a Humidity Tag next to a Climate
+    // Module), each a series of its own named by its part and address
+    // (`sht20-40`). The channel's readings stay in `readings`, so the
+    // history so far goes on, and an older build writing to the same
+    // database never sees the new tables. `source_log` records which module
+    // carried which sensor since when, for exports.
+    "CREATE TABLE sensor_readings (
+        ts INTEGER NOT NULL,
+        device_id INTEGER NOT NULL REFERENCES devices(id),
+        channel INTEGER NOT NULL,
+        sensor TEXT NOT NULL,
+        temperature REAL,
+        humidity REAL,
+        illuminance REAL,
+        pressure REAL,
+        co2 REAL,
+        voc REAL,
+        PRIMARY KEY (ts, device_id, channel, sensor)
+    ) WITHOUT ROWID;
+    CREATE TABLE sensor_readings_hourly (
+        hour INTEGER NOT NULL,
+        channel INTEGER NOT NULL,
+        sensor TEXT NOT NULL,
+        temperature_sum REAL, temperature_n INTEGER NOT NULL, temperature_min REAL, temperature_max REAL,
+        humidity_sum REAL, humidity_n INTEGER NOT NULL, humidity_min REAL, humidity_max REAL,
+        illuminance_sum REAL, illuminance_n INTEGER NOT NULL, illuminance_min REAL, illuminance_max REAL,
+        pressure_sum REAL, pressure_n INTEGER NOT NULL, pressure_min REAL, pressure_max REAL,
+        co2_sum REAL, co2_n INTEGER NOT NULL, co2_min REAL, co2_max REAL,
+        voc_sum REAL, voc_n INTEGER NOT NULL, voc_min REAL, voc_max REAL,
+        PRIMARY KEY (hour, channel, sensor)
+    ) WITHOUT ROWID;
+    CREATE TABLE source_log (
+        ts INTEGER NOT NULL,
+        channel INTEGER NOT NULL,
+        metric TEXT NOT NULL,
+        sensor TEXT NOT NULL,
+        module TEXT NOT NULL,
+        is_primary INTEGER NOT NULL
+    );
+    CREATE INDEX idx_source_log_ts ON source_log(ts);
+    ALTER TABLE alert_log ADD COLUMN sensor TEXT;",
 ];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -147,6 +188,39 @@ mod tests {
             |r| r.get(0),
         )?;
         assert_eq!(b, 0, "the half-done migration was rolled back");
+        Ok(())
+    }
+
+    #[test]
+    fn version_4_keeps_its_history_and_older_builds_can_still_write() -> rusqlite::Result<()> {
+        let conn = Connection::open_in_memory()?;
+        migrate_to(&conn, 4)?;
+        conn.execute_batch(
+            "INSERT INTO devices (id, serial, first_seen) VALUES (1, 'SN1', 0);
+             INSERT INTO readings (ts, device_id, channel, temperature, humidity) VALUES
+                 (3600000, 1, 0, 20.0, 40.0),
+                 (3610000, 1, 1, 10.0, 80.0);
+             INSERT INTO alert_log (ts, metric, bound, kind, value, threshold, channel)
+                 VALUES (3600000, 'humidity', 'high', 'triggered', 80.0, 60.0, 1);",
+        )?;
+        migrate(&conn)?;
+        assert_eq!(version(&conn)?, 5);
+        let readings: i64 = conn.query_row("SELECT COUNT(*) FROM readings", [], |r| r.get(0))?;
+        assert_eq!(readings, 2, "the channels' history is where it was");
+        let sensor: Option<String> =
+            conn.query_row("SELECT sensor FROM alert_log", [], |r| r.get(0))?;
+        assert_eq!(sensor, None, "old alerts are the channel's");
+        // An older build's statements, with its own column lists.
+        conn.execute_batch(
+            "INSERT OR REPLACE INTO readings (ts, device_id, channel, temperature, humidity, illuminance, pressure, co2, voc)
+                 VALUES (3620000, 1, 0, 21.0, 41.0, NULL, NULL, NULL, NULL);
+             INSERT INTO alert_log (ts, metric, channel, bound, kind, value, threshold)
+                 VALUES (3620000, 'humidity', 0, 'high', 'recovered', 50.0, 60.0);",
+        )?;
+        conn.execute_batch(
+            "INSERT INTO sensor_readings (ts, device_id, channel, sensor, humidity)
+                 VALUES (3620000, 1, 0, 'sht20-40', 55.0);",
+        )?;
         Ok(())
     }
 

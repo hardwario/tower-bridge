@@ -12,7 +12,7 @@
   import { fill, plural, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
   import { SPANS, fromLocalInput, toLocalInput, type Span } from "../lib/time";
-  import { channelLabel, metricChannels } from "../lib/source";
+  import { lineLabel, metricLines } from "../lib/source";
   import { METRICS, type ExportResult, type History } from "../lib/types";
   import { unitLabel } from "../lib/units";
 
@@ -111,11 +111,11 @@
     }
   }
 
-  /** Table columns: each metric on each channel that measured it. */
+  /** Table columns: each metric on each channel, and each further sensor on one, that measured it. */
   const columns = $derived(
     history
       ? METRICS.flatMap((m) =>
-          metricChannels(live.device, m, history, [], false).map((channel) => ({ key: `${m}-${channel}`, m, channel })),
+          metricLines(live.device, m, history, [], false).map((line) => ({ key: `${m}-${line}`, m, line })),
         )
       : [],
   );
@@ -135,7 +135,7 @@
     const out = h.t.map((t, i) => ({ t: t * 1000, i })).filter(({ i }) => hasValueAt(h, i));
     const column = columns.find((c) => c.key === sort.key);
     const value = (i: number): number | null =>
-      column ? (seriesOf(h, column.m, column.channel)?.avg[i] ?? null) : h.t[i];
+      column ? (seriesOf(h, column.m, column.line)?.avg[i] ?? null) : h.t[i];
     const dir = sort.desc ? -1 : 1;
     return out.sort((a, b) => {
       const [x, y] = [value(a.i), value(b.i)];
@@ -145,7 +145,7 @@
   });
 
   const ariaSort = (key: string) => (sort.key === key ? (sort.desc ? "descending" : "ascending") : "none");
-  const severalChannels = $derived(new Set(columns.map((c) => c.channel)).size > 1);
+  const severalChannels = $derived(new Set(columns.map((c) => c.line)).size > 1);
 
   const empty = $derived(!!history && rows.length === 0);
 </script>
@@ -231,7 +231,7 @@
                 <button class="sort" title={t().data.sortHint} onclick={() => sortBy(c.key)}>
                   <span class="head">
                     <span>{t().metrics[c.m]} ({unitLabel(c.m, unit)}){@render arrow(c.key)}</span>
-                    {#if severalChannels}<span class="sub">{channelLabel(live.device, c.m, c.channel, history)}</span>{/if}
+                    {#if severalChannels}<span class="sub">{lineLabel(live.device, c.m, c.line, history)}</span>{/if}
                   </span>
                 </button>
               </th>
@@ -243,7 +243,7 @@
             <tr>
               <td>{fmtDateTime(r.t, { year: true, seconds: history.bucket_ms < 60_000 })}</td>
               {#each columns as c (c.key)}
-                <td>{fmtValue(c.m, seriesOf(history, c.m, c.channel)?.avg[r.i] ?? null, unit)}</td>
+                <td>{fmtValue(c.m, seriesOf(history, c.m, c.line)?.avg[r.i] ?? null, unit)}</td>
               {/each}
             </tr>
           {/each}

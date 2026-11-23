@@ -93,9 +93,15 @@ impl Observer for AppObserver {
                 fill(tr.within_limits, &vars),
             ),
         };
-        // With the metric measured on several channels, say which one.
+        // With the metric measured by several sensors, say which one.
         let device = state.device.read().clone();
-        let title = match source_label(device.sources(), ev.metric, ev.channel, tr.channel_n) {
+        let title = match source_label(
+            device.sources(),
+            ev.metric,
+            ev.channel,
+            ev.sensor.as_deref(),
+            tr.channel_n,
+        ) {
             Some(source) => format!("{title} · {source}"),
             None => title,
         };

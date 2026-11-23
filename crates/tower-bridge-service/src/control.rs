@@ -48,6 +48,9 @@ impl ServiceState {
         if old.i2c_channel != new.i2c_channel {
             let _ = self.acq_tx.send(AcqCommand::SetChannel(new.i2c_channel));
         }
+        if old.climate_r1 != new.climate_r1 {
+            let _ = self.acq_tx.send(AcqCommand::SetClimateR1(new.climate_r1));
+        }
         let _ = self.hub_tx.send(HubMsg::SettingsChanged {
             old: old.clone(),
             new: new.clone(),

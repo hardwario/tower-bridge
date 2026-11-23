@@ -18,6 +18,7 @@
     METRICS,
     TIME_FORMATS,
     type ChannelMode,
+    type ClimateR1,
     type DateFormat,
     type DecimalSeparator,
     type Metric,
@@ -149,7 +150,15 @@
     const found = sourcesOf(live.device);
     const sources: SensorSource[] = found.length
       ? found
-      : METRICS.map((metric) => ({ metric, channel: 0, module: "climate_module_r1", sensor: "", address: 0 }));
+      : METRICS.map((metric) => ({
+          metric,
+          channel: 0,
+          module: "climate_module_r1",
+          sensor: "",
+          address: 0,
+          id: "",
+          primary: true,
+        }));
     const rows = mqttTopics(prefix, sources, live.relay, live.gps);
     const width = Math.max(...rows.map(([topic]) => topic.length)) + 3;
     return rows.map(([topic, unit]) => topic.padEnd(width) + unit).join("\n");
@@ -297,6 +306,24 @@
           <option value="channel1">{fill(st.channelN, { n: 1 })}</option>
         </select>
       </Field>
+      {#each [0, 1] as channel (channel)}
+        <Field label={fill(st.climateR1, { n: channel })} hint={channel === 0 ? st.climateR1Hint : undefined}>
+          <select
+            class="select"
+            value={s.climate_r1?.[channel] ?? "auto"}
+            onchange={(e) =>
+              live.save((x) => {
+                const r1: [ClimateR1, ClimateR1] = [...(x.climate_r1 ?? ["auto", "auto"])] as [ClimateR1, ClimateR1];
+                r1[channel] = e.currentTarget.value as ClimateR1;
+                x.climate_r1 = r1;
+              })}
+          >
+            <option value="auto">{st.climateR1Auto}</option>
+            <option value="module">{st.climateR1Module}</option>
+            <option value="tags">{st.climateR1Tags}</option>
+          </select>
+        </Field>
+      {/each}
     </Section>
 
     <Section title={st.mqtt.title} description={st.mqtt.description}>

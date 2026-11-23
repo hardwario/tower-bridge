@@ -2,7 +2,8 @@
 //!
 //! All values are SI units (°C, %RH, lux, Pa). The engine is pure: it turns
 //! readings into events; the caller decides how to notify. A rule applies to
-//! its metric on every I2C channel, and each channel is tracked on its own.
+//! its metric on every I2C channel and every further sensor on it (a Humidity
+//! Tag next to a Climate Module), and each such series is tracked on its own.
 
 use std::collections::HashMap;
 
@@ -130,6 +131,10 @@ pub struct AlertEvent {
     pub metric: Metric,
     /// I2C channel of the sensor.
     pub channel: u8,
+    /// The further sensor of the channel (e.g. `sht20-40`) whose value it
+    /// is; absent for the channel's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensor: Option<String>,
     pub bound: Bound,
     pub kind: AlertKind,
     pub value: f64,
@@ -144,6 +149,9 @@ pub struct AlertEvent {
 pub struct ActiveAlert {
     pub metric: Metric,
     pub channel: u8,
+    /// See [`AlertEvent::sensor`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensor: Option<String>,
     pub bound: Bound,
     pub since: i64,
     pub threshold: f64,
@@ -159,10 +167,14 @@ struct BoundState {
     notified_episode: bool,
 }
 
+/// A series a rule watches: a metric of a channel, or of a further sensor
+/// on it.
+pub type Watched = (Metric, u8, Option<String>);
+
 #[derive(Debug, Default)]
 pub struct AlertEngine {
     rules: AlertRules,
-    state: HashMap<(Metric, u8, Bound), BoundState>,
+    state: HashMap<(Metric, u8, Option<String>, Bound), BoundState>,
 }
 
 impl AlertEngine {
@@ -183,7 +195,7 @@ impl AlertEngine {
     pub fn set_rules(&mut self, rules: AlertRules) {
         // A rule switched off or a limit removed ends its alerts at once:
         // with no readings coming (the bridge unplugged) they would stay.
-        self.state.retain(|(metric, _, bound), _| {
+        self.state.retain(|(metric, _, _, bound), _| {
             let rule = rules.get(*metric);
             rule.enabled
                 && match bound {
@@ -194,15 +206,17 @@ impl AlertEngine {
         self.rules = rules;
     }
 
-    /// Forget alerts of metrics no longer measured on their channel (the
-    /// sensor is gone); they could never end otherwise. Returns whether any
-    /// was active.
-    /// End the alerts of sensors no longer measured. When a notification was
-    /// shown is kept: a loose connector must not notify on every return.
-    pub fn retain_sources(&mut self, measured: &[(Metric, u8)]) -> bool {
+    /// End the alerts of series no longer measured (the sensor is gone);
+    /// they could never end otherwise. When a notification was shown is
+    /// kept: a loose connector must not notify on every return. Returns
+    /// whether an active alert ended.
+    pub fn retain_sources(&mut self, measured: &[Watched]) -> bool {
         let before = self.active().len();
-        for ((m, c, _), s) in &mut self.state {
-            if !measured.contains(&(*m, *c)) {
+        for ((m, c, sensor, _), s) in &mut self.state {
+            if !measured
+                .iter()
+                .any(|(mm, cc, ss)| (mm, cc, ss) == (m, c, sensor))
+            {
                 *s = BoundState {
                     last_notified: s.last_notified,
                     ..BoundState::default()
@@ -212,9 +226,22 @@ impl AlertEngine {
         self.active().len() != before
     }
 
-    /// Check the values measured on `channel`.
+    /// Check the values of `channel`'s reading.
     pub fn evaluate(&mut self, ts: i64, channel: u8, values: &Values) -> Vec<AlertEvent> {
+        self.evaluate_series(ts, channel, None, values)
+    }
+
+    /// Check the values of a reading of `channel`, or of its further
+    /// `sensor`.
+    pub fn evaluate_series(
+        &mut self,
+        ts: i64,
+        channel: u8,
+        sensor: Option<&str>,
+        values: &Values,
+    ) -> Vec<AlertEvent> {
         let mut events = Vec::new();
+        let sensor = sensor.map(str::to_string);
         for metric in Metric::ALL {
             let rule = self.rules.get(metric).clone();
             for bound in [Bound::Low, Bound::High] {
@@ -224,13 +251,16 @@ impl AlertEngine {
                 };
                 let (true, Some(limit)) = (rule.enabled, limit) else {
                     self.state
-                        .retain(|(m, _, b), _| (*m, *b) != (metric, bound));
+                        .retain(|(m, _, _, b), _| (*m, *b) != (metric, bound));
                     continue;
                 };
                 let Some(value) = values.get(metric) else {
                     continue;
                 };
-                let st = self.state.entry((metric, channel, bound)).or_default();
+                let st = self
+                    .state
+                    .entry((metric, channel, sensor.clone(), bound))
+                    .or_default();
                 let hyst = rule.hysteresis.max(0.0);
                 let (beyond, back_inside) = match bound {
                     Bound::High => (value > limit, value <= limit - hyst),
@@ -253,6 +283,7 @@ impl AlertEngine {
                         ts,
                         metric,
                         channel,
+                        sensor: sensor.clone(),
                         bound,
                         kind: AlertKind::Triggered,
                         value,
@@ -271,6 +302,7 @@ impl AlertEngine {
                         ts,
                         metric,
                         channel,
+                        sensor: sensor.clone(),
                         bound,
                         kind: AlertKind::Triggered,
                         value,
@@ -283,6 +315,7 @@ impl AlertEngine {
                         ts,
                         metric,
                         channel,
+                        sensor: sensor.clone(),
                         bound,
                         kind: AlertKind::Recovered,
                         value,
@@ -301,7 +334,7 @@ impl AlertEngine {
             .state
             .iter()
             .filter(|(_, s)| s.active)
-            .filter_map(|((metric, channel, bound), s)| {
+            .filter_map(|((metric, channel, sensor, bound), s)| {
                 let rule = self.rules.get(*metric);
                 let threshold = match bound {
                     Bound::Low => rule.min,
@@ -310,6 +343,7 @@ impl AlertEngine {
                 Some(ActiveAlert {
                     metric: *metric,
                     channel: *channel,
+                    sensor: sensor.clone(),
                     bound: *bound,
                     since: s.since,
                     threshold,
@@ -317,7 +351,14 @@ impl AlertEngine {
                 })
             })
             .collect();
-        out.sort_by_key(|a| (a.metric as u8, a.channel, a.bound as u8));
+        out.sort_by(|a, b| {
+            (a.metric as u8, a.channel, &a.sensor, a.bound as u8).cmp(&(
+                b.metric as u8,
+                b.channel,
+                &b.sensor,
+                b.bound as u8,
+            ))
+        });
         out
     }
 }
@@ -474,15 +515,36 @@ mod tests {
         assert_eq!(e.active().len(), 2);
         // Channel 1 lost its thermometer but kept other sensors.
         let measured = [
-            (Metric::Temperature, 0),
-            (Metric::Humidity, 0),
-            (Metric::Humidity, 1),
+            (Metric::Temperature, 0, None),
+            (Metric::Humidity, 0, None),
+            (Metric::Humidity, 1, None),
         ];
         assert!(e.retain_sources(&measured));
         let active = e.active();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].channel, 0);
         assert!(!e.retain_sources(&measured), "nothing more to drop");
+    }
+
+    #[test]
+    fn a_further_sensor_alerts_on_its_own() {
+        let mut e = engine();
+        assert!(e.evaluate(0, 0, &temp(Some(20.0))).is_empty());
+        let ev = e.evaluate_series(0, 0, Some("sht20-40"), &temp(Some(30.0)));
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].sensor.as_deref(), Some("sht20-40"));
+        assert!(ev[0].notify);
+        let active = e.active();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].sensor.as_deref(), Some("sht20-40"));
+        assert!(
+            e.evaluate(1, 0, &temp(Some(20.0))).is_empty(),
+            "the channel's value does not end the tag's alert"
+        );
+        assert_eq!(e.active().len(), 1);
+        // The tag is unplugged: its alert ends, the channel's stays watched.
+        assert!(e.retain_sources(&[(Metric::Temperature, 0, None)]));
+        assert!(e.active().is_empty());
     }
 
     #[test]

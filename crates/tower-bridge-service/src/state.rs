@@ -65,7 +65,8 @@ pub struct ServiceState {
     /// Held across read, change, save and swap of the settings, so changes
     /// from the front end, the API and MQTT never overwrite each other.
     pub(crate) settings_lock: Mutex<()>,
-    /// The latest reading of each I2C channel, in channel order.
+    /// The latest reading of each I2C channel and of each further sensor on
+    /// one, in channel order, each channel's own first.
     pub latest: RwLock<Vec<Reading>>,
     pub device: RwLock<DeviceState>,
     /// Detected Relay Module, if any.
@@ -94,10 +95,11 @@ impl ServiceState {
         self.settings.read().clone()
     }
 
-    /// Keep `r` as the latest reading of its channel.
+    /// Keep `r` as the latest reading of its channel, or of its further
+    /// sensor.
     pub fn set_latest(&self, r: Reading) {
         let mut latest = self.latest.write();
-        match latest.binary_search_by_key(&r.channel, |x| x.channel) {
+        match latest.binary_search_by(|x| (x.channel, &x.sensor).cmp(&(r.channel, &r.sensor))) {
             Ok(i) => latest[i] = r,
             Err(i) => latest.insert(i, r),
         }

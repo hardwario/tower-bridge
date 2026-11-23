@@ -80,6 +80,9 @@ export const cs: Messages = {
     noModuleTitle: "Senzory nenalezeny",
     noModuleBody:
       "Bridge Module je připojen, ale neodpovídá Climate Module ani žádný senzorový tag. Zkontrolujte, zda jsou pevně zasunuté.",
+    collisionTitle: "Dvě zařízení na jedné adrese I²C",
+    collisionBody:
+      "{module} {sensor} na adrese {address} na kanálu {channel} dává poškozené hodnoty: na stejné adrese odpovídá ještě jiné zařízení, například Lux Meter Tag nebo Barometer Tag vedle Climate Module. Přesuňte tag na kanál {other}.",
     updateTitle: "Dostupná aktualizace: {version}",
     updateBody: "Nová verze TOWER Bridge je připravena ke stažení. Nastavení a historie zůstanou zachovány.",
   },
@@ -260,6 +263,12 @@ export const cs: Messages = {
     channelHint: "Kde hledat Climate Module a senzorové tagy; volba „Automaticky“ používá oba kanály.",
     channelAuto: "Automaticky",
     channelN: "Kanál {n}",
+    climateR1: "Climate Module R1, nebo tagy (kanál {n})",
+    climateR1Hint:
+      "Climate Module R1 má stejné čipy na stejných adresách jako Humidity, Temperature, Lux Meter a Barometer Tag. Volba „Automaticky“ považuje všechny čtyři pohromadě za Climate Module R1.",
+    climateR1Auto: "Automaticky",
+    climateR1Module: "Climate Module R1",
+    climateR1Tags: "Samostatné tagy",
     mqtt: {
       title: "MQTT",
       description:

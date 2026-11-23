@@ -14,6 +14,7 @@
   import { fmtAxis, fmtClock, fmtDateTime, fmtNumber } from "../format";
   import { i18n, t } from "../i18n/index.svelte";
   import { bandColor } from "../palette";
+  import type { LineKey } from "../series";
   import { chartTheme, theme, type ChartTheme } from "../theme.svelte";
   import type { AlertRule, History, Metric, TemperatureUnit } from "../types";
   import { decimals, toDisplay, unitLabel } from "../units";
@@ -34,8 +35,8 @@
     unit: TemperatureUnit;
     group: ChartGroup;
     rule?: AlertRule;
-    /** One line per I²C channel, with its colour for the current theme and its name; hidden ones stay out of sight. */
-    lines: { channel: number; color: string; name?: string; hidden?: boolean }[];
+    /** One line per I²C channel and further sensor on one, with its colour for the current theme and its name; hidden ones stay out of sight. */
+    lines: { key: LineKey; color: string; name?: string; hidden?: boolean }[];
     /** Horizontal lines at the window's minimum, average and maximum. */
     show?: { min: boolean; avg: boolean; max: boolean };
     height?: number;
@@ -65,7 +66,7 @@
     const none = history.t.map(() => null);
     const data: (number | null)[][] = [];
     for (const line of lines) {
-      const s = seriesOf(history, metric, line.channel);
+      const s = seriesOf(history, metric, line.key);
       data.push(s ? convert(s.min) : none, s ? convert(s.max) : none, s ? convert(s.avg) : none);
     }
     return [history.t, ...data] as uPlot.AlignedData;
@@ -472,7 +473,7 @@
   }
 
   /** What the lines are; a new array with the same lines is no change. */
-  const linesKey = $derived(lines.map((l) => `${l.channel}:${l.color}:${l.name ?? ""}:${l.hidden ? 1 : 0}`).join());
+  const linesKey = $derived(lines.map((l) => `${l.key}:${l.color}:${l.name ?? ""}:${l.hidden ? 1 : 0}`).join());
 
   // New data or zoom: update in place, keeping the crosshair where it is.
   // Only new data, a zoom or other lines count, not a parent re-rendering.

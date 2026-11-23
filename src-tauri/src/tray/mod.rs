@@ -413,7 +413,8 @@ fn shown_metrics(device: &DeviceState, readings: &[Reading]) -> Vec<Metric> {
         .collect()
 }
 
-/// The values of `metric` on each channel, in channel order: "23.4 °C / 19.5 °C".
+/// The values of `metric` on each channel and of each further sensor on
+/// one, in channel order, each channel's own first: "23.4 °C / 19.5 °C".
 fn joined(
     metric: Metric,
     readings: &[Reading],
@@ -441,9 +442,12 @@ fn metric_line(
     let label = lang.tr().metric(metric);
     match joined(metric, readings, unit, dec) {
         Some(text) => {
-            let alerting = alerts
-                .iter()
-                .any(|a| a.metric == metric && readings.iter().any(|r| r.channel == a.channel));
+            let alerting = alerts.iter().any(|a| {
+                a.metric == metric
+                    && readings
+                        .iter()
+                        .any(|r| r.channel == a.channel && r.sensor == a.sensor)
+            });
             let warn = if alerting { "  ⚠" } else { "" };
             format!("{label}: {text}{warn}")
         }
@@ -549,6 +553,7 @@ mod tests {
             ts: 1_792_245_600_000,
             device: "SN".into(),
             channel,
+            sensor: None,
             values: Values {
                 temperature,
                 ..Values::default()
@@ -561,6 +566,7 @@ mod tests {
         ActiveAlert {
             metric: Metric::Temperature,
             channel,
+            sensor: None,
             bound: Bound::High,
             since: 0,
             threshold: 25.0,
@@ -661,6 +667,7 @@ mod tests {
         let ready = DeviceState::Ready {
             device: info.clone(),
             sources: Vec::new(),
+            warnings: Vec::new(),
         };
         let r = reading(0, Some(1.0));
         let at = |offset_ms: i64| r.ts + offset_ms;
@@ -696,6 +703,7 @@ mod tests {
                 ..info
             },
             sources: Vec::new(),
+            warnings: Vec::new(),
         };
         assert_eq!(
             status_text(&several, Some(&r), &settings, Lang::En, at(5_000)).as_deref(),
@@ -721,6 +729,8 @@ mod tests {
             module: ModuleKind::Co2Module,
             sensor: "LP8".into(),
             address: 0x4D,
+            id: tower_bridge_core::model::sensor_id("LP8", 0x4D),
+            primary: true,
         };
         let device = DeviceState::Ready {
             device: DeviceInfo {
@@ -731,6 +741,7 @@ mod tests {
                 bridges_connected: 1,
             },
             sources: vec![source(Metric::Co2), source(Metric::Temperature)],
+            warnings: Vec::new(),
         };
         // CO2 before its first value still has its line, in the usual order.
         assert_eq!(

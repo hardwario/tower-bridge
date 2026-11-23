@@ -24,6 +24,11 @@ pub fn purge_older_than(conn: &Connection, cutoff_ms: i64) -> Result<usize> {
             break;
         }
     }
+    // The further sensors' rows: a fraction of the channels', in one go.
+    total += conn.execute(
+        "DELETE FROM sensor_readings WHERE ts < ?1",
+        params![cutoff_ms],
+    )?;
     super::hourly::purge_older_than(conn, cutoff_ms)?;
     conn.execute("DELETE FROM alert_log WHERE ts < ?1", params![cutoff_ms])?;
     // Each step of this pragma frees one page, and `execute_batch` steps

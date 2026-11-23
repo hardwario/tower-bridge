@@ -84,6 +84,8 @@ fn labels(unit: TemperatureUnit) -> XlsxLabels {
         altitude: "Altitude (m)".into(),
         co2: "CO₂ (ppm)".into(),
         voc: "VOC (ppb)".into(),
+        sensor: "Sensor".into(),
+        source: "Source".into(),
     }
 }
 
@@ -207,9 +209,9 @@ pub fn alerts(ctx: &Ctx, out: Out, log_len: usize) -> Result<()> {
                 println!(
                     "  {}",
                     s.bad(&format!(
-                        "{} on I²C channel {} {bound} {}: {}, since {}",
+                        "{} on {} {bound} {}: {}, since {}",
                         output::metric_name(a.metric),
-                        a.channel,
+                        output::place(&[], a.channel, a.sensor.as_deref()),
                         output::value(a.metric, Some(a.threshold), unit),
                         output::value(a.metric, Some(a.value), unit),
                         output::time(a.since)
@@ -232,10 +234,10 @@ pub fn alerts(ctx: &Ctx, out: Out, log_len: usize) -> Result<()> {
             _ => s.bad("below the limit"),
         };
         println!(
-            "  {}  {} on I²C channel {} {what}: {} (limit {})",
+            "  {}  {} on {} {what}: {} (limit {})",
             output::time(e.ts),
             output::metric_name(metric),
-            e.channel,
+            output::place(&[], e.channel, e.sensor.as_deref()),
             output::value(metric, Some(e.value), unit),
             output::value(metric, Some(e.threshold), unit),
         );
