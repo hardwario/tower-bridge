@@ -173,13 +173,33 @@ channel:
 | Climate Module R1 and Temperature Tag | `0x48` (TMP112) |
 | Climate Module R2 and a Humidity Tag R4 or Lux Meter Tag set to `0x45` | `0x45` |
 
-Such a pair is found as one part. The app warns (Dashboard banner, Bridge
-Module card, `tower-bridge-cli status`, the log, the API's `warnings`) when a
-part's data point to a second device: two SHT checksum errors close together,
-or a Climate Module's barometer whose die temperature is more than 6 °C off
-the module's thermometer. The thresholds, and whether an OPT3001 or TMP112
-pair can be told by its data at all, wait for a test with real hardware
-(TODO.md); until then the table above is the rule.
+Such a pair is found as one part (`toolbox i2c-identify` lists one chip),
+and its values stay plausible while both sensors measure about the same: a
+Climate Module R2 with a Lux Meter Tag read 415 lx in the room, with a
+Barometer Tag about 1 hPa low. Covering either light sensor pulled the
+reading down to 0 to 2 lx (tested on 2026-11-23). The app warns (Dashboard
+banner, Bridge Module card, `tower-bridge-cli status`, the log, the API's
+`warnings`) when a part's data point to a second device:
+
+- SHT20 and SHT30: two checksum errors close together.
+- OPT3001, MPL3115A2 and TMP112 (no checksum): the three lowest bits of the
+  raw reading are all zero too often. A lone sensor's lowest bits are noise,
+  all three zero in one reading of eight; two sensors read ANDed have each
+  bit zero three times in four, all three in 42 % of the readings. Of the
+  last 90 changed readings (with at least 16 different values), 22 or more
+  make the part suspect. On the hardware: at most 17 alone, at least 29 with
+  two barometers. This takes 90 changed readings, half an hour at the
+  default 20 s interval; at 2 s the Climate Module R2 with a Barometer Tag
+  was reported after 3.6 minutes, with a Lux Meter Tag after 4, and the
+  same parts on separate channels stayed quiet for 11 minutes. A steady
+  temperature changes too rarely to be judged, so a TMP112 pair may go
+  unnoticed (not tested: no Climate Module R1 at hand).
+- A Climate Module's barometer whose die temperature is more than 6 °C off
+  the module's thermometer (a Barometer Tag warmed in the hand).
+
+Two suspicious cycles close together raise the warning; it ends a few
+cycles after the data look clean again. The table above stays the rule: the
+detection is a safety net, not a way to use two parts at one address.
 
 ### Measurement cycle
 

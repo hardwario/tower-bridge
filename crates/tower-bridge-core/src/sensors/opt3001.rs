@@ -45,9 +45,14 @@ pub fn is_ready(bus: &mut dyn I2cBus, addr: u8) -> Result<bool, BusError> {
 }
 
 pub fn fetch(bus: &mut dyn I2cBus, addr: u8) -> Result<f64, SensorError> {
+    fetch_raw(bus, addr).map(lux)
+}
+
+/// The result register as read: exponent in the top 4 bits, mantissa below.
+pub fn fetch_raw(bus: &mut dyn I2cBus, addr: u8) -> Result<u16, SensorError> {
     let mut b = [0u8; 2];
     bus.write_read(addr, &[REG_RESULT], &mut b)?;
-    Ok(lux(u16::from_be_bytes(b)))
+    Ok(u16::from_be_bytes(b))
 }
 
 /// lux = 0.01 * 2^E * R

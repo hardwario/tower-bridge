@@ -38,6 +38,7 @@
 //! every 30 s between the cycles ([`Sensors::service`]); a cycle reports
 //! their latest values.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -235,6 +236,56 @@ const PART_GIVE_UP: u8 = 3;
 const SUSPECT_STEP: u8 = 3;
 const SUSPECT_AT: u8 = 6;
 const SUSPECT_MAX: u8 = 30;
+/// How many changed readings of a part [`LowBits`] looks at.
+const LOW_BITS_WINDOW: usize = 90;
+/// Of those, how many with their three lowest bits all zero make a part
+/// suspect. A lone sensor has its lowest bits at random: one reading in
+/// eight has all three zero (11 of 90). Two sensors at one address are read
+/// ANDed bit by bit: a bit is zero three times in four, all three in
+/// (3/4)³ = 42 % of the readings (38 of 90). Measured on 2026-11-23 with a
+/// Climate Module R2 and a Barometer Tag on one channel: in any 90 readings
+/// at most 17 alone, at least 29 together.
+const LOW_BITS_SUSPECT: usize = 22;
+/// A window is judged only with this many different values in it: a lone
+/// sensor whose reading only flips between a few values (a steady
+/// temperature) would otherwise count its one value over and over.
+const LOW_BITS_DISTINCT: usize = 16;
+
+/// Watches the lowest bits of a part's raw readings for a second device at
+/// its address (see [`LOW_BITS_SUSPECT`]). Only changed readings count.
+#[derive(Clone, Debug, Default)]
+struct LowBits {
+    last: Option<u32>,
+    window: VecDeque<u32>,
+}
+
+impl LowBits {
+    /// Note a raw reading; whether the window suggests a second device, or
+    /// `None` while it cannot tell (unchanged reading, window not full or
+    /// with too few different values).
+    fn push(&mut self, raw: u32) -> Option<bool> {
+        if self.last == Some(raw) {
+            return None;
+        }
+        self.last = Some(raw);
+        self.window.push_back(raw);
+        if self.window.len() > LOW_BITS_WINDOW {
+            self.window.pop_front();
+        }
+        if self.window.len() < LOW_BITS_WINDOW {
+            return None;
+        }
+        let mut distinct: Vec<u32> = self.window.iter().copied().collect();
+        distinct.sort_unstable();
+        distinct.dedup();
+        if distinct.len() < LOW_BITS_DISTINCT {
+            return None;
+        }
+        let zeros = self.window.iter().filter(|r| *r & 0b111 == 0).count();
+        Some(zeros >= LOW_BITS_SUSPECT)
+    }
+}
+
 /// A Climate Module's barometer differs this much from its thermometer only
 /// when a second barometer answers at its address (its die runs a degree or
 /// two warm).
@@ -294,6 +345,9 @@ pub struct ChannelSensors {
     /// address; kept while the part is away, so a part dropped for its
     /// garbled data stays reported.
     suspicion: Vec<(SensorKind, u8, u8)>,
+    /// The lowest bits of the raw readings of the parts without a checksum,
+    /// by part and address.
+    low_bits: Vec<(SensorKind, u8, LowBits)>,
     /// Modules kept from before a re-detection (Rescan, a channel change):
     /// taken over if found again, instead of starting them anew (a minute
     /// of charging for the LP8, a new preheat for the SGPC3 that loses what
@@ -314,6 +368,7 @@ impl ChannelSensors {
             r1,
             r1_seen: false,
             suspicion: Vec::new(),
+            low_bits: Vec::new(),
             spare_co2: None,
             spare_voc: None,
             state_dir,
@@ -611,6 +666,26 @@ impl ChannelSensors {
         }
     }
 
+    /// Note a raw reading of part `i` (without a checksum) and suspect the
+    /// part when its lowest bits are zero too often (see [`LowBits`]).
+    fn watch_low_bits(&mut self, i: usize, raw: u32) {
+        let Part { kind, addr, .. } = self.parts[i];
+        let entry = match self
+            .low_bits
+            .iter()
+            .position(|(k, a, _)| *k == kind && *a == addr)
+        {
+            Some(e) => e,
+            None => {
+                self.low_bits.push((kind, addr, LowBits::default()));
+                self.low_bits.len() - 1
+            }
+        };
+        if let Some(suspicious) = self.low_bits[entry].2.push(raw) {
+            self.suspect(kind, addr, suspicious);
+        }
+    }
+
     /// The parts whose data suggest a second device at their address.
     pub fn warnings(&self) -> Vec<BusWarning> {
         let modules = self.modules();
@@ -816,6 +891,8 @@ impl ChannelSensors {
             if let Some(t) = self.check(errors, i, r)? {
                 self.measured(i);
                 results[i].temperature = Some(t);
+                // The 12-bit register: steps of 0.0625 °C.
+                self.watch_low_bits(i, ((t / 0.0625).round() as i32 & 0x0FFF) as u32);
             }
         }
         for i in self.ready(SensorKind::Sht20) {
@@ -868,6 +945,8 @@ impl ChannelSensors {
                 self.measured(i);
                 results[i].pressure = Some(p);
                 die.push((i, t));
+                // The 20-bit register: quarters of a pascal.
+                self.watch_low_bits(i, (p * 4.0).round() as u32);
             }
         }
         // A Climate Module's barometer far off its thermometer: a second
@@ -909,10 +988,15 @@ impl ChannelSensors {
                 READY_POLL_COUNT,
                 READY_POLL,
             )
-            .and_then(|()| opt3001::fetch(bus, addr));
-            if let Some(lux) = self.check(errors, i, r)? {
+            .and_then(|()| opt3001::fetch_raw(bus, addr));
+            if let Some(raw) = self.check(errors, i, r)? {
                 self.measured(i);
-                results[i].illuminance = Some(lux);
+                results[i].illuminance = Some(opt3001::lux(raw));
+                // The mantissa; in the dark it is too small to tell.
+                let mantissa = raw & 0x0FFF;
+                if mantissa >= 64 {
+                    self.watch_low_bits(i, u32::from(mantissa));
+                }
             }
         }
 
@@ -1977,6 +2061,109 @@ mod tests {
             (warnings[0].address, warnings[0].module),
             (0x60, ModuleKind::ClimateModuleR2)
         );
+        Ok(())
+    }
+
+    /// A small xorshift, so the tests draw the same values every run.
+    struct Noise(u64);
+
+    impl Noise {
+        fn next(&mut self) -> u32 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 >> 16) as u32
+        }
+    }
+
+    #[test]
+    fn low_bits_tell_two_ands_from_one_sensor() {
+        let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
+        // A lone sensor drifting and wobbling: never suspect.
+        let mut lone = LowBits::default();
+        let mut verdicts = Vec::new();
+        for i in 0..2000u32 {
+            let raw = 390_000 + i / 4 + noise.next() % 24;
+            verdicts.extend(lone.push(raw));
+        }
+        assert!(verdicts.len() > 1000, "judged: {}", verdicts.len());
+        assert!(!verdicts.contains(&true), "a lone sensor was suspected");
+        // A steady reading flipping between two values: not judged at all.
+        let mut steady = LowBits::default();
+        for i in 0..500u32 {
+            assert_eq!(steady.push(392 + i % 2), None);
+        }
+        // Two sensors read ANDed: suspect once the window is full.
+        let mut pair = LowBits::default();
+        let mut verdicts = Vec::new();
+        for _ in 0..500 {
+            let a = 390_000 + noise.next() % 64;
+            let b = 390_010 + noise.next() % 64;
+            verdicts.extend(pair.push(a & b));
+        }
+        assert!(!verdicts.is_empty());
+        assert!(verdicts.iter().all(|v| *v), "{verdicts:?}");
+    }
+
+    /// GitHub issue #2: a Lux Meter Tag next to a Climate Module, both
+    /// OPT3001 at 0x44. Their light differs a little from cycle to cycle.
+    #[test]
+    fn two_light_sensors_at_one_address_are_reported() -> Result<(), BusError> {
+        use crate::bus::mock::SimCollision;
+        let module = env();
+        let tag: SharedEnv = Arc::new(Mutex::new(Values::default()));
+        let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, module.clone());
+        bus.attach(
+            0,
+            0x44,
+            Box::new(SimCollision {
+                a: Box::new(SimOpt3001::new(module.clone())),
+                b: Box::new(SimOpt3001::new(tag.clone())),
+            }),
+        );
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        let mut noise = Noise(0x2545_F491_4F6C_DD1D);
+        for _ in 0..150 {
+            if let (Ok(mut m), Ok(mut t)) = (module.lock(), tag.lock()) {
+                m.illuminance = Some(400.0 + f64::from(noise.next() % 6000) / 100.0);
+                t.illuminance = Some(420.0 + f64::from(noise.next() % 6000) / 100.0);
+            }
+            sensors.measure(&mut bus, &clock)?;
+        }
+        let warnings = sensors.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(
+            (warnings[0].address, warnings[0].sensor.as_str()),
+            (0x44, "OPT3001")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_lone_climate_module_with_changing_values_raises_no_warning() -> Result<(), BusError> {
+        let module = env();
+        let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, module.clone());
+        bus.attach(0, 0x48, Box::new(SimTmp112::new(module.clone())));
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        let mut noise = Noise(0xD1B5_4A32_D192_ED03);
+        for i in 0..400u32 {
+            if let Ok(mut m) = module.lock() {
+                m.temperature =
+                    Some(22.0 + f64::from(i) / 100.0 + f64::from(noise.next() % 50) / 100.0);
+                m.illuminance = Some(300.0 + f64::from(noise.next() % 30_000) / 100.0);
+                m.pressure = Some(97_700.0 + f64::from(noise.next() % 400) / 4.0);
+            }
+            sensors.measure(&mut bus, &clock)?;
+            assert!(
+                sensors.warnings().is_empty(),
+                "cycle {i}: {:?}",
+                sensors.warnings()
+            );
+        }
         Ok(())
     }
 
