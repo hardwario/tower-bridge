@@ -75,38 +75,111 @@ limit this to one channel):
 
 | Part | Address | Probe |
 |---|---|---|
-| OPT3001 | `0x44`, then `0x45` (Lux Meter Tag) | device ID register `0x7F` reads `0x3001` |
-| SHT30 | `0x45` | soft reset `30 A2` acknowledged |
-| SHT20 | `0x40` | soft reset `FE` acknowledged |
-| TMP112 | `0x48`, then `0x49` (Temperature Tag) | configuration register `0x01` readable |
+| OPT3001 | `0x44`, `0x45` (Lux Meter Tag) | device ID register `0x7F` reads `0x3001` |
+| SHT30 | `0x45`, `0x44` (Humidity Tag R4), where no OPT3001 answered | soft reset `30 A2` acknowledged |
+| SHT20 | `0x40` | soft reset `FE` acknowledged (not an HDC2080, whose register `0xFC` reads `0x4954`) |
+| TMP112 | `0x48`, `0x49` (Temperature Tag) | configuration register `0x01` readable |
 | MPL3115A2 | `0x60` | WHO_AM_I register `0x0C` reads `0xC4` |
 
-The OPT3001 is probed first and by its ID: an OPT3001 at `0x45` would also
-acknowledge the SHT30 soft reset. One part of each kind is used per channel,
-the one at the default address when both answer.
+Every address is probed, and every part found is measured: a Humidity Tag
+next to a Climate Module R2, or a Lux Meter Tag at `0x45` next to one at
+`0x44`, is a sensor of its own. The OPT3001 is probed first and by its ID at
+`0x44` and `0x45`: an OPT3001 would also acknowledge the SHT30 soft reset.
 
 The SHT humidity sensors are probed with command writes: a read probe would not
 work, since the SHT3x NACKs reads when no measurement is pending.
 
-The parts on a channel are named after the module that carries them:
+Humidity Tag revisions (twr-sdk `twr_tag_humidity.c`): R1 HTS221 `0x5F` and
+R2 HDC2080 `0x40`/`0x41` are not supported; R3 SHT20 `0x40` and R4 SHT30
+`0x44` (or `0x45`) are.
 
-| Parts on the channel | Module |
-|---|---|
-| SHT30 with OPT3001 (at `0x44`) or MPL3115A2 | Climate Module R2 |
-| SHT20 with TMP112 (at `0x48`) | Climate Module R1 |
-| otherwise SHT20 or SHT30 | Humidity Tag |
-| otherwise TMP112, and a TMP112 at `0x49` | Temperature Tag |
-| otherwise OPT3001, and an OPT3001 at `0x45` | Lux Meter Tag |
-| otherwise MPL3115A2 | Barometer Tag |
-
-Temperature comes from the SHT30, else the TMP112, else the SHT20 (the Humidity
-Tag measures both); humidity from the SHT30, else the SHT20. Checked on real
-hardware: the Humidity Tag (SHT20), Lux Meter Tag (OPT3001) and Barometer Tag
-(MPL3115A2) on channel 1 next to a Climate Module R1 on channel 0.
+Checked on real hardware: the Humidity Tag (SHT20), Lux Meter Tag (OPT3001)
+and Barometer Tag (MPL3115A2) on channel 1 next to a Climate Module R1 on
+channel 0 (1.0), and a Climate Module R2 with a Humidity Tag on channel 0
+(2026-11-16, when the Humidity Tag was still left out: GitHub issue #2).
 
 A part that fails three measurements in a row is taken as unplugged. Channels
 are probed again every minute, so a tag plugged in later is found, and
 **Rescan** probes right away.
+
+### Naming the modules
+
+The parts on a channel are put together into modules; within a module each
+quantity has one part:
+
+| Parts | Module | Temperature from |
+|---|---|---|
+| SHT30 at `0x45` with OPT3001 at `0x44` or MPL3115A2 | Climate Module R2 | SHT30 |
+| SHT20 at `0x40`, TMP112 at `0x48`, OPT3001 at `0x44` and MPL3115A2, all four (see below) | Climate Module R1 | TMP112 |
+| any other SHT20 or SHT30 | Humidity Tag | its own sensor |
+| any other TMP112 | Temperature Tag | TMP112 |
+| any other OPT3001 | Lux Meter Tag | |
+| any other MPL3115A2 | Barometer Tag | |
+
+A Climate Module R1 has no part of its own to recognise it by: a Humidity,
+Temperature, Lux Meter and Barometer Tag at their default addresses are the
+same four chips at the same addresses. Decided on 2026-11-23 (GitHub issue
+#2): the app names the parts a Climate Module R1 only when all four answer
+(the module always has them all), and separate tags otherwise; a Humidity Tag
+with a Temperature Tag is no longer taken for a Climate Module R1. Once
+recognised, a module stays one while its SHT20 and TMP112 answer, so a light
+sensor that stops for a while does not turn it into tags. All four tags
+together on one channel still look like a Climate Module R1; *Settings →
+Measurement → Climate Module R1 or tags* sets it per channel: *Automatic* (as
+above), *Climate Module R1* (whenever the SHT20 and TMP112 answer) or
+*Separate tags* (never a module). Series are named by part and address, not
+by module, so a different name keeps the history.
+
+### The channel's sensor and further sensors
+
+The first module of a channel that measures a quantity is the channel's
+**primary** source of it: a Climate Module first, then the tags with an
+SHT30, a TMP112, an SHT20 (as the Climate Modules measure temperature),
+then the others, each by address. Its values make the channel's reading, as
+they did before every sensor was measured: the history, the MQTT topic
+`tower/<metric>/<channel>`, the Prometheus series and the alerts of the
+channel go on unchanged.
+
+Every other module measuring the same quantity on the channel is a
+**further** sensor with readings of its own, named by its part and address
+(`sht20-40`): a history series, MQTT topics one level down
+(`tower/humidity/0/sht20-40`), Prometheus series with `sensor` and `module`
+labels, alerts, and rows of its own in the exports. Example, a Climate Module
+R2 with a Humidity Tag and a Temperature Tag on channel 0 (the test setup of
+2026-11-16):
+
+| Quantity | Primary | Further |
+|---|---|---|
+| temperature | Climate Module R2 (`sht30-45`) | Temperature Tag (`tmp112-48`), Humidity Tag (`sht20-40`) |
+| humidity | Climate Module R2 (`sht30-45`) | Humidity Tag (`sht20-40`) |
+| illuminance | Climate Module R2 (`opt3001-44`) | |
+| pressure | Climate Module R2 (`mpl3115a2-60`) | |
+
+When the primary part stops answering for good, the next one takes over the
+channel's values (as before).
+
+### Two devices at one address
+
+Some combinations put two devices at one address on one channel, and the bus
+cannot keep them apart: both answer every read, and the open-drain bus ANDs
+their bits, so the values come out garbled. Put the tag on the other
+channel:
+
+| On one channel | Shared address |
+|---|---|
+| Climate Module (R1, R2) and Lux Meter Tag | `0x44` (OPT3001) |
+| Climate Module (R1, R2) and Barometer Tag | `0x60` (MPL3115A2) |
+| Climate Module R1 and Humidity Tag R3 | `0x40` (SHT20) |
+| Climate Module R1 and Temperature Tag | `0x48` (TMP112) |
+| Climate Module R2 and a Humidity Tag R4 or Lux Meter Tag set to `0x45` | `0x45` |
+
+Such a pair is found as one part. The app warns (Dashboard banner, Bridge
+Module card, `tower-bridge-cli status`, the log, the API's `warnings`) when a
+part's data point to a second device: two SHT checksum errors close together,
+or a Climate Module's barometer whose die temperature is more than 6 °C off
+the module's thermometer. The thresholds, and whether an OPT3001 or TMP112
+pair can be told by its data at all, wait for a test with real hardware
+(TODO.md); until then the table above is the rule.
 
 ### Measurement cycle
 

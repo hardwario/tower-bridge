@@ -57,8 +57,32 @@ part of the topic, so topics do not change when a second sensor is plugged in.
 Topics name what is measured, not the hardware: swapping a tag for a Climate
 Module on the same channel keeps them.
 
-Useful subscriptions: `tower/temperature/+` gets every temperature,
-`tower/+/1` everything on channel 1.
+### Several sensors of one quantity on a channel
+
+A channel can carry more than one sensor of the same quantity, for example a
+Humidity Tag next to a Climate Module R2 on channel 0. Every sensor then also
+publishes one level down, on a topic named by its part and I²C address:
+
+| Topic | Payload | Sensor |
+|---|---|---|
+| `tower/humidity/0` | `41.0` | the channel's sensor, as before (here the Climate Module's) |
+| `tower/humidity/0/sht30-45` | `41.0` | Climate Module R2 (SHT30 at 0x45) |
+| `tower/humidity/0/sht20-40` | `48.7` | Humidity Tag (SHT20 at 0x40) |
+| `tower/temperature/0/tmp112-48` | `22.94` | Temperature Tag (TMP112 at 0x48) |
+
+The topics without a sensor stay as they were: one value per quantity and
+channel, from the sensor the channel had before (a Climate Module first,
+then the SHT30, TMP112 and SHT20). The sensor level names the part and
+address, not the module, so it stays the same when the app names the module
+differently (a Climate Module R1 or separate tags, see
+[hardware.md](hardware.md#naming-the-modules)). Sensor ids are the part in
+lower case and the address in hex: `sht30-45`, `sht30-44` (Humidity Tag R4),
+`sht20-40`, `tmp112-48`, `tmp112-49`, `opt3001-44`, `opt3001-45`,
+`mpl3115a2-60`, `lp8-4d` (CO2 Module), `sgpc3-58` (VOC-LP Tag).
+
+Useful subscriptions: `tower/temperature/+` gets every channel's
+temperature, `tower/temperature/0/+` every temperature sensor on channel 0,
+`tower/+/1` everything on channel 1, `tower/#` everything.
 
 Payloads are plain numbers. Temperature is always published in °C regardless of
 the display unit. The prefix may have several levels, e.g. `home/office/tower`.

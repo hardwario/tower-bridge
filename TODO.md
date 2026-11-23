@@ -4,6 +4,15 @@ Work in progress and open items, kept current so anyone (person or agent) can pi
 
 ## In progress
 
+**GitHub issue #2: every sensor its own series; R1 or tags; address collisions** (Freelo task 33962636, asked for on 2026-11-23). Decided with the user: the channel's MQTT topic stays and every sensor also gets `{prefix}/{metric}/{channel}/{sensor}`; sensors are named by part and address (`sht20-40`); a Climate Module R1 needs all four parts, with a setting per channel for four tags. Done on branch `matej/issue-2-sensor-series` with tests on the simulated bus (version 1.2.0, unreleased). Waiting for hardware:
+
+- The test setup of 2026-11-16 (Climate Module R2 with a Humidity Tag and a Temperature Tag on channel 0, tags on channel 1): every sensor with its name, MQTT, REST, export, alerts.
+- A real Climate Module R1 (named R1), two or three tags at the R1 addresses (tags), all four tags (R1, then *Separate tags*).
+- Address collisions: a Climate Module with a Lux Meter Tag (0x44) and with a Barometer Tag (0x60) on one channel. Record what `toolbox --trace probe` and a few cycles read, then tune `SUSPECT_AT` and `BAROMETER_MISMATCH_C` in climate.rs, and look for a sign of an OPT3001 or TMP112 pair (no checksum).
+- A Humidity Tag R4 (SHT30 at 0x44).
+- The migration on a copy of a real database (the counts of `readings` before and after).
+- Not done: the CLI dashboard lists further sensors under their row but draws only the channels' lines in its chart; manual screenshots with several sensors (`npm run manual:screenshots`).
+
 **Fourth review and dependency updates** (asked for on 2026-11-10, done overnight without the user; merged from pull request #1 with CI, Cross and Audit green on all platforms, tagged v1.1.1 on 2026-11-10; the draft release waits for docs/release.md steps 3 to 5: approve the signing jobs, check and publish the draft, submit the Windows exes to AVG and Avast). Dependencies: `cargo update` (Tauri 2.12.5, tokio 1.54, rustls-webpki 0.103.16 for RUSTSEC-2026-0382), rusqlite 0.41 (bundled SQLite 3.54, for RUSTSEC-2026-0459), rust_xlsxwriter 0.102, npm patch and minor updates (marked 18.1.3, vite 8.3.6, vitest 5.1, playwright-core 1.65; versions published in the last two days skipped). Kept back: parking_lot 0.13 (crossterm and Tauri still use 0.12, so it would be in the tree twice), TypeScript 7 (svelte-check 4.7.8 still wants TypeScript 5 or 6), softprops/action-gh-release 3.0.4 (five days old, dependencies only). Seven parallel reviews (hardware, storage and MQTT, API security, service and CLI, Tauri shell, frontend, CI and release) found 39 issues; 33 are fixed, with tests where the code allows (see the CHANGELOG's 1.1.1 entry), one was already documented (the README asks for Safari 16.2 on macOS 11), and the rest are below. The version is 1.1.1 (unreleased). Checked: every command of the checklist in AGENTS.md, a simulated `run` against a local mosquitto (the relay's switch-back reaches the broker at a stop), a simulated app stopped by SIGTERM during a pulse (switched back, log complete), the palette and theme keys in Chrome. A final independent review of the whole diff found two regressions in these fixes (a failed switch-back retried at once instead of every second; an NFC write with a space reported as failed) and two gaps (a hung app ignored `kill`; the response header cap skipped lines without a colon), all fixed and tested.
 
 Waiting for the user:
@@ -18,7 +27,6 @@ Open from the review (not fixed):
 - Linux Open at Login: the auto-launch crate writes `Exec=` without quotes, so an AppImage in a folder with spaces does not start at login.
 - MCP over HTTP: batches are accepted under every protocol version, and an unknown `MCP-Protocol-Version` header is not answered with 400. Left lenient on purpose: a strict answer could break a client that sends its own newer version with `initialize`.
 - Requests without a token may name `*.localhost` in `Host` (not in `Origin`); browsers and macOS resolve such names to loopback themselves, so DNS rebinding cannot use them.
-- A Humidity Tag with an SHT30 at 0x44 (said to be revision R4 in twr-sdk) is not probed; `toolbox i2c-identify` finds it. Check twr-sdk and a real tag.
 - The Data page keeps the previous table while a custom date is incomplete (exports are disabled); a hint would need a text in five languages.
 - Needs real hardware: the HDC2080 check reads register 0xFC at 0x40 before the SHT20 soft reset (as `i2c-identify` already does on real tags); the GPS CFG-PRT resend; a pulse across a sleep. Needs Windows: the termination handler in the GUI app (no console).
 

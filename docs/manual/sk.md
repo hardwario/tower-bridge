@@ -70,7 +70,7 @@ Nástenka ukazuje Relay Module, poslednú hodnotu každej veličiny s grafom, ka
 
 Červený okraj hore na paneli znamená, že hodnota je mimo limitov upozornenia; v grafe je oblasť za limitom podfarbená svetločerveno.
 
-Keď sa rovnaká veličina meria na oboch kanáloch, napríklad teplotu meria Climate Module aj Humidity Tag, panel ukazuje obe hodnoty, pre každý kanál čiaru vo vlastnej farbe a pod grafom pre každý z nich riadok s min, priemerom a max. Farebná bodka na začiatku riadku vyberá farbu jeho čiary a záhlavia stĺpcov zapínajú a vypínajú čiary min, priemeru a max. Kliknutím na názov riadku, napríklad *Humidity Tag*, jeho čiaru v grafe skryjete; riadok zošedne a ďalšie kliknutie čiaru vráti. Jedna čiara zostáva vždy.
+Keď sa rovnaká veličina meria na oboch kanáloch, napríklad teplotu meria Climate Module aj Humidity Tag, panel ukazuje obe hodnoty, pre každý kanál čiaru vo vlastnej farbe a pod grafom pre každý z nich riadok s min, priemerom a max. Farebná bodka na začiatku riadku vyberá farbu jeho čiary a záhlavia stĺpcov zapínajú a vypínajú čiary min, priemeru a max. Kliknutím na názov riadku, napríklad *Humidity Tag*, jeho čiaru v grafe skryjete; riadok zošedne a ďalšie kliknutie čiaru vráti. Jedna čiara zostáva vždy. Rovnako keď jednu veličinu meria niekoľko senzorov na jednom kanáli, napríklad Humidity Tag alebo Temperature Tag vedľa Climate Module: každý má vlastnú čiaru pomenovanú podľa svojho modulu.
 
 ![Panel s dvoma zdrojmi](images/sk/chart.webp)
 
@@ -112,13 +112,13 @@ Ukazuje moduly nájdené na jednotlivých kanáloch I²C (vrátane Relay Module)
 
 ## Dáta {#data}
 
-Ukazuje uložené hodnoty za rovnaké obdobia ako nástenka, 1 hodinu až 365 dní, alebo za vlastné obdobie ako tabuľku, najnovšie hore. Každý riadok je priemer za úsek, ktorý rastie s dĺžkou obdobia; aký je dlhý, hovorí riadok pod tabuľkou. **Exportovať CSV** a **Exportovať XLSX** uložia každú jednotlivú hodnotu zvoleného obdobia; súbory XLSX používajú váš formát dátumu a času. Exporty majú jeden riadok pre každé meranie a kanál I²C. Grafy sú na Nástenke.
+Ukazuje uložené hodnoty za rovnaké obdobia ako nástenka, 1 hodinu až 365 dní, alebo za vlastné obdobie ako tabuľku, najnovšie hore. Každý riadok je priemer za úsek, ktorý rastie s dĺžkou obdobia; aký je dlhý, hovorí riadok pod tabuľkou. **Exportovať CSV** a **Exportovať XLSX** uložia každú jednotlivú hodnotu zvoleného obdobia; súbory XLSX používajú váš formát dátumu a času. Exporty majú jeden riadok pre každé meranie a kanál I²C. Grafy sú na Nástenke. Ďalší senzor na kanáli (Humidity Tag vedľa Climate Module) má vlastné riadky; posledné dva stĺpce uvádzajú senzor a modul.
 
 ![Dáta](images/sk/data.webp)
 
 ## Upozornenia {#alerts}
 
-Pre každú veličinu nastavte dolný limit (**Pod**) a horný limit (**Nad**). Keď hodnota opustí rozsah, dostanete oznámenie. Limity platia na oboch kanáloch; keď sa veličina meria na oboch, oznámenie uvádza modul.
+Pre každú veličinu nastavte dolný limit (**Pod**) a horný limit (**Nad**). Keď hodnota opustí rozsah, dostanete oznámenie. Limity platia na oboch kanáloch; keď sa veličina meria na oboch, oznámenie uvádza modul. Platia aj pre každý ďalší senzor na kanáli a jeho oznámenie uvádza jeho modul.
 
 ![Limity upozornení](images/sk/alerts.webp)
 
@@ -136,7 +136,7 @@ Tlačidlo **Odoslať** pri položke Skúšobné oznámenie overí, že oznámeni
 ## Nastavenia {#settings}
 
 - **Všeobecné:** vzhľad (podľa systému, svetlý, tmavý), jazyk, formát dátumu, formát času, desatinný oddeľovač (bodka alebo čiarka; voľba „Automaticky“ sa riadi jazykom), jednotka teploty, hodnota vedľa ikony v lište ponúk alebo oblasti oznámení a spúšťanie po prihlásení.
-- **Meranie:** tlak na hladine mora pre odhad nadmorskej výšky a kanály I²C, na ktorých sa hľadajú senzory (voľba „Automaticky“ používa oba).
+- **Meranie:** tlak na hladine mora pre odhad nadmorskej výšky a kanály I²C, na ktorých sa hľadajú senzory (voľba „Automaticky“ používa oba). **Climate Module R1, alebo tagy** určuje pre každý kanál, ako sa volajú čipy Climate Module R1: Humidity, Temperature, Lux Meter a Barometer Tag spolu vyzerajú presne ako on. Voľba „Automaticky“ považuje všetky štyri spolu za Climate Module R1.
 - **Dáta:** ako dlho sa hodnoty uchovávajú a kde je priečinok s dátami.
 - **O aplikácii:** verzia a či vyšla novšia ([Aktualizácie](#updates)).
 
@@ -146,7 +146,7 @@ Tlačidlo **Odoslať** pri položke Skúšobné oznámenie overí, že oznámeni
 
 MQTT je predvolene vypnuté. Po zapnutí aplikácia publikuje každú hodnotu do vášho vlastného brokera MQTT, napríklad Mosquitto alebo brokera v Home Assistant; sama broker neprevádzkuje. Zadajte **Adresa brokera** a podľa potreby port, TLS a prihlásenie. Zmeny platia hneď a aplikácia sa k brokeru sama znova pripojí, keď vypadne. Stav pod prepínačom hovorí, či je pripojená.
 
-Každá hodnota sa publikuje ako retained správa pod predponou tém (predvolene `tower`) s kanálom I²C na konci: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` a `tower/altitude/0`. Senzory na kanáli 1 publikujú na `tower/temperature/1` a tak ďalej. TOWER CO2 Module publikuje na `tower/co2/0` (ppm), VOC-LP Tag na `tower/voc/0` (ppb) a TOWER GPS Module na `tower/gps/0/latitude`, `/longitude`, `/altitude` a `/satellites`. Stav relé sa publikuje na `tower/relay/0` (kanál Relay Module) ako `true`, `false`, alebo `null`, kým nie je známy. `tower/status` hovorí `online`, kým aplikácia publikuje, a `offline`, keď prestane.
+Každá hodnota sa publikuje ako retained správa pod predponou tém (predvolene `tower`) s kanálom I²C na konci: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` a `tower/altitude/0`. Senzory na kanáli 1 publikujú na `tower/temperature/1` a tak ďalej. TOWER CO2 Module publikuje na `tower/co2/0` (ppm), VOC-LP Tag na `tower/voc/0` (ppb) a TOWER GPS Module na `tower/gps/0/latitude`, `/longitude`, `/altitude` a `/satellites`. Stav relé sa publikuje na `tower/relay/0` (kanál Relay Module) ako `true`, `false`, alebo `null`, kým nie je známy. `tower/status` hovorí `online`, kým aplikácia publikuje, a `offline`, keď prestane. Každý senzor publikuje aj o úroveň nižšie, pomenovaný podľa čipu a adresy, napríklad `tower/humidity/0/sht20-40` pre Humidity Tag vedľa Climate Module; `tower/humidity/0` ďalej nesie hodnotu Climate Module.
 
 So zapnutým **Povoliť ovládanie relé** prijíma relé `true` alebo `false` na `tower/relay/0/set` a impulz na `tower/relay/0/pulse`.
 
@@ -184,6 +184,7 @@ Beží vždy len jedno z nich, pretože Bridge Module môže používať len jed
 - **Už beží iný TOWER Bridge:** Bridge Module a údaje tejto aplikácie drží `tower-bridge-cli run` alebo jeho nástenka. Ukončite ho a spustite aplikáciu znova.
 - **Chýba oprávnenie (Linux):** nainštalujte [pravidlo udev](#install) a zariadenie znova pripojte.
 - **Senzory sa nenašli:** skontrolujte, že sú moduly a tagy dobre zasunuté, a stlačte **Hľadať znova**. Kanály I²C nechajte na „Automaticky“, alebo nastavte kanál, ku ktorému sú pripojené.
+- **Dve zariadenia na jednej adrese I²C:** Lux Meter Tag alebo Barometer Tag na rovnakom kanáli ako Climate Module používa rovnakú adresu ako senzor modulu a obidva dávajú poškodené hodnoty. Presuňte tag na druhý kanál. Humidity Tag a Temperature Tag môžu zostať vedľa Climate Module R2.
 - **Stav relé je neznámy:** prepnite relé raz pomocou Aktivovať TRUE alebo Aktivovať FALSE.
 - **Oznámenia neprichádzajú:** povoľte oznámenia pre TOWER Bridge v nastaveniach systému a použite **Odoslať** pri položke Skúšobné oznámenie.
 

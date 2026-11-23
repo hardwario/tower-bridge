@@ -47,6 +47,7 @@ const LABELS = [
   "settings.mqtt.allowControl",
   "settings.api.allowControl",
   "banners.noModuleTitle",
+  "banners.collisionTitle",
   "settings.mqtt.host",
   "overview.interval",
   "nfc.write",

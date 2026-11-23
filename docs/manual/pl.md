@@ -70,7 +70,7 @@ Zakres czasu wybierz nad wykresami, od 1 godziny do 365 dni. Wszystkie wykresy n
 
 Czerwona krawędź u góry panelu oznacza, że wartość jest poza limitami alarmu; na wykresie obszar poza limitem ma jasnoczerwone tło.
 
-Gdy ta sama wielkość jest mierzona na obu kanałach, na przykład temperaturę mierzą Climate Module i Humidity Tag, jej panel pokazuje obie wartości, dla każdego kanału linię we własnym kolorze, a pod wykresem dla każdego z nich wiersz z min, średnią i max. Kolorowa kropka na początku wiersza wybiera kolor jego linii, a nagłówki kolumn włączają i wyłączają linie min, średniej i max. Kliknięcie nazwy wiersza, na przykład *Humidity Tag*, ukrywa jego linię na wykresie; wiersz robi się szary, a kolejne kliknięcie przywraca linię. Jedna linia zawsze zostaje.
+Gdy ta sama wielkość jest mierzona na obu kanałach, na przykład temperaturę mierzą Climate Module i Humidity Tag, jej panel pokazuje obie wartości, dla każdego kanału linię we własnym kolorze, a pod wykresem dla każdego z nich wiersz z min, średnią i max. Kolorowa kropka na początku wiersza wybiera kolor jego linii, a nagłówki kolumn włączają i wyłączają linie min, średniej i max. Kliknięcie nazwy wiersza, na przykład *Humidity Tag*, ukrywa jego linię na wykresie; wiersz robi się szary, a kolejne kliknięcie przywraca linię. Jedna linia zawsze zostaje. Tak samo, gdy jedną wielkość mierzy kilka czujników na jednym kanale, na przykład Humidity Tag lub Temperature Tag obok Climate Module: każdy ma własną linię nazwaną od swojego modułu.
 
 ![Panel z dwoma źródłami](images/pl/chart.webp)
 
@@ -112,13 +112,13 @@ Pokazuje moduły wykryte na każdym kanale I²C (w tym Relay Module). **Identyfi
 
 ## Dane {#data}
 
-Pokazuje zapisane odczyty z tych samych okresów co Pulpit, od 1 godziny do 365 dni, lub z własnego zakresu jako tabelę, najnowsze na górze. Każdy wiersz to średnia z odcinka, który rośnie wraz z zakresem; jego długość podaje wiersz pod tabelą. **Eksportuj CSV** i **Eksportuj XLSX** zapisują każdy pojedynczy odczyt z wybranego zakresu; pliki XLSX używają Twojego formatu daty i czasu. Eksporty mają jeden wiersz na każdy pomiar i kanał I²C. Wykresy są na Pulpicie.
+Pokazuje zapisane odczyty z tych samych okresów co Pulpit, od 1 godziny do 365 dni, lub z własnego zakresu jako tabelę, najnowsze na górze. Każdy wiersz to średnia z odcinka, który rośnie wraz z zakresem; jego długość podaje wiersz pod tabelą. **Eksportuj CSV** i **Eksportuj XLSX** zapisują każdy pojedynczy odczyt z wybranego zakresu; pliki XLSX używają Twojego formatu daty i czasu. Eksporty mają jeden wiersz na każdy pomiar i kanał I²C. Wykresy są na Pulpicie. Kolejny czujnik na kanale (Humidity Tag obok Climate Module) ma własne wiersze; dwie ostatnie kolumny podają czujnik i moduł.
 
 ![Dane](images/pl/data.webp)
 
 ## Alarmy {#alerts}
 
-Dla każdej wielkości ustaw dolny limit (**Poniżej**) i górny limit (**Powyżej**). Gdy wartość opuści zakres, otrzymasz powiadomienie. Limity obowiązują na obu kanałach; gdy wielkość jest mierzona na obu, powiadomienie podaje moduł.
+Dla każdej wielkości ustaw dolny limit (**Poniżej**) i górny limit (**Powyżej**). Gdy wartość opuści zakres, otrzymasz powiadomienie. Limity obowiązują na obu kanałach; gdy wielkość jest mierzona na obu, powiadomienie podaje moduł. Obowiązują też dla każdego kolejnego czujnika na kanale, a jego powiadomienie podaje jego moduł.
 
 ![Granice alarmów](images/pl/alerts.webp)
 
@@ -136,7 +136,7 @@ Przycisk **Wyślij** przy pozycji Powiadomienie testowe sprawdza, czy powiadomie
 ## Ustawienia {#settings}
 
 - **Ogólne:** wygląd (systemowy, jasny, ciemny), język, format daty, format czasu, separator dziesiętny (kropka lub przecinek; opcja „Automatycznie” zależy od języka), jednostka temperatury, wartość obok ikony na pasku menu lub w zasobniku oraz uruchamianie przy logowaniu.
-- **Pomiar:** ciśnienie na poziomie morza do szacowania wysokości oraz kanały I²C, na których szukane są czujniki (opcja „Automatycznie” używa obu).
+- **Pomiar:** ciśnienie na poziomie morza do szacowania wysokości oraz kanały I²C, na których szukane są czujniki (opcja „Automatycznie” używa obu). **Climate Module R1 czy tagi** ustala dla każdego kanału, jak nazywają się układy Climate Module R1: Humidity, Temperature, Lux Meter i Barometer Tag razem wyglądają dokładnie tak samo. Opcja „Automatycznie” traktuje wszystkie cztery razem jako Climate Module R1.
 - **Dane:** jak długo przechowywane są odczyty i gdzie jest folder danych.
 - **O aplikacji:** wersja i informacja, czy ukazała się nowsza ([Aktualizacje](#updates)).
 
@@ -146,7 +146,7 @@ Przycisk **Wyślij** przy pozycji Powiadomienie testowe sprawdza, czy powiadomie
 
 MQTT jest domyślnie wyłączone. Po włączeniu aplikacja publikuje każdy odczyt w Twoim własnym brokerze MQTT, na przykład Mosquitto lub brokerze w Home Assistant; sama nie uruchamia brokera. Wpisz **Adres brokera**, a w razie potrzeby port, TLS i logowanie. Zmiany obowiązują od razu, a aplikacja sama łączy się ponownie, gdy broker zniknie. Stan pod przełącznikiem mówi, czy jest połączona.
 
-Każdy odczyt jest publikowany jako wiadomość retained pod prefiksem tematów (domyślnie `tower`) z kanałem I²C na końcu: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` i `tower/altitude/0`. Czujniki na kanale 1 publikują na `tower/temperature/1` i tak dalej. TOWER CO2 Module publikuje na `tower/co2/0` (ppm), VOC-LP Tag na `tower/voc/0` (ppb), a TOWER GPS Module na `tower/gps/0/latitude`, `/longitude`, `/altitude` i `/satellites`. Stan przekaźnika jest publikowany na `tower/relay/0` (kanał Relay Module) jako `true`, `false` lub `null`, dopóki jest nieznany. `tower/status` mówi `online`, dopóki aplikacja publikuje, i `offline`, gdy przestanie.
+Każdy odczyt jest publikowany jako wiadomość retained pod prefiksem tematów (domyślnie `tower`) z kanałem I²C na końcu: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` i `tower/altitude/0`. Czujniki na kanale 1 publikują na `tower/temperature/1` i tak dalej. TOWER CO2 Module publikuje na `tower/co2/0` (ppm), VOC-LP Tag na `tower/voc/0` (ppb), a TOWER GPS Module na `tower/gps/0/latitude`, `/longitude`, `/altitude` i `/satellites`. Stan przekaźnika jest publikowany na `tower/relay/0` (kanał Relay Module) jako `true`, `false` lub `null`, dopóki jest nieznany. `tower/status` mówi `online`, dopóki aplikacja publikuje, i `offline`, gdy przestanie. Każdy czujnik publikuje też poziom niżej, pod nazwą układu i adresu, na przykład `tower/humidity/0/sht20-40` dla Humidity Tag obok Climate Module; `tower/humidity/0` nadal podaje wartość Climate Module.
 
 Po włączeniu **Zezwalaj na sterowanie przekaźnikiem** przekaźnik przyjmuje `true` lub `false` na `tower/relay/0/set` i impuls na `tower/relay/0/pulse`.
 
@@ -184,6 +184,7 @@ Działa zawsze tylko jedno z nich, bo z Bridge Module może korzystać tylko jed
 - **Działa już inny TOWER Bridge:** Bridge Module i dane tej aplikacji zajmuje `tower-bridge-cli run` albo jego pulpit. Zakończ go i uruchom aplikację ponownie.
 - **Brak uprawnień (Linux):** zainstaluj [regułę udev](#install) i podłącz urządzenie ponownie.
 - **Nie znaleziono czujników:** sprawdź, czy moduły i tagi są dobrze osadzone, i naciśnij **Wyszukaj ponownie**. Pozostaw kanały I²C na „Automatycznie” lub ustaw kanał, do którego są podłączone.
+- **Dwa urządzenia pod jednym adresem I²C:** Lux Meter Tag lub Barometer Tag na tym samym kanale co Climate Module używa tego samego adresu co czujnik modułu i oba podają zniekształcone wartości. Przełóż tag na drugi kanał. Humidity Tag i Temperature Tag mogą zostać obok Climate Module R2.
 - **Stan przekaźnika nieznany:** przełącz przekaźnik raz przyciskiem Aktywuj TRUE lub Aktywuj FALSE.
 - **Brak powiadomień:** zezwól na powiadomienia dla TOWER Bridge w ustawieniach systemu i użyj **Wyślij** przy pozycji Powiadomienie testowe.
 

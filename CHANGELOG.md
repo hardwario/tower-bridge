@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.2.0 (unreleased)
+
+Every sensor gets its own series (GitHub issue #2).
+
+- Every sensor found is measured. A Humidity Tag or a Temperature Tag next to
+  a Climate Module R2 on one channel was found but left out, since the app
+  took one value per quantity and channel; now each further sensor has its
+  own line on the Dashboard, its own columns on the Data page, its own
+  history, alerts, MQTT topics, Prometheus series, REST and MCP readings, and
+  rows in the CSV and XLSX exports. The channel's values stay where they
+  were: its history, MQTT topics, Prometheus series and alerts go on
+  unchanged, and the database keeps every reading.
+- MQTT: every sensor also publishes one level down, named by its part and
+  I²C address, e.g. `tower/humidity/0/sht20-40` (`tower/humidity/0/+` follows
+  every humidity sensor on channel 0).
+- A Humidity Tag, Temperature Tag, Lux Meter Tag and Barometer Tag are no
+  longer reported as a Climate Module R1: that name needs all four of the
+  module's chips. Since four tags together look exactly like one, *Settings,
+  Measurement, Climate Module R1 or tags* decides per channel.
+- A Humidity Tag R4 (SHT30 at 0x44) is found; a second Lux Meter Tag (0x45)
+  or Temperature Tag (0x49) next to one at the default address is measured
+  too.
+- A part whose data suggest a second device at its address (a Lux Meter Tag
+  or Barometer Tag on the same channel as a Climate Module) is reported on
+  the Dashboard, in `tower-bridge-cli status`, in the log and in the API,
+  with the advice to move the tag to the other channel.
+- CSV and XLSX exports have two more columns at the end, `sensor` and
+  `source` (the modules that measured the row).
+- `tower-bridge-cli status` and `watch` list the further sensors; the
+  simulated bridge (`--simulate`) has a Humidity Tag and a Temperature Tag
+  next to its Climate Module.
+
 ## 1.1.1 (2026-11-10)
 
 - Alerts: a value that leaves its range again within **Repeat after** of the

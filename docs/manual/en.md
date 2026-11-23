@@ -70,7 +70,7 @@ Choose the time span above the charts, from 1 hour to 365 days. All charts on a 
 
 A red edge at the top of a panel means the value is outside its alert limits; in the chart, the area beyond the limit is shaded light red.
 
-When the same quantity is measured on both channels, for example temperature by the Climate Module and by the Humidity Tag, its panel shows both values, a line for each channel in its own color, and a row with min, avg and max for each below the chart. The colored dot at the start of a row picks that line's color, and the column heads switch the min, avg and max lines on or off. Click a row's name, for example *Humidity Tag*, to hide its line from the chart; the row turns gray, and another click brings the line back. One line always stays.
+When the same quantity is measured on both channels, for example temperature by the Climate Module and by the Humidity Tag, its panel shows both values, a line for each channel in its own color, and a row with min, avg and max for each below the chart. The colored dot at the start of a row picks that line's color, and the column heads switch the min, avg and max lines on or off. Click a row's name, for example *Humidity Tag*, to hide its line from the chart; the row turns gray, and another click brings the line back. One line always stays. The same goes for several sensors of one quantity on one channel, for example a Humidity Tag or a Temperature Tag next to the Climate Module: each has its own line, named after its module.
 
 ![A panel with two sources](images/en/chart.webp)
 
@@ -112,13 +112,13 @@ Shows the modules found on each I²C channel (the Relay Module included). **Iden
 
 ## Data {#data}
 
-Shows the stored readings for the same time spans as the Dashboard, 1 hour up to 365 days, or for a custom range, as a table with the newest first. Each row averages a stretch of time that grows with the range; the line under the table says how long. **Export CSV** and **Export XLSX** save every individual reading of the selected range; XLSX files use your date and time format. Exports have one row per measurement and I²C channel. The charts are on the Dashboard.
+Shows the stored readings for the same time spans as the Dashboard, 1 hour up to 365 days, or for a custom range, as a table with the newest first. Each row averages a stretch of time that grows with the range; the line under the table says how long. **Export CSV** and **Export XLSX** save every individual reading of the selected range; XLSX files use your date and time format. Exports have one row per measurement and I²C channel. The charts are on the Dashboard. A further sensor on a channel (a Humidity Tag next to the Climate Module) has rows of its own; the last two columns name the sensor and the module.
 
 ![Data](images/en/data.webp)
 
 ## Alerts {#alerts}
 
-Set a lower limit (**Below**) and an upper limit (**Above**) for each measurement. When a value leaves its range, you get a notification. Limits apply on both channels; when a quantity is measured on both, the notification names the module.
+Set a lower limit (**Below**) and an upper limit (**Above**) for each measurement. When a value leaves its range, you get a notification. Limits apply on both channels; when a quantity is measured on both, the notification names the module. They also apply to each further sensor on a channel, and its notification names its module.
 
 ![Alert limits](images/en/alerts.webp)
 
@@ -136,7 +136,7 @@ In the diagram the value rises above the limit: the alert starts and you get a n
 ## Settings {#settings}
 
 - **General:** appearance (system, light, dark), language, date format, time format, decimal separator (a point or a comma; Automatic follows the language), temperature unit, the value shown next to the menu bar or tray icon, and open at login.
-- **Measurement:** the sea-level pressure for the altitude estimate, and the I²C channels to look for sensors on (Automatic uses both).
+- **Measurement:** the sea-level pressure for the altitude estimate, and the I²C channels to look for sensors on (Automatic uses both). **Climate Module R1 or tags** decides per channel how the chips of a Climate Module R1 are named: a Humidity, Temperature, Lux Meter and Barometer Tag together look exactly like one. Automatic takes all four together for a Climate Module R1.
 - **Data:** how long readings are kept and where the data folder is.
 - **About:** the version, and whether a newer one is out ([Updates](#updates)).
 
@@ -146,7 +146,7 @@ In the diagram the value rises above the limit: the alert starts and you get a n
 
 MQTT is off by default. Switched on, the app publishes every reading to your own MQTT broker, for example Mosquitto or the one in Home Assistant; it does not run a broker itself. Enter the **Broker address**, and the port, TLS and login if the broker needs them. Changes apply at once, and the app reconnects by itself when the broker goes away. The status under the switch says whether it is connected.
 
-Every reading is published as a retained message under the topic prefix (`tower` by default), with the I²C channel at the end: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` and `tower/altitude/0`. Sensors on channel 1 publish on `tower/temperature/1` and so on. A TOWER CO2 Module publishes on `tower/co2/0` (ppm), a VOC-LP Tag on `tower/voc/0` (ppb), and a TOWER GPS Module on `tower/gps/0/latitude`, `/longitude`, `/altitude` and `/satellites`. The relay state is published on `tower/relay/0` (the channel of the Relay Module) as `true`, `false` or `null` while it is unknown. `tower/status` says `online` while the app publishes and `offline` when it stops.
+Every reading is published as a retained message under the topic prefix (`tower` by default), with the I²C channel at the end: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` and `tower/altitude/0`. Sensors on channel 1 publish on `tower/temperature/1` and so on. A TOWER CO2 Module publishes on `tower/co2/0` (ppm), a VOC-LP Tag on `tower/voc/0` (ppb), and a TOWER GPS Module on `tower/gps/0/latitude`, `/longitude`, `/altitude` and `/satellites`. The relay state is published on `tower/relay/0` (the channel of the Relay Module) as `true`, `false` or `null` while it is unknown. `tower/status` says `online` while the app publishes and `offline` when it stops. Each sensor also publishes one level down, named by its chip and address, for example `tower/humidity/0/sht20-40` for a Humidity Tag next to the Climate Module; `tower/humidity/0` keeps the Climate Module's value.
 
 With **Allow relay control** switched on, the relay accepts `true` or `false` on `tower/relay/0/set` and a pulse on `tower/relay/0/pulse`.
 
@@ -184,6 +184,7 @@ Only one of them runs at a time, because only one program can use the bridge. Wh
 - **Another TOWER Bridge is already running:** `tower-bridge-cli run` or its dashboard holds the bridge and this app's data. Stop it, then start the app again.
 - **No permission (Linux):** install the [udev rule](#install) and reconnect the bridge.
 - **No sensors found:** check that the modules and tags are seated properly and press **Rescan**. Leave the I²C channels on Automatic, or set the channel they are connected to.
+- **Two devices at one I²C address:** a Lux Meter Tag or Barometer Tag on the same channel as a Climate Module uses the same address as the module's sensor, and both give garbled values. Move the tag to the other channel. A Humidity Tag and a Temperature Tag can stay next to a Climate Module R2.
 - **Relay state unknown:** switch the relay once with Activate TRUE or Activate FALSE.
 - **No notifications:** allow notifications for TOWER Bridge in the system settings and use **Send test**.
 

@@ -70,7 +70,7 @@ Wählen Sie den Zeitraum über den Diagrammen, von 1 Stunde bis 365 Tage. Alle D
 
 Ein roter Rand oben an einem Panel bedeutet, dass der Wert außerhalb seiner Alarmgrenzen liegt; im Diagramm ist der Bereich jenseits der Grenze hellrot hinterlegt.
 
-Wird dieselbe Messgröße auf beiden Kanälen gemessen, etwa die Temperatur vom Climate Module und vom Humidity Tag, zeigt ihr Panel beide Werte, für jeden Kanal eine Linie in eigener Farbe und unter dem Diagramm je eine Zeile mit Min, Mittel und Max. Der farbige Punkt am Anfang einer Zeile wählt die Farbe ihrer Linie; die Spaltenköpfe blenden die Min-, Mittel- und Max-Linien ein oder aus. Ein Klick auf den Namen einer Zeile, etwa *Humidity Tag*, blendet ihre Linie im Diagramm aus; die Zeile wird grau, und ein weiterer Klick holt die Linie zurück. Eine Linie bleibt immer.
+Wird dieselbe Messgröße auf beiden Kanälen gemessen, etwa die Temperatur vom Climate Module und vom Humidity Tag, zeigt ihr Panel beide Werte, für jeden Kanal eine Linie in eigener Farbe und unter dem Diagramm je eine Zeile mit Min, Mittel und Max. Der farbige Punkt am Anfang einer Zeile wählt die Farbe ihrer Linie; die Spaltenköpfe blenden die Min-, Mittel- und Max-Linien ein oder aus. Ein Klick auf den Namen einer Zeile, etwa *Humidity Tag*, blendet ihre Linie im Diagramm aus; die Zeile wird grau, und ein weiterer Klick holt die Linie zurück. Eine Linie bleibt immer. Das gilt auch für mehrere Sensoren einer Größe auf einem Kanal, zum Beispiel einen Humidity Tag oder Temperature Tag neben dem Climate Module: Jeder hat eine eigene Linie, benannt nach seinem Modul.
 
 ![Ein Panel mit zwei Quellen](images/de/chart.webp)
 
@@ -112,13 +112,13 @@ Zeigt die auf jedem I²C-Kanal erkannten Module (auch das Relay Module). **Ident
 
 ## Daten {#data}
 
-Zeigt die gespeicherten Messwerte für dieselben Zeitspannen wie das Dashboard, 1 Stunde bis 365 Tage, oder für einen eigenen Zeitraum als Tabelle, die neuesten oben. Jede Zeile mittelt einen Abschnitt, der mit dem Zeitraum wächst; wie lang er ist, steht unter der Tabelle. **CSV exportieren** und **XLSX exportieren** speichern jeden einzelnen Messwert des gewählten Zeitraums; XLSX-Dateien verwenden Ihr Datums- und Zeitformat. Exporte enthalten eine Zeile pro Messung und I²C-Kanal. Die Diagramme sind im Dashboard.
+Zeigt die gespeicherten Messwerte für dieselben Zeitspannen wie das Dashboard, 1 Stunde bis 365 Tage, oder für einen eigenen Zeitraum als Tabelle, die neuesten oben. Jede Zeile mittelt einen Abschnitt, der mit dem Zeitraum wächst; wie lang er ist, steht unter der Tabelle. **CSV exportieren** und **XLSX exportieren** speichern jeden einzelnen Messwert des gewählten Zeitraums; XLSX-Dateien verwenden Ihr Datums- und Zeitformat. Exporte enthalten eine Zeile pro Messung und I²C-Kanal. Die Diagramme sind im Dashboard. Ein weiterer Sensor auf einem Kanal (ein Humidity Tag neben dem Climate Module) hat eigene Zeilen; die letzten beiden Spalten nennen den Sensor und das Modul.
 
 ![Daten](images/de/data.webp)
 
 ## Alarme {#alerts}
 
-Legen Sie für jede Messgröße eine untere Grenze (**Unter**) und eine obere Grenze (**Über**) fest. Verlässt ein Wert seinen Bereich, erhalten Sie eine Benachrichtigung. Die Grenzen gelten auf beiden Kanälen; wird eine Messgröße auf beiden gemessen, nennt die Benachrichtigung das Modul.
+Legen Sie für jede Messgröße eine untere Grenze (**Unter**) und eine obere Grenze (**Über**) fest. Verlässt ein Wert seinen Bereich, erhalten Sie eine Benachrichtigung. Die Grenzen gelten auf beiden Kanälen; wird eine Messgröße auf beiden gemessen, nennt die Benachrichtigung das Modul. Sie gelten auch für jeden weiteren Sensor auf einem Kanal, und seine Benachrichtigung nennt sein Modul.
 
 ![Alarmgrenzen](images/de/alerts.webp)
 
@@ -136,7 +136,7 @@ Im Diagramm steigt der Wert über die Grenze: Der Alarm beginnt und Sie erhalten
 ## Einstellungen {#settings}
 
 - **Allgemein:** Erscheinungsbild (System, hell, dunkel), Sprache, Datumsformat, Zeitformat, Dezimaltrennzeichen (Punkt oder Komma; „Automatisch“ richtet sich nach der Sprache), Temperatureinheit, der Wert neben dem Symbol in der Menüleiste oder im Infobereich und das Öffnen bei Anmeldung.
-- **Messung:** der Luftdruck auf Meereshöhe für die Höhenschätzung und die I²C-Kanäle, auf denen nach Sensoren gesucht wird („Automatisch“ nutzt beide).
+- **Messung:** der Luftdruck auf Meereshöhe für die Höhenschätzung und die I²C-Kanäle, auf denen nach Sensoren gesucht wird („Automatisch“ nutzt beide). **Climate Module R1 oder Tags** legt je Kanal fest, wie die Chips eines Climate Module R1 heißen: Humidity, Temperature, Lux Meter und Barometer Tag zusammen sehen genauso aus. „Automatisch“ hält alle vier zusammen für ein Climate Module R1.
 - **Daten:** wie lange Messwerte aufbewahrt werden und wo der Datenordner liegt.
 - **Info:** die Version und ob eine neuere erschienen ist ([Updates](#updates)).
 
@@ -146,7 +146,7 @@ Im Diagramm steigt der Wert über die Grenze: Der Alarm beginnt und Sie erhalten
 
 MQTT ist standardmäßig aus. Eingeschaltet veröffentlicht die App jeden Messwert auf Ihrem eigenen MQTT-Broker, zum Beispiel Mosquitto oder dem Broker in Home Assistant; einen eigenen Broker betreibt sie nicht. Geben Sie die **Broker-Adresse** ein und bei Bedarf Port, TLS und Anmeldung. Änderungen gelten sofort, und die App verbindet sich von selbst neu, wenn der Broker weg war. Der Status unter dem Schalter zeigt, ob sie verbunden ist.
 
-Jeder Messwert wird als Retained-Nachricht unter dem Topic-Präfix (standardmäßig `tower`) mit dem I²C-Kanal am Ende veröffentlicht: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` und `tower/altitude/0`. Sensoren an Kanal 1 veröffentlichen auf `tower/temperature/1` und so weiter. Ein TOWER CO2 Module veröffentlicht auf `tower/co2/0` (ppm), ein VOC-LP Tag auf `tower/voc/0` (ppb) und ein TOWER GPS Module auf `tower/gps/0/latitude`, `/longitude`, `/altitude` und `/satellites`. Der Relaiszustand wird auf `tower/relay/0` (dem Kanal des Relay Module) als `true`, `false` oder, solange er unbekannt ist, `null` veröffentlicht. `tower/status` meldet `online`, solange die App veröffentlicht, und `offline`, wenn sie aufhört.
+Jeder Messwert wird als Retained-Nachricht unter dem Topic-Präfix (standardmäßig `tower`) mit dem I²C-Kanal am Ende veröffentlicht: `tower/temperature/0`, `tower/humidity/0`, `tower/illuminance/0`, `tower/pressure/0` und `tower/altitude/0`. Sensoren an Kanal 1 veröffentlichen auf `tower/temperature/1` und so weiter. Ein TOWER CO2 Module veröffentlicht auf `tower/co2/0` (ppm), ein VOC-LP Tag auf `tower/voc/0` (ppb) und ein TOWER GPS Module auf `tower/gps/0/latitude`, `/longitude`, `/altitude` und `/satellites`. Der Relaiszustand wird auf `tower/relay/0` (dem Kanal des Relay Module) als `true`, `false` oder, solange er unbekannt ist, `null` veröffentlicht. `tower/status` meldet `online`, solange die App veröffentlicht, und `offline`, wenn sie aufhört. Jeder Sensor veröffentlicht außerdem eine Ebene tiefer, benannt nach Chip und Adresse, zum Beispiel `tower/humidity/0/sht20-40` für einen Humidity Tag neben dem Climate Module; `tower/humidity/0` behält den Wert des Climate Module.
 
 Mit eingeschaltetem **Relaissteuerung erlauben** nimmt das Relais `true` oder `false` auf `tower/relay/0/set` und einen Impuls auf `tower/relay/0/pulse` an.
 
@@ -184,6 +184,7 @@ Es läuft immer nur eines davon, denn nur ein Programm kann die Bridge benutzen.
 - **Es läuft bereits eine andere Instanz von TOWER Bridge:** `tower-bridge-cli run` oder sein Dashboard hält die Bridge und die Daten dieser App. Beenden Sie es und starten Sie die App erneut.
 - **Keine Berechtigung (Linux):** Installieren Sie die [udev-Regel](#install) und schließen Sie das Gerät neu an.
 - **Keine Sensoren gefunden:** Prüfen Sie, ob Module und Tags richtig sitzen, und drücken Sie **Neu suchen**. Lassen Sie die I²C-Kanäle auf „Automatisch“ oder stellen Sie den Kanal ein, an dem sie angeschlossen sind.
+- **Zwei Geräte an einer I²C-Adresse:** Ein Lux Meter Tag oder Barometer Tag auf demselben Kanal wie ein Climate Module nutzt dieselbe Adresse wie der Sensor des Moduls, und beide liefern verfälschte Werte. Stecken Sie den Tag auf den anderen Kanal um. Ein Humidity Tag und ein Temperature Tag können neben einem Climate Module R2 bleiben.
 - **Relaiszustand unbekannt:** Schalten Sie das Relais einmal mit TRUE aktivieren oder FALSE aktivieren.
 - **Keine Benachrichtigungen:** Erlauben Sie Benachrichtigungen für TOWER Bridge in den Systemeinstellungen und verwenden Sie **Senden** bei Testbenachrichtigung.
 

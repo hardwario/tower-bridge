@@ -5696,7 +5696,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "block2",
@@ -5734,7 +5734,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge-cli"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -5758,7 +5758,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge-core"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "axum",
  "chrono",
@@ -5781,7 +5781,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge-service"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "chrono",
  "crossbeam-channel",

@@ -53,12 +53,22 @@ Sensors can sit on I²C channel 0 and 1 of the Bridge Module, for example a
 Climate Module on channel 0 and sensor tags on channel 1. Readings, sensors and
 alerts carry their `channel`.
 
+A channel can also carry several sensors of one quantity, for example a
+Humidity Tag next to a Climate Module. The channel's reading keeps one value
+per quantity, from the channel's primary sensor; every further sensor has
+readings, history series and alerts of its own, with `sensor` set to its part
+and I²C address (`sht20-40`). In the device state each source says whether it
+is the channel's (`"primary": true`) and gives its `id`. A suspected second
+device at one address (a Lux Meter Tag next to a Climate Module, both at
+0x44) is listed in the device state's `warnings`
+(`{"channel": 0, "address": 68, "sensor": "OPT3001", "module": "climate_module_r2", "kind": "address_collision"}`).
+
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/v1/status` | App version, device state (with the channel, module, sensor and I²C address behind each value), the relay, the NFC Tag (`nfc`), the MQTT connection (`mqtt`: `{"status": "connected", "address": "broker:1883"}`, or `disabled`, `connecting` with the last `error`, `error` with a `message`), `sample_interval_ms`, last reading time, active alerts, whether `mcp` and `allow_control` are on |
-| GET | `/api/v1/readings/latest` | Latest reading of each channel (`stale: true` while the bridge is disconnected); 404 `no_data` before the first measurement |
+| GET | `/api/v1/readings/latest` | Latest reading of each channel, each followed by those of its further sensors (with `sensor`); `stale: true` while the bridge is disconnected; 404 `no_data` before the first measurement |
 | GET | `/api/v1/readings?hours=24&max_points=500` | Averaged history (`from`, `to` also accepted), columnar like the dashboard charts |
-| GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV, one row per measurement and channel, as the app exports them: the temperature in the unit of the settings (`temperature_c` or `temperature_f`), pressure in hPa; the headers name the units |
+| GET | `/api/v1/readings.csv?from=…&to=…` | Individual readings as CSV, one row per measurement and channel and one per further sensor, as the app exports them: the temperature in the unit of the settings (`temperature_c` or `temperature_f`), pressure in hPa; the headers name the units; the last two columns are `sensor` (empty for a channel's row) and `source` (the modules that measured the row) |
 | GET | `/api/v1/alerts` | Alert rules and active alerts |
 | GET | `/api/v1/alerts/log?limit=50` | Recent alert events |
 | GET | `/api/v1/alerts/{metric}` | One rule (`temperature`, `humidity`, `illuminance`, `pressure`, `co2`, `voc`) |
@@ -85,6 +95,8 @@ The latest readings:
   "readings": [
     { "ts": 1792245600000, "time": "…", "device": "ft260", "channel": 0,
       "temperature": 22.81, "humidity": 41.2, "illuminance": 318.5, "pressure": 100421.0, "altitude": 75.6 },
+    { "ts": 1792245600000, "time": "…", "device": "ft260", "channel": 0, "sensor": "sht20-40",
+      "temperature": 24.2, "humidity": 36.7, "illuminance": null, "pressure": null, "altitude": null },
     { "ts": 1792245600000, "time": "…", "device": "ft260", "channel": 1,
       "temperature": 12.44, "humidity": 70.3, "illuminance": 9120.0, "pressure": 100433.0, "altitude": 74.6 }
   ]
@@ -93,10 +105,11 @@ The latest readings:
 
 `device` is always `ft260`: the bridge has no serial number to tell two apart.
 
-The history has a series per channel: `channels` lists them (e.g. `[0, 1]`),
-and each metric holds one `{"avg": [...], "min": [...], "max": [...]}` per
-entry of `channels`, aligned with `t` (seconds). A channel without a value in
-a bucket has `null` there. Readings carry `co2` and `voc` too; they are `null`
+The history has a series per channel and further sensor: `channels` and
+`sensors` list them side by side (e.g. `[0, 0, 1]` and
+`[null, "sht20-40", null]`; `null` is a channel's own series), and each metric
+holds one `{"avg": [...], "min": [...], "max": [...]}` per entry, aligned with
+`t` (seconds). A series without a value in a bucket has `null` there. Readings carry `co2` and `voc` too; they are `null`
 without a TOWER CO2 Module or VOC-LP Tag on that channel.
 
 ```sh
@@ -114,8 +127,11 @@ and cannot be read back. `/metrics` exports a known state as
 `tower_bridge_relay_state{channel="0"} 1` (`true`) or `0` (`false`).
 
 Every reading in `/metrics` carries a `channel` label, for example
-`tower_bridge_temperature_celsius{device="ft260",channel="1"} 12.44`;
-alert gauges are labelled with the metric, channel and bound. CO₂ and VOC are
+`tower_bridge_temperature_celsius{device="ft260",channel="1"} 12.44`; a
+further sensor's also `sensor` and `module`, for example
+`tower_bridge_relative_humidity_percent{device="ft260",channel="0",sensor="sht20-40",module="Humidity Tag"} 36.7`
+(the channel's own series keep their labels as they were). Alert gauges are
+labelled with the metric, channel (and further sensor) and bound. CO₂ and VOC are
 `tower_bridge_co2_ppm` and `tower_bridge_voc_ppb`.
 
 Prometheus scrape config:
@@ -133,10 +149,10 @@ The tools use friendly units (°C, %, lx, **hPa**, ppm, ppb):
 
 | Tool | Description |
 |---|---|
-| `get_current_readings` | Latest values of each channel with the module that measured them, measurement time, active alerts |
-| `get_history` | Averaged points and min/avg/max per channel for `hours` back or a `from`/`to` range |
+| `get_current_readings` | Latest values of each channel and further sensor (`sensor`) with the module that measured them (`source`), measurement time, active alerts |
+| `get_history` | Averaged points and min/avg/max per channel and further sensor for `hours` back or a `from`/`to` range |
 | `get_alerts` | Alert limits, active alerts, recent events (with the channel) |
-| `get_device_status` | Bridge status, the modules and sensors on each channel with their I²C addresses, interval, relay state, GPS position, the URL on the NFC Tag |
+| `get_device_status` | Bridge status, the modules and sensors on each channel with their I²C addresses (`sensor_id`, `primary`), suspected address collisions (`warnings`), interval, relay state, GPS position, the URL on the NFC Tag |
 | `set_alert_threshold` | Change one metric's limits *(only with "Allow changes")* |
 | `identify_device` | Blink the bridge LED *(only with "Allow changes")* |
 | `set_relay` | Switch the Relay Module: `state` `true` or `false` *(only with "Allow changes")* |
