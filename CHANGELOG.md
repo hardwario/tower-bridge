@@ -31,6 +31,7 @@ Every sensor gets its own series (GitHub issue #2).
 - `tower-bridge-cli status` and `watch` list the further sensors; the
   simulated bridge (`--simulate`) has a Humidity Tag and a Temperature Tag
   next to its Climate Module.
+- Dependencies: url 2.5.9 (RUSTSEC-2026-0592).
 
 ## 1.1.1 (2026-11-10)
 

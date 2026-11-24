@@ -10,4 +10,9 @@ ignore = [
   "RUSTSEC-2026-0099",
   "RUSTSEC-2026-0104",
   "RUSTSEC-2026-0382",
+  # cookie 0.18.2 (through Tauri): only `PrivateJar::add` is affected, behind
+  # the `private` feature, which this build does not turn on. Fixed in 0.18.3,
+  # published on 2026-11-23: update and drop this from 2026-11-25, once the
+  # version is two days old.
+  "RUSTSEC-2026-0594",
 ]
