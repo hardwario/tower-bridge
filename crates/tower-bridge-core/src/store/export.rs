@@ -45,7 +45,7 @@ pub fn write_csv<W: Write>(
         out,
         "timestamp,unix_ms,device,channel,{temp_col},humidity_pct,illuminance_lx,pressure_hpa,altitude_m,co2_ppm,voc_ppb,sensor,source"
     )?;
-    let names = super::SourceNames::load(conn)?;
+    let names = super::SourceNames::load(conn, from, to)?;
     let mut stmt = conn.prepare(super::EXPORT_ROWS)?;
     let mut rows = stmt.query(params![from, to])?;
     let mut n = 0u64;

@@ -185,21 +185,41 @@ banner, Bridge Module card, `tower-bridge-cli status`, the log, the API's
 - OPT3001, MPL3115A2 and TMP112 (no checksum): the three lowest bits of the
   raw reading are all zero too often. A lone sensor's lowest bits are noise,
   all three zero in one reading of eight; two sensors read ANDed have each
-  bit zero three times in four, all three in 42 % of the readings. Of the
-  last 90 changed readings (with at least 16 different values), 22 or more
-  make the part suspect. On the hardware: at most 17 alone, at least 29 with
-  two barometers. This takes 90 changed readings, half an hour at the
-  default 20 s interval; at 2 s the Climate Module R2 with a Barometer Tag
-  was reported after 3.6 minutes, with a Lux Meter Tag after 4, and the
-  same parts on separate channels stayed quiet for 11 minutes. A steady
-  temperature changes too rarely to be judged, so a TMP112 pair may go
-  unnoticed (not tested: no Climate Module R1 at hand).
+  bit zero three times in four, all three in 42 % of the readings. Every
+  changed reading with the three bits zero adds 3 to a score, any other
+  takes 1 away, so the score falls below one zero in four and climbs above.
+  From 72 the part is suspect, and it stays so until the score is back at
+  48. A reading adds to the score only while the last 32 changed readings
+  hold at least 12 different values: a steady reading that flips between
+  two values would otherwise count one of them over and over.
+
+  Measured on 2026-11-23 at a 2 s interval, 71 minutes each: 12 to 14.5 % of
+  zeros alone (two barometers, two light sensors, a TMP112), 40 to 42 %
+  with two barometers or two light sensors at one address. A pair is
+  reported after about 150 changed readings: five to six minutes at 2 s,
+  about an hour at the default 20 s. A steady temperature changes too
+  rarely to be judged, so a TMP112 pair may go unnoticed (not tested: no
+  Climate Module R1 at hand).
+
+  The first version of this check counted the zeros among the last 90
+  changed readings and took 22 or more for a pair. It reported the pairs
+  after four minutes, but a lone sensor reaches 22 by chance in one window
+  of 700, and a window was judged at every reading: the correct set-up
+  warned five times in 70 minutes. On the same readings the score of a lone
+  part never passed 23 of the 72; this version has not run on the hardware
+  yet (TODO.md).
 - A Climate Module's barometer whose die temperature is more than 6 °C off
   the module's thermometer (a Barometer Tag warmed in the hand).
 
-Two suspicious cycles close together raise the warning; it ends a few
-cycles after the data look clean again. The table above stays the rule: the
-detection is a safety net, not a way to use two parts at one address.
+Two suspicious cycles close together raise a warning from checksums or the
+die temperature, and it stays until as many clean cycles made up for them
+(at most 12). A part given up for its garbled checksums stays reported for
+five minutes, in which the probe finds it again. A warning from the lowest
+bits ends about 65 changed readings after the second device is gone (two
+minutes at 2 s, about 20 at the default 20 s); **Rescan**, or unplugging the
+bridge to move the tag, ends every warning at once. The table above stays
+the rule: the detection is a safety net, not a way to use two parts at one
+address.
 
 ### Measurement cycle
 

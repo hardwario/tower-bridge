@@ -137,7 +137,7 @@ pub fn export_xlsx_to_file(
     };
 
     let mut workbook = Workbook::new();
-    let names = super::SourceNames::load(conn)?;
+    let names = super::SourceNames::load(conn, from, to)?;
     let mut stmt = conn.prepare(super::EXPORT_ROWS)?;
     let mut rows = stmt.query(params![from, to])?;
 

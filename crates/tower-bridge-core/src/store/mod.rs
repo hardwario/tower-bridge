@@ -201,10 +201,21 @@ impl Store {
     /// Record which module carries which sensor from `ts` on, when it
     /// changed since the last record (see [`sources_at`]).
     pub fn log_sources(&mut self, ts: i64, sources: &[SensorSource]) -> Result<()> {
-        let last = source_log(&self.conn)?.pop();
+        // Only the last record is read: this runs on every change of the
+        // device state, and a part that comes and goes adds two records a
+        // minute.
+        let last = source_records(
+            &self.conn,
+            "WHERE ts = (SELECT MAX(ts) FROM source_log)",
+            [],
+        )?
+        .pop();
         if last.as_ref().is_some_and(|(_, s)| s == &logged(sources)) {
             return Ok(());
         }
+        // A record is told from the next by its time, and the newest is the
+        // one in force: stay after it, also when the clock was set back.
+        let ts = last.map_or(ts, |(t, _)| ts.max(t + 1));
         let tx = self.conn.transaction()?;
         if sources.is_empty() {
             // Nothing measured from here on.
@@ -311,10 +322,34 @@ fn logged(sources: &[SensorSource]) -> Vec<LoggedSource> {
 /// Every record of the sources, oldest first: from its time on, these
 /// sources were measured (none after an empty record).
 pub fn source_log(conn: &Connection) -> Result<Vec<(i64, Vec<LoggedSource>)>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT ts, channel, metric, sensor, module, is_primary FROM source_log ORDER BY ts, rowid",
-    )?;
-    let rows = stmt.query_map([], |r| {
+    source_records(conn, "", [])
+}
+
+/// The records that name the sources of the rows in `[from, to)`: the one in
+/// force at `from` and those after it.
+fn source_log_between(
+    conn: &Connection,
+    from: i64,
+    to: i64,
+) -> Result<Vec<(i64, Vec<LoggedSource>)>> {
+    source_records(
+        conn,
+        "WHERE ts >= COALESCE((SELECT MAX(ts) FROM source_log WHERE ts <= ?1), ?1) AND ts < ?2",
+        params![from, to],
+    )
+}
+
+/// The records of the source log that `filter` (a `WHERE` clause, or
+/// nothing) selects, oldest first.
+fn source_records(
+    conn: &Connection,
+    filter: &str,
+    params: impl rusqlite::Params,
+) -> Result<Vec<(i64, Vec<LoggedSource>)>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT ts, channel, metric, sensor, module, is_primary FROM source_log {filter} ORDER BY ts, rowid"
+    ))?;
+    let rows = stmt.query_map(params, |r| {
         Ok((
             r.get::<_, i64>(0)?,
             r.get::<_, u8>(1)?,
@@ -359,9 +394,10 @@ pub(crate) struct SourceNames {
 }
 
 impl SourceNames {
-    pub(crate) fn load(conn: &Connection) -> Result<Self> {
+    /// For the rows of `[from, to)`.
+    pub(crate) fn load(conn: &Connection, from: i64, to: i64) -> Result<Self> {
         Ok(Self {
-            log: source_log(conn)?,
+            log: source_log_between(conn, from, to)?,
         })
     }
 
@@ -609,6 +645,79 @@ mod tests {
         assert_eq!(sources_at(&log, 2500).len(), 1);
         assert_eq!(sources_at(&log, 3000)[1].3, ModuleKind::HumidityTag);
         assert!(sources_at(&log, 9000).is_empty());
+        Ok(())
+    }
+
+    fn humidity_source(module: ModuleKind, id: &str, primary: bool) -> SensorSource {
+        SensorSource {
+            metric: Metric::Humidity,
+            channel: 0,
+            module,
+            sensor: "X".into(),
+            address: 0,
+            id: id.into(),
+            primary,
+        }
+    }
+
+    #[test]
+    fn the_source_log_stays_in_order_when_the_clock_does_not() -> Result<()> {
+        let r2 = humidity_source(ModuleKind::ClimateModuleR2, "sht30-45", true);
+        let tag = humidity_source(ModuleKind::HumidityTag, "sht20-40", true);
+        let mut s = Store::open_in_memory()?;
+        s.log_sources(5000, std::slice::from_ref(&r2))?;
+        // The same millisecond, and then a clock set back: each change is a
+        // record of its own, after the one before.
+        s.log_sources(5000, std::slice::from_ref(&tag))?;
+        s.log_sources(3000, std::slice::from_ref(&r2))?;
+        s.log_sources(3500, std::slice::from_ref(&r2))?;
+        let log = source_log(s.conn())?;
+        assert_eq!(
+            log.iter().map(|(ts, l)| (*ts, l[0].3)).collect::<Vec<_>>(),
+            vec![
+                (5000, ModuleKind::ClimateModuleR2),
+                (5001, ModuleKind::HumidityTag),
+                (5002, ModuleKind::ClimateModuleR2)
+            ],
+            "an unchanged set is not logged again after the clock went back"
+        );
+        Ok(())
+    }
+
+    /// A part that comes and goes (two devices at one address) adds two
+    /// records a minute: retention keeps the log from growing for ever, and
+    /// an export reads only the records of its range.
+    #[test]
+    fn retention_and_exports_keep_the_source_log_small() -> Result<()> {
+        let r2 = humidity_source(ModuleKind::ClimateModuleR2, "sht30-45", true);
+        let tag = humidity_source(ModuleKind::HumidityTag, "sht20-40", false);
+        let mut s = Store::open_in_memory()?;
+        for i in 0..100i64 {
+            let both = [r2.clone(), tag.clone()];
+            let sources = if i % 2 == 0 { &both[..1] } else { &both[..] };
+            s.log_sources(1000 + i * 1000, sources)?;
+        }
+        // The rows of [50 500, 53 500): the record in force at the start
+        // (50 000) and the three after it.
+        let range = source_log_between(s.conn(), 50_500, 53_500)?;
+        assert_eq!(
+            range.iter().map(|(ts, _)| *ts).collect::<Vec<_>>(),
+            vec![50_000, 51_000, 52_000, 53_000]
+        );
+        let names = SourceNames::load(s.conn(), 50_500, 53_500)?;
+        assert_eq!(names.of(50_700, 0, "sht20-40"), "Humidity Tag");
+        assert_eq!(names.of(51_700, 0, "sht20-40"), "", "gone by then");
+        // Before the first record nothing is known, also with a range.
+        assert!(source_log_between(s.conn(), 0, 500)?.is_empty());
+
+        purge_older_than(s.conn(), 90_500)?;
+        let log = source_log(s.conn())?;
+        assert_eq!(
+            log.first().map(|(ts, _)| *ts),
+            Some(90_000),
+            "the record in force at the cutoff stays: it names the rows kept"
+        );
+        assert_eq!(log.len(), 11);
         Ok(())
     }
 

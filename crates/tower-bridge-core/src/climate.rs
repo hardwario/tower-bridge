@@ -229,60 +229,132 @@ pub struct Module {
 /// the periodic probe finds it again when it comes back.
 const PART_GIVE_UP: u8 = 3;
 
-/// Suspicion of an address collision: a suspicious cycle adds
-/// [`SUSPECT_STEP`], a clean one (or one without the part) takes one away;
-/// at [`SUSPECT_AT`] (two suspicious cycles close together) the part is
-/// reported. To be checked against real collisions (TODO.md).
+/// Suspicion of an address collision from what a cycle shows (a checksum
+/// error, a Climate Module's barometer far off its thermometer): a suspicious
+/// cycle adds [`SUSPECT_STEP`], a clean one takes one away. At
+/// [`SUSPECT_AT`] (two suspicious cycles close together) the part is
+/// reported, and it stays reported until the score is back at zero, so a
+/// warning does not come and go around one level.
 const SUSPECT_STEP: u8 = 3;
 const SUSPECT_AT: u8 = 6;
-const SUSPECT_MAX: u8 = 30;
-/// How many changed readings of a part [`LowBits`] looks at.
-const LOW_BITS_WINDOW: usize = 90;
-/// Of those, how many with their three lowest bits all zero make a part
-/// suspect. A lone sensor has its lowest bits at random: one reading in
-/// eight has all three zero (11 of 90). Two sensors at one address are read
-/// ANDed bit by bit: a bit is zero three times in four, all three in
-/// (3/4)³ = 42 % of the readings (38 of 90). Measured on 2026-11-23 with a
-/// Climate Module R2 and a Barometer Tag on one channel: in any 90 readings
-/// at most 17 alone, at least 29 together.
-const LOW_BITS_SUSPECT: usize = 22;
-/// A window is judged only with this many different values in it: a lone
-/// sensor whose reading only flips between a few values (a steady
-/// temperature) would otherwise count its one value over and over.
-const LOW_BITS_DISTINCT: usize = 16;
+const SUSPECT_MAX: u8 = 12;
+/// What is known about a part that stopped answering is kept this long:
+/// two devices at one address garble each other's checksums until the part
+/// is given up, and the probe finds it again within a minute. Counting
+/// cycles instead let the warning go between two probes at a short interval.
+const SUSPECT_HOLD: Duration = Duration::from_secs(300);
+
+/// How many changed readings [`LowBits`] remembers, to see whether a part's
+/// readings vary.
+const LOW_BITS_RECENT: usize = 32;
+/// A reading can only add to the score while this many different values are
+/// among the remembered ones: a lone sensor whose reading flips between a few
+/// values, one of them a multiple of eight, would otherwise count that one
+/// value over and over. With twelve codes in play at most three in seventeen
+/// are multiples of eight (18 %).
+const LOW_BITS_VARIETY: usize = 12;
+/// A changed reading with its three lowest bits all zero adds this to the
+/// score, any other takes one away: the score falls below one zero in four.
+/// A lone sensor has its lowest bits at random, all three zero in one reading
+/// of eight, and loses half a point a reading. Two sensors at one address
+/// are read ANDed bit by bit: a bit is zero three times in four, all three
+/// in (3/4)³ = 42 % of the readings, 0.7 points up a reading.
+///
+/// Measured on 2026-11-23 at a 2 s interval (Climate Module R2.1, tags):
+/// 12 to 14.5 % alone (two barometers, two light sensors, a TMP112, 71
+/// minutes each), 40 to 42 % together (a barometer pair, a light sensor
+/// pair). Alone the score stayed below 24 there, and below 51 in 1200
+/// simulated days of the worst case (a sensor spread evenly over 17 codes
+/// that start at a multiple of eight).
+const LOW_BITS_STEP: u8 = 3;
+/// The score from which a part is suspect; a pair gets there in about 150
+/// changed readings.
+const LOW_BITS_SUSPECT: u8 = 72;
+/// The score down to which a suspect part stays one: a pair does not drop
+/// out on a run of other readings, and a part left alone is cleared about
+/// 65 changed readings later.
+const LOW_BITS_CLEAR: u8 = 48;
+const LOW_BITS_MAX: u8 = 80;
 
 /// Watches the lowest bits of a part's raw readings for a second device at
-/// its address (see [`LOW_BITS_SUSPECT`]). Only changed readings count.
+/// its address (see [`LOW_BITS_STEP`]). Only changed readings count.
+///
+/// An earlier version counted the zeros among the last 90 changed readings
+/// (22 or more made the part suspect). A lone sensor gets there by chance in
+/// one window of 700, and a window was judged at every reading: the clean
+/// set-up of 2026-11-23 warned five times in 70 minutes.
 #[derive(Clone, Debug, Default)]
 struct LowBits {
-    last: Option<u32>,
-    window: VecDeque<u32>,
+    /// The last changed readings, newest last.
+    recent: VecDeque<u32>,
+    score: u8,
+    suspect: bool,
 }
 
 impl LowBits {
-    /// Note a raw reading; whether the window suggests a second device, or
-    /// `None` while it cannot tell (unchanged reading, window not full or
-    /// with too few different values).
-    fn push(&mut self, raw: u32) -> Option<bool> {
-        if self.last == Some(raw) {
-            return None;
+    /// Note a raw reading; whether the readings so far suggest a second
+    /// device.
+    fn push(&mut self, raw: u32) -> bool {
+        if self.recent.back() == Some(&raw) {
+            return self.suspect;
         }
-        self.last = Some(raw);
-        self.window.push_back(raw);
-        if self.window.len() > LOW_BITS_WINDOW {
-            self.window.pop_front();
+        self.recent.push_back(raw);
+        if self.recent.len() > LOW_BITS_RECENT {
+            self.recent.pop_front();
         }
-        if self.window.len() < LOW_BITS_WINDOW {
-            return None;
+        let varied = self.recent.len() == LOW_BITS_RECENT && {
+            let mut distinct: Vec<u32> = self.recent.iter().copied().collect();
+            distinct.sort_unstable();
+            distinct.dedup();
+            distinct.len() >= LOW_BITS_VARIETY
+        };
+        // Without variety nothing can be told; what was gathered fades, so
+        // a warning ends once its cause is gone and the reading steady.
+        self.score = if varied && raw & 0b111 == 0 {
+            self.score.saturating_add(LOW_BITS_STEP).min(LOW_BITS_MAX)
+        } else {
+            self.score.saturating_sub(1)
+        };
+        if self.score >= LOW_BITS_SUSPECT {
+            self.suspect = true;
+        } else if self.score <= LOW_BITS_CLEAR {
+            self.suspect = false;
         }
-        let mut distinct: Vec<u32> = self.window.iter().copied().collect();
-        distinct.sort_unstable();
-        distinct.dedup();
-        if distinct.len() < LOW_BITS_DISTINCT {
-            return None;
+        self.suspect
+    }
+}
+
+/// What the readings of one part tell about a second device at its address.
+#[derive(Clone, Debug)]
+struct Watch {
+    kind: SensorKind,
+    addr: u8,
+    /// See [`SUSPECT_STEP`].
+    score: u8,
+    /// The score reached [`SUSPECT_AT`] and is not back at zero yet.
+    reported: bool,
+    /// The lowest bits of the raw readings, for the parts without a
+    /// checksum.
+    low_bits: LowBits,
+    /// Since when the part does not answer, while it does not.
+    away_since: Option<Duration>,
+}
+
+impl Watch {
+    fn new(kind: SensorKind, addr: u8) -> Self {
+        Self {
+            kind,
+            addr,
+            score: 0,
+            reported: false,
+            low_bits: LowBits::default(),
+            away_since: None,
         }
-        let zeros = self.window.iter().filter(|r| *r & 0b111 == 0).count();
-        Some(zeros >= LOW_BITS_SUSPECT)
+    }
+
+    /// Nothing gathered: not worth keeping.
+    fn idle(&self) -> bool {
+        self.score == 0 && self.low_bits.recent.is_empty()
     }
 }
 
@@ -341,13 +413,10 @@ pub struct ChannelSensors {
     /// All four parts of a Climate Module R1 were seen together (see
     /// [`ClimateR1::Auto`]).
     r1_seen: bool,
-    /// Suspicion of a second device at a part's address, by part and
-    /// address; kept while the part is away, so a part dropped for its
-    /// garbled data stays reported.
-    suspicion: Vec<(SensorKind, u8, u8)>,
-    /// The lowest bits of the raw readings of the parts without a checksum,
-    /// by part and address.
-    low_bits: Vec<(SensorKind, u8, LowBits)>,
+    /// What suggests a second device at a part's address, by part and
+    /// address; kept for [`SUSPECT_HOLD`] while the part is away, so a part
+    /// dropped for its garbled data stays reported.
+    watched: Vec<Watch>,
     /// Modules kept from before a re-detection (Rescan, a channel change):
     /// taken over if found again, instead of starting them anew (a minute
     /// of charging for the LP8, a new preheat for the SGPC3 that loses what
@@ -367,8 +436,7 @@ impl ChannelSensors {
             voc: None,
             r1,
             r1_seen: false,
-            suspicion: Vec::new(),
-            low_bits: Vec::new(),
+            watched: Vec::new(),
             spare_co2: None,
             spare_voc: None,
             state_dir,
@@ -643,57 +711,79 @@ impl ChannelSensors {
         self.suspect(part.kind, part.addr, false);
     }
 
+    fn watch_index(&self, kind: SensorKind, addr: u8) -> Option<usize> {
+        self.watched
+            .iter()
+            .position(|w| w.kind == kind && w.addr == addr)
+    }
+
+    /// The watch of `kind` at `addr`, started if there is none.
+    fn watch(&mut self, kind: SensorKind, addr: u8) -> &mut Watch {
+        let i = match self.watch_index(kind, addr) {
+            Some(i) => i,
+            None => {
+                self.watched.push(Watch::new(kind, addr));
+                self.watched.len() - 1
+            }
+        };
+        &mut self.watched[i]
+    }
+
     /// Note a cycle of `kind` at `addr` that suggests a second device at its
     /// address (`true`), or one that does not.
     fn suspect(&mut self, kind: SensorKind, addr: u8, suspicious: bool) {
-        let entry = self
-            .suspicion
-            .iter()
-            .position(|(k, a, _)| *k == kind && *a == addr);
-        match (entry, suspicious) {
-            (Some(i), true) => {
-                let score = &mut self.suspicion[i].2;
-                *score = score.saturating_add(SUSPECT_STEP).min(SUSPECT_MAX);
-            }
-            (None, true) => self.suspicion.push((kind, addr, SUSPECT_STEP)),
-            (Some(i), false) => {
-                self.suspicion[i].2 = self.suspicion[i].2.saturating_sub(1);
-                if self.suspicion[i].2 == 0 {
-                    self.suspicion.remove(i);
-                }
-            }
-            (None, false) => {}
+        if suspicious {
+            let w = self.watch(kind, addr);
+            w.score = w.score.saturating_add(SUSPECT_STEP).min(SUSPECT_MAX);
+            w.reported |= w.score >= SUSPECT_AT;
+        } else if let Some(i) = self.watch_index(kind, addr) {
+            let w = &mut self.watched[i];
+            w.score = w.score.saturating_sub(1);
+            w.reported &= w.score > 0;
         }
     }
 
-    /// Note a raw reading of part `i` (without a checksum) and suspect the
-    /// part when its lowest bits are zero too often (see [`LowBits`]).
+    /// Note a raw reading of part `i` (without a checksum), for a second
+    /// device that shows in its lowest bits (see [`LowBits`]).
     fn watch_low_bits(&mut self, i: usize, raw: u32) {
         let Part { kind, addr, .. } = self.parts[i];
-        let entry = match self
-            .low_bits
+        self.watch(kind, addr).low_bits.push(raw);
+    }
+
+    /// At the end of a cycle: forget what is known about parts away for
+    /// longer than [`SUSPECT_HOLD`], and watches with nothing in them.
+    fn tidy_watched(&mut self, now: Duration) {
+        let present: Vec<bool> = self
+            .watched
             .iter()
-            .position(|(k, a, _)| *k == kind && *a == addr)
-        {
-            Some(e) => e,
-            None => {
-                self.low_bits.push((kind, addr, LowBits::default()));
-                self.low_bits.len() - 1
-            }
-        };
-        if let Some(suspicious) = self.low_bits[entry].2.push(raw) {
-            self.suspect(kind, addr, suspicious);
+            .map(|w| self.find(w.kind, w.addr).is_some())
+            .collect();
+        for (w, present) in self.watched.iter_mut().zip(present) {
+            w.away_since = match (present, w.away_since) {
+                (true, _) => None,
+                (false, None) => Some(now),
+                (false, since) => since,
+            };
         }
+        self.watched.retain(|w| {
+            let held = w
+                .away_since
+                .is_none_or(|since| now.saturating_sub(since) < SUSPECT_HOLD);
+            held && !w.idle()
+        });
     }
 
     /// The parts whose data suggest a second device at their address.
     pub fn warnings(&self) -> Vec<BusWarning> {
         let modules = self.modules();
         let mut out: Vec<BusWarning> = self
-            .suspicion
+            .watched
             .iter()
-            .filter(|(_, _, score)| *score >= SUSPECT_AT)
-            .map(|&(kind, addr, _)| {
+            // What the lowest bits told counts while the part answers:
+            // unlike garbled checksums, it does not make a part go away.
+            .filter(|w| w.reported || (w.low_bits.suspect && w.away_since.is_none()))
+            .map(|w| {
+                let (kind, addr) = (w.kind, w.addr);
                 let module = self
                     .find(kind, addr)
                     .and_then(|i| {
@@ -1045,16 +1135,7 @@ impl ChannelSensors {
         values.voc = self.voc.as_ref().and_then(|v| v.value(now, VOC_MAX_AGE));
 
         self.parts.retain(|p| p.present());
-        // Suspicion of a part that is away fades, a cycle at a time.
-        let away: Vec<(SensorKind, u8)> = self
-            .suspicion
-            .iter()
-            .filter(|(k, a, _)| self.find(*k, *a).is_none())
-            .map(|(k, a, _)| (*k, *a))
-            .collect();
-        for (kind, addr) in away {
-            self.suspect(kind, addr, false);
-        }
+        self.tidy_watched(now);
         self.note_r1();
         report.values = values;
         report.extra = extra;
@@ -2027,6 +2108,24 @@ mod tests {
             ),
             (0, 0x40, "SHT20")
         );
+        // The garbled part is given up and found again by the probe, once
+        // a minute; at a 2 s interval the warning used to go in between.
+        for cycle in 0..150 {
+            sensors.measure(&mut bus, &clock)?;
+            clock.sleep(Duration::from_secs(1));
+            if cycle % 30 == 29 {
+                sensors.detect(&mut bus, &clock)?;
+            }
+            assert_eq!(sensors.warnings().len(), 1, "cycle {cycle}");
+        }
+        // The tag is taken out: the module's own SHT20 reads clean, and the
+        // warning ends a few cycles later.
+        bus.attach(0, 0x40, Box::new(SimSht20::new(env())));
+        sensors.detect(&mut bus, &clock)?;
+        for _ in 0..=SUSPECT_MAX {
+            sensors.measure(&mut bus, &clock)?;
+        }
+        assert!(sensors.warnings().is_empty(), "{:?}", sensors.warnings());
         Ok(())
     }
 
@@ -2076,33 +2175,157 @@ mod tests {
         }
     }
 
+    /// Two sensors at one address, each wobbling over `span` codes, read
+    /// ANDed.
+    fn anded(noise: &mut Noise, span: u32) -> u32 {
+        (390_000 + noise.next() % span) & (390_010 + noise.next() % span)
+    }
+
     #[test]
     fn low_bits_tell_two_ands_from_one_sensor() {
         let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
         // A lone sensor drifting and wobbling: never suspect.
         let mut lone = LowBits::default();
-        let mut verdicts = Vec::new();
         for i in 0..2000u32 {
             let raw = 390_000 + i / 4 + noise.next() % 24;
-            verdicts.extend(lone.push(raw));
+            assert!(!lone.push(raw), "a lone sensor was suspected at {i}");
         }
-        assert!(verdicts.len() > 1000, "judged: {}", verdicts.len());
-        assert!(!verdicts.contains(&true), "a lone sensor was suspected");
-        // A steady reading flipping between two values: not judged at all.
+        // A steady reading flipping between two values, one of them a
+        // multiple of eight: nothing gathered at all.
         let mut steady = LowBits::default();
         for i in 0..500u32 {
-            assert_eq!(steady.push(392 + i % 2), None);
+            assert!(!steady.push(392 + i % 2));
+            assert_eq!(steady.score, 0);
         }
-        // Two sensors read ANDed: suspect once the window is full.
+        // Two sensors read ANDed: suspect after about 150 changed readings,
+        // and for good.
         let mut pair = LowBits::default();
-        let mut verdicts = Vec::new();
-        for _ in 0..500 {
-            let a = 390_000 + noise.next() % 64;
-            let b = 390_010 + noise.next() % 64;
-            verdicts.extend(pair.push(a & b));
+        let mut since = None;
+        for i in 0..3000u32 {
+            let suspect = pair.push(anded(&mut noise, 64));
+            if suspect && since.is_none() {
+                since = Some(i);
+            }
+            assert!(since.is_none() || suspect, "dropped out at {i}");
         }
-        assert!(!verdicts.is_empty());
-        assert!(verdicts.iter().all(|v| *v), "{verdicts:?}");
+        assert!(since.is_some_and(|i| (60..300).contains(&i)), "{since:?}");
+    }
+
+    /// The earlier detector (22 zeros among the last 90 changed readings)
+    /// warned about a lone sensor several times a month, and five times in
+    /// 70 minutes on the real set-up: a month of readings at the default
+    /// interval and more, with several series of noise, must stay quiet.
+    #[test]
+    fn low_bits_of_a_lone_sensor_stay_quiet_for_months() {
+        // 130 000 readings: 30 days at the default 20 s.
+        for seed in 1..=4u64 {
+            let mut noise = Noise(0x9E37_79B9_7F4A_7C15 ^ (seed * 0x0123_4567_89AB_CDEF));
+            // Its lowest bits at random, on a slow drift.
+            let mut drifting = LowBits::default();
+            // The worst case that still varies: spread evenly over 17
+            // codes that start at a multiple of eight (3 in 17).
+            let mut aligned = LowBits::default();
+            let mut highest = 0;
+            for i in 0..130_000u32 {
+                let wobble = noise.next();
+                assert!(
+                    !drifting.push(390_000 + i / 50 + wobble % 64),
+                    "seed {seed}"
+                );
+                assert!(!aligned.push(392_000 + (wobble >> 8) % 17), "seed {seed}");
+                highest = highest.max(drifting.score).max(aligned.score);
+            }
+            assert!(
+                highest < LOW_BITS_SUSPECT - 12,
+                "seed {seed}: too close, {highest}"
+            );
+        }
+    }
+
+    #[test]
+    fn low_bits_do_not_take_a_reading_that_settles_for_a_pair() {
+        // A ramp (variety), then a flip between two values, one of them a
+        // multiple of eight: it counts only while the ramp is remembered.
+        let mut bits = LowBits::default();
+        for round in 0..50u32 {
+            for i in 0..40 {
+                assert!(!bits.push(392_000 + round * 100 + i));
+            }
+            for i in 0..400 {
+                assert!(
+                    !bits.push(392_000 + round * 100 + 40 + i % 2),
+                    "round {round}"
+                );
+            }
+            assert_eq!(bits.score, 0, "faded while steady");
+        }
+    }
+
+    #[test]
+    fn low_bits_clear_a_part_left_alone() {
+        let mut noise = Noise(0xD1B5_4A32_D192_ED03);
+        let mut bits = LowBits::default();
+        for _ in 0..600 {
+            bits.push(anded(&mut noise, 64));
+        }
+        assert!(bits.suspect);
+        // The second device is gone: cleared within about 65 readings.
+        let cleared = (0..200u32).find(|_| !bits.push(390_000 + noise.next() % 64));
+        assert!(
+            cleared.is_some_and(|i| (20..100).contains(&i)),
+            "{cleared:?}"
+        );
+        // A steady reading (no variety) ends a warning too.
+        let mut bits = LowBits::default();
+        for _ in 0..600 {
+            bits.push(anded(&mut noise, 64));
+        }
+        let cleared = (0..200u32).find(|i| !bits.push(390_000 + i % 2));
+        assert!(cleared.is_some(), "a steady reading kept the warning");
+    }
+
+    /// A pair is told by its changed readings alone: a cycle that reads the
+    /// same value again must not take anything away (it used to, so a pair
+    /// whose reading changed every third cycle was never reported).
+    #[test]
+    fn a_pair_whose_reading_often_repeats_is_reported() {
+        let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
+        let mut c = ChannelSensors::new(0, None, ClimateR1::Auto);
+        c.add(SensorKind::Opt3001, Slot::Ready, 0x44);
+        let clock = MockClock::new();
+        for _ in 0..400 {
+            let raw = anded(&mut noise, 64) & 0x0FFF;
+            for _ in 0..3 {
+                c.measured(0);
+                c.watch_low_bits(0, raw);
+                c.tidy_watched(clock.now());
+            }
+        }
+        let warnings = c.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].address, 0x44);
+        // The part is unplugged: what its lowest bits told goes with it.
+        c.parts.clear();
+        c.tidy_watched(clock.now());
+        assert!(c.warnings().is_empty());
+    }
+
+    #[test]
+    fn a_checksum_warning_does_not_flicker() {
+        let mut c = ChannelSensors::new(0, None, ClimateR1::Auto);
+        c.add(SensorKind::Sht20, Slot::Ready, 0x40);
+        c.suspect(SensorKind::Sht20, 0x40, true);
+        assert!(c.warnings().is_empty(), "one garbled cycle is not enough");
+        c.suspect(SensorKind::Sht20, 0x40, true);
+        assert_eq!(c.warnings().len(), 1);
+        // Reported until the score is back at zero, not just below the
+        // level that raised it.
+        for _ in 0..SUSPECT_AT - 1 {
+            c.suspect(SensorKind::Sht20, 0x40, false);
+            assert_eq!(c.warnings().len(), 1);
+        }
+        c.suspect(SensorKind::Sht20, 0x40, false);
+        assert!(c.warnings().is_empty());
     }
 
     /// GitHub issue #2: a Lux Meter Tag next to a Climate Module, both
@@ -2125,7 +2348,7 @@ mod tests {
         let mut sensors = Sensors::new(ChannelMode::Channel0);
         sensors.detect(&mut bus, &clock)?;
         let mut noise = Noise(0x2545_F491_4F6C_DD1D);
-        for _ in 0..150 {
+        for _ in 0..400 {
             if let (Ok(mut m), Ok(mut t)) = (module.lock(), tag.lock()) {
                 m.illuminance = Some(400.0 + f64::from(noise.next() % 6000) / 100.0);
                 t.illuminance = Some(420.0 + f64::from(noise.next() % 6000) / 100.0);
