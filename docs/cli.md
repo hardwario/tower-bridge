@@ -255,7 +255,14 @@ With `--json`:
   "gps", "active_alerts", "mqtt", "sample_interval_ms"}}`;
 - `relay`, `gps` and `nfc` print their objects as in the REST API
   ([api.md](https://github.com/hardwario/tower-bridge/blob/main/docs/api.md));
-- `watch` prints one object per line. Readings have `"type": "reading"`;
+- `status` lists, under a channel's values, each further sensor of a
+  quantity the channel already has (a Humidity Tag next to a Climate Module)
+  with its own values, and a `Warning` line for a suspected second device at
+  one address; in JSON these are the readings with `"sensor"` in `latest` and
+  `device.warnings`;
+- `watch` prints one object per line. Readings have `"type": "reading"`
+  (a further sensor's with `"sensor": "sht20-40"`; as text `I²C 0 · Humidity
+  Tag sht20-40`);
   changes of the bridge, the relay, the NFC Tag and alerts have `"type":
   "device"`, `"relay"`, `"nfc"` and `"alert"`, and the GPS position
   `"type": "gps"` (every 5 s, or when it changes while following a running

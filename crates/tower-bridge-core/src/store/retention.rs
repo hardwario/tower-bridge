@@ -24,8 +24,20 @@ pub fn purge_older_than(conn: &Connection, cutoff_ms: i64) -> Result<usize> {
             break;
         }
     }
+    // The further sensors' rows: a fraction of the channels', in one go.
+    total += conn.execute(
+        "DELETE FROM sensor_readings WHERE ts < ?1",
+        params![cutoff_ms],
+    )?;
     super::hourly::purge_older_than(conn, cutoff_ms)?;
     conn.execute("DELETE FROM alert_log WHERE ts < ?1", params![cutoff_ms])?;
+    // The source log: the record in force at the cutoff still names the
+    // rows that stay, so only the records before it go.
+    conn.execute(
+        "DELETE FROM source_log
+         WHERE ts < (SELECT MAX(ts) FROM source_log WHERE ts <= ?1)",
+        params![cutoff_ms],
+    )?;
     // Each step of this pragma frees one page, and `execute_batch` steps
     // only once: step it to the end.
     let mut vacuum = conn.prepare("PRAGMA incremental_vacuum")?;

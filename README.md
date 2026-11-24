@@ -54,7 +54,9 @@ bridge with an I²C switch, so it has two channels: put a Climate Module on one
 and sensor tags on the other, or anything on both.
 
 The app finds the modules by itself, names them from the parts it detects, and
-looks again every minute, so a tag plugged in later shows up on its own.
+looks again every minute, so a tag plugged in later shows up on its own. Every
+sensor it finds is measured, also two of one kind on one channel (a Humidity
+Tag next to a Climate Module), each with its own line, history and alerts.
 
 Windows and macOS need no driver. On Linux, install the udev rule (see
 [First run](#first-run)).
@@ -141,7 +143,8 @@ range, and exports it as CSV or XLSX.
 All optional and off by default:
 
 - **MQTT** to your own broker (Mosquitto, Home Assistant): every reading with
-  its I²C channel, relay commands, and the app's availability ([docs/mqtt.md](docs/mqtt.md))
+  its I²C channel (and one level down per sensor, `tower/humidity/0/sht20-40`),
+  relay commands, and the app's availability ([docs/mqtt.md](docs/mqtt.md))
 
   ```text
   $ mosquitto_sub -h broker.local -t 'tower/#' -v

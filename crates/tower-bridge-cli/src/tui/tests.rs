@@ -23,6 +23,8 @@ fn source(metric: Metric, channel: u8, module: ModuleKind) -> SensorSource {
         module,
         sensor: "SHT30".into(),
         address: 0x45,
+        id: "sht30-45".into(),
+        primary: true,
     }
 }
 
@@ -42,12 +44,14 @@ fn snapshot() -> Snapshot {
                 source(Metric::Humidity, 0, ModuleKind::ClimateModuleR2),
                 source(Metric::Temperature, 1, ModuleKind::TemperatureTag),
             ],
+            warnings: Vec::new(),
         },
         latest: vec![
             Reading {
                 ts: now,
                 device: "ft260".into(),
                 channel: 0,
+                sensor: None,
                 values: Values {
                     temperature: Some(23.44),
                     humidity: Some(41.2),
@@ -59,6 +63,7 @@ fn snapshot() -> Snapshot {
                 ts: now,
                 device: "ft260".into(),
                 channel: 1,
+                sensor: None,
                 values: Values {
                     temperature: Some(19.9),
                     ..Values::default()

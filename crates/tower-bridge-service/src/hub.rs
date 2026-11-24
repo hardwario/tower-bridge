@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select, tick};
 use tower_bridge_core::acquisition::AcqEvent;
-use tower_bridge_core::alerts::{AlertEngine, AlertEvent};
+use tower_bridge_core::alerts::{AlertEngine, AlertEvent, Watched};
 use tower_bridge_core::gps::GpsInfo;
-use tower_bridge_core::model::{DeviceState, Metric, Reading, altitude};
+use tower_bridge_core::model::{DeviceState, Reading, SensorSource, altitude};
 use tower_bridge_core::mqtt::{self, ClientConfig, LinkEvent, MqttCommand, Publisher};
 use tower_bridge_core::nfc::NfcInfo;
 use tower_bridge_core::relay::RelayInfo;
@@ -112,6 +112,15 @@ struct Hub {
     mqtt_commands: Sender<MqttCommand>,
     last_retention: Option<Instant>,
     presence: Presence,
+}
+
+/// The series measured from `sources`: each metric of a channel, and of
+/// each further sensor on one.
+fn watched(sources: &[SensorSource]) -> Vec<Watched> {
+    sources
+        .iter()
+        .map(|s| (s.metric, s.channel, s.series().map(str::to_string)))
+        .collect()
 }
 
 pub fn spawn(
@@ -242,15 +251,18 @@ impl Hub {
             error!("cannot store reading: {e}");
         }
 
-        let events = self.engine.evaluate(r.ts, r.channel, &r.values);
+        let events = self
+            .engine
+            .evaluate_series(r.ts, r.channel, r.sensor.as_deref(), &r.values);
         for ev in &events {
             self.on_alert(ev);
         }
         // Also while alerts stay active: their values follow the readings.
         self.publish_active_alerts();
 
+        let sources = self.state.device.read().sources().to_vec();
         if let Some(publisher) = self.publisher()
-            && let Err(e) = publisher.publish_reading(&r)
+            && let Err(e) = publisher.publish_reading(&r, &sources)
         {
             warn!("MQTT publish failed: {e}");
         }
@@ -290,19 +302,26 @@ impl Hub {
             _ => None,
         };
         if let Some(sources) = sources {
-            let measured: Vec<(Metric, u8)> =
-                sources.iter().map(|s| (s.metric, s.channel)).collect();
-            self.state
-                .latest
-                .write()
-                .retain(|r| measured.iter().any(|(_, c)| *c == r.channel));
+            let measured = watched(sources);
+            self.state.latest.write().retain(|r| {
+                measured
+                    .iter()
+                    .any(|(_, c, sensor)| *c == r.channel && *sensor == r.sensor)
+            });
             if self.engine.retain_sources(&measured) {
                 self.publish_active_alerts();
             }
             if let Some(publisher) = self.publisher()
-                && let Err(e) = publisher.retain_sources(&measured)
+                && let Err(e) = publisher.retain_sources(sources)
             {
                 warn!("MQTT publish failed: {e}");
+            }
+            // Which module carries which sensor from now on, for exports.
+            if let Some(store) = self.store.as_mut()
+                && let Err(e) =
+                    store.log_sources(tower_bridge_core::acquisition::unix_ms(), sources)
+            {
+                error!("cannot log the sensors: {e}");
             }
         }
         *self.state.device.write() = d.clone();
@@ -361,10 +380,8 @@ impl Hub {
     fn republish(&mut self) {
         let latest = self.state.latest.read().clone();
         // Sensors that left while the broker was away keep no topics.
-        let measured: Option<Vec<(Metric, u8)>> = match &*self.state.device.read() {
-            DeviceState::Ready { sources, .. } => {
-                Some(sources.iter().map(|s| (s.metric, s.channel)).collect())
-            }
+        let measured: Option<Vec<SensorSource>> = match &*self.state.device.read() {
+            DeviceState::Ready { sources, .. } => Some(sources.clone()),
             DeviceState::NoModule { .. } => Some(Vec::new()),
             _ => None,
         };
@@ -373,8 +390,9 @@ impl Hub {
             if let Some(measured) = &measured {
                 result = result.and(publisher.retain_sources(measured));
             }
+            let sources = measured.as_deref().unwrap_or_default();
             for r in &latest {
-                result = result.and(publisher.publish_reading(r));
+                result = result.and(publisher.publish_reading(r, sources));
             }
             if let Err(e) = result {
                 warn!("MQTT publish failed: {e}");
@@ -571,6 +589,7 @@ mod tests {
         DeviceState::Ready {
             device: info(),
             sources: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 

@@ -3,7 +3,9 @@
 //! One writer connection (owned by the app's hub thread) inserts readings;
 //! readers open short-lived read-only connections. WAL mode lets both run
 //! concurrently. Values are stored in SI units (°C, %RH, lux, Pa), one row
-//! per measurement cycle and I2C channel.
+//! per measurement cycle and I2C channel in `readings`, and one per cycle
+//! and further sensor of a channel (a Humidity Tag next to a Climate Module)
+//! in `sensor_readings`.
 
 mod export;
 mod history;
@@ -27,7 +29,7 @@ pub use retention::purge_older_than;
 pub use xlsx::{XlsxLabels, export_xlsx_to_file};
 
 use crate::alerts::{AlertEvent, AlertKind, Bound};
-use crate::model::Reading;
+use crate::model::{Metric, ModuleKind, Reading, SensorSource};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -142,7 +144,12 @@ impl Store {
         let device_id = self.device_id(&reading.device, None)?;
         let tx = self.conn.transaction()?;
         insert_row(&tx, device_id, reading)?;
-        hourly::refresh(&tx, hourly::hour_of(reading.ts), reading.channel)?;
+        hourly::refresh(
+            &tx,
+            hourly::hour_of(reading.ts),
+            reading.channel,
+            reading.sensor.as_deref(),
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -163,7 +170,7 @@ impl Store {
                 && !r.values.is_empty()
             {
                 insert_row(&tx, device_id, r)?;
-                hours.insert((hourly::hour_of(r.ts), r.channel));
+                hours.insert((hourly::hour_of(r.ts), r.channel, r.sensor.clone()));
             }
         }
         hourly::refresh_all(&tx, &hours)?;
@@ -175,18 +182,64 @@ impl Store {
     pub fn log_alert(&mut self, ev: &AlertEvent) -> Result<()> {
         self.conn
             .prepare_cached(
-                "INSERT INTO alert_log (ts, metric, channel, bound, kind, value, threshold)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO alert_log (ts, metric, channel, sensor, bound, kind, value, threshold)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )?
             .execute(params![
                 ev.ts,
                 ev.metric.as_str(),
                 ev.channel,
+                ev.sensor,
                 bound_str(ev.bound),
                 kind_str(ev.kind),
                 ev.value,
                 ev.threshold
             ])?;
+        Ok(())
+    }
+
+    /// Record which module carries which sensor from `ts` on, when it
+    /// changed since the last record (see [`sources_at`]).
+    pub fn log_sources(&mut self, ts: i64, sources: &[SensorSource]) -> Result<()> {
+        // Only the last record is read: this runs on every change of the
+        // device state, and a part that comes and goes adds two records a
+        // minute.
+        let last = source_records(
+            &self.conn,
+            "WHERE ts = (SELECT MAX(ts) FROM source_log)",
+            [],
+        )?
+        .pop();
+        if last.as_ref().is_some_and(|(_, s)| s == &logged(sources)) {
+            return Ok(());
+        }
+        // A record is told from the next by its time, and the newest is the
+        // one in force: stay after it, also when the clock was set back.
+        let ts = last.map_or(ts, |(t, _)| ts.max(t + 1));
+        let tx = self.conn.transaction()?;
+        if sources.is_empty() {
+            // Nothing measured from here on.
+            tx.execute(
+                "INSERT INTO source_log (ts, channel, metric, sensor, module, is_primary)
+                 VALUES (?1, 0, '', '', '', 0)",
+                params![ts],
+            )?;
+        }
+        for s in sources {
+            tx.prepare_cached(
+                "INSERT INTO source_log (ts, channel, metric, sensor, module, is_primary)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?
+            .execute(params![
+                ts,
+                s.channel,
+                s.metric.as_str(),
+                s.id,
+                module_str(s.module),
+                s.primary
+            ])?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -198,6 +251,25 @@ impl Store {
 
 fn insert_row(conn: &Connection, device_id: i64, reading: &Reading) -> Result<()> {
     let v = &reading.values;
+    if let Some(sensor) = &reading.sensor {
+        conn.prepare_cached(
+            "INSERT OR REPLACE INTO sensor_readings (ts, device_id, channel, sensor, temperature, humidity, illuminance, pressure, co2, voc)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        )?
+        .execute(params![
+            reading.ts,
+            device_id,
+            reading.channel,
+            sensor,
+            v.temperature,
+            v.humidity,
+            v.illuminance,
+            v.pressure,
+            v.co2,
+            v.voc
+        ])?;
+        return Ok(());
+    }
     conn.prepare_cached(
         "INSERT OR REPLACE INTO readings (ts, device_id, channel, temperature, humidity, illuminance, pressure, co2, voc)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -230,6 +302,135 @@ fn kind_str(k: AlertKind) -> &'static str {
     }
 }
 
+fn module_str(m: ModuleKind) -> String {
+    serde_json::to_value(m)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// A recorded source: channel, metric, sensor id, module, primary.
+pub type LoggedSource = (u8, Metric, String, ModuleKind, bool);
+
+fn logged(sources: &[SensorSource]) -> Vec<LoggedSource> {
+    sources
+        .iter()
+        .map(|s| (s.channel, s.metric, s.id.clone(), s.module, s.primary))
+        .collect()
+}
+
+/// Every record of the sources, oldest first: from its time on, these
+/// sources were measured (none after an empty record).
+pub fn source_log(conn: &Connection) -> Result<Vec<(i64, Vec<LoggedSource>)>> {
+    source_records(conn, "", [])
+}
+
+/// The records that name the sources of the rows in `[from, to)`: the one in
+/// force at `from` and those after it.
+fn source_log_between(
+    conn: &Connection,
+    from: i64,
+    to: i64,
+) -> Result<Vec<(i64, Vec<LoggedSource>)>> {
+    source_records(
+        conn,
+        "WHERE ts >= COALESCE((SELECT MAX(ts) FROM source_log WHERE ts <= ?1), ?1) AND ts < ?2",
+        params![from, to],
+    )
+}
+
+/// The records of the source log that `filter` (a `WHERE` clause, or
+/// nothing) selects, oldest first.
+fn source_records(
+    conn: &Connection,
+    filter: &str,
+    params: impl rusqlite::Params,
+) -> Result<Vec<(i64, Vec<LoggedSource>)>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT ts, channel, metric, sensor, module, is_primary FROM source_log {filter} ORDER BY ts, rowid"
+    ))?;
+    let rows = stmt.query_map(params, |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, u8>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+            r.get::<_, bool>(5)?,
+        ))
+    })?;
+    let mut out: Vec<(i64, Vec<LoggedSource>)> = Vec::new();
+    for row in rows {
+        let (ts, channel, metric, sensor, module, primary) = row?;
+        if out.last().is_none_or(|(t, _)| *t != ts) {
+            out.push((ts, Vec::new()));
+        }
+        let parsed = (
+            serde_json::from_value::<Metric>(serde_json::Value::String(metric)),
+            serde_json::from_value::<ModuleKind>(serde_json::Value::String(module)),
+        );
+        if let (Some((_, list)), (Ok(metric), Ok(module))) = (out.last_mut(), parsed) {
+            list.push((channel, metric, sensor, module, primary));
+        }
+    }
+    Ok(out)
+}
+
+/// The rows of an export: `ts, serial, temperature, humidity, illuminance,
+/// pressure, channel, co2, voc, sensor` (`sensor` empty for a channel's
+/// own row), ordered by time, channel and sensor.
+pub(crate) const EXPORT_ROWS: &str = "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel, r.co2, r.voc, '' AS sensor
+         FROM readings r JOIN devices d ON d.id = r.device_id
+         WHERE r.ts >= ?1 AND r.ts < ?2
+     UNION ALL
+     SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel, r.co2, r.voc, r.sensor
+         FROM sensor_readings r JOIN devices d ON d.id = r.device_id
+         WHERE r.ts >= ?1 AND r.ts < ?2
+     ORDER BY 1, 7, 10";
+
+/// Names the modules behind the rows of an export, from the source log.
+pub(crate) struct SourceNames {
+    log: Vec<(i64, Vec<LoggedSource>)>,
+}
+
+impl SourceNames {
+    /// For the rows of `[from, to)`.
+    pub(crate) fn load(conn: &Connection, from: i64, to: i64) -> Result<Self> {
+        Ok(Self {
+            log: source_log_between(conn, from, to)?,
+        })
+    }
+
+    /// The module of a further `sensor`'s row (`""` for a channel's own),
+    /// or the modules of a channel's row, e.g. `Climate Module R2, CO2
+    /// Module`; empty when unknown (rows from before the log).
+    pub(crate) fn of(&self, ts: i64, channel: u8, sensor: &str) -> String {
+        let mut names: Vec<&str> = Vec::new();
+        for (c, _, id, module, primary) in sources_at(&self.log, ts) {
+            let mine = *c == channel
+                && if sensor.is_empty() {
+                    *primary
+                } else {
+                    id == sensor
+                };
+            if mine && !names.contains(&module.name()) {
+                names.push(module.name());
+            }
+        }
+        names.join(", ")
+    }
+}
+
+/// The sources recorded for the time `ts` (see [`Store::log_sources`]),
+/// from records sorted oldest first.
+pub fn sources_at(log: &[(i64, Vec<LoggedSource>)], ts: i64) -> &[LoggedSource] {
+    let i = log.partition_point(|(t, _)| *t <= ts);
+    match i.checked_sub(1).and_then(|i| log.get(i)) {
+        Some((_, sources)) => sources,
+        None => &[],
+    }
+}
+
 /// Open a read-only connection to an existing database.
 pub fn open_reader(path: &Path) -> Result<Connection> {
     let conn = Connection::open_with_flags(
@@ -246,6 +447,10 @@ pub struct AlertLogEntry {
     pub ts: i64,
     pub metric: String,
     pub channel: u8,
+    /// The further sensor whose series the alert is about; absent for the
+    /// channel's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensor: Option<String>,
     pub bound: String,
     pub kind: String,
     pub value: f64,
@@ -254,13 +459,14 @@ pub struct AlertLogEntry {
 
 pub fn alert_log(conn: &Connection, limit: usize) -> Result<Vec<AlertLogEntry>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT ts, metric, channel, bound, kind, value, threshold FROM alert_log ORDER BY ts DESC LIMIT ?1",
+        "SELECT ts, metric, channel, bound, kind, value, threshold, sensor FROM alert_log ORDER BY ts DESC LIMIT ?1",
     )?;
     let rows = stmt.query_map(params![limit as i64], |r| {
         Ok(AlertLogEntry {
             ts: r.get(0)?,
             metric: r.get(1)?,
             channel: r.get(2)?,
+            sensor: r.get(7)?,
             bound: r.get(3)?,
             kind: r.get(4)?,
             value: r.get(5)?,
@@ -270,10 +476,12 @@ pub fn alert_log(conn: &Connection, limit: usize) -> Result<Vec<AlertLogEntry>> 
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// Number of reading rows (one per channel and cycle) in `[from, to)`.
+/// Number of reading rows (one per channel and cycle, and one per further
+/// sensor and cycle) in `[from, to)`.
 pub fn count(conn: &Connection, from: i64, to: i64) -> Result<u64> {
     let n: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM readings WHERE ts >= ?1 AND ts < ?2",
+        "SELECT (SELECT COUNT(*) FROM readings WHERE ts >= ?1 AND ts < ?2)
+              + (SELECT COUNT(*) FROM sensor_readings WHERE ts >= ?1 AND ts < ?2)",
         params![from, to],
         |r| r.get(0),
     )?;
@@ -312,6 +520,7 @@ mod tests {
             ts,
             device: "SN1".into(),
             channel: 0,
+            sensor: None,
             values: Values {
                 temperature: Some(t),
                 humidity: Some(40.0),
@@ -365,6 +574,7 @@ mod tests {
             ts: 5,
             metric: crate::model::Metric::Temperature,
             channel: 1,
+            sensor: Some("sht20-40".into()),
             bound: Bound::High,
             kind: AlertKind::Triggered,
             value: 30.0,
@@ -376,6 +586,138 @@ mod tests {
         assert_eq!(log[0].metric, "temperature");
         assert_eq!(log[0].bound, "high");
         assert_eq!(log[0].channel, 1);
+        assert_eq!(log[0].sensor.as_deref(), Some("sht20-40"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_further_sensor_has_rows_of_its_own() -> Result<()> {
+        let mut s = Store::open_in_memory()?;
+        let mut tag = reading(1000, 5.0);
+        tag.sensor = Some("sht20-40".into());
+        s.insert_many(&[reading(1000, 20.0), tag.clone()])?;
+        s.insert(&tag)?;
+        assert_eq!(
+            count(s.conn(), 0, 2000)?,
+            2,
+            "one row each, the second replaced"
+        );
+        let t: f64 = s.conn().query_row(
+            "SELECT temperature FROM sensor_readings WHERE sensor = 'sht20-40'",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(t, 5.0);
+        let n: i64 = s.conn().query_row(
+            "SELECT temperature_n FROM sensor_readings_hourly WHERE sensor = 'sht20-40'",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(n, 1, "summarized per hour too");
+        Ok(())
+    }
+
+    #[test]
+    fn sources_are_logged_when_they_change() -> Result<()> {
+        let source = |module, id: &str, primary| SensorSource {
+            metric: Metric::Humidity,
+            channel: 0,
+            module,
+            sensor: "X".into(),
+            address: 0,
+            id: id.into(),
+            primary,
+        };
+        let r2 = source(ModuleKind::ClimateModuleR2, "sht30-45", true);
+        let tag = source(ModuleKind::HumidityTag, "sht20-40", false);
+        let mut s = Store::open_in_memory()?;
+        s.log_sources(1000, std::slice::from_ref(&r2))?;
+        s.log_sources(2000, std::slice::from_ref(&r2))?;
+        s.log_sources(3000, &[r2.clone(), tag])?;
+        s.log_sources(4000, &[])?;
+        let log = source_log(s.conn())?;
+        assert_eq!(
+            log.iter().map(|(ts, l)| (*ts, l.len())).collect::<Vec<_>>(),
+            vec![(1000, 1), (3000, 2), (4000, 0)],
+            "an unchanged set is not logged again"
+        );
+        assert!(sources_at(&log, 500).is_empty());
+        assert_eq!(sources_at(&log, 2500).len(), 1);
+        assert_eq!(sources_at(&log, 3000)[1].3, ModuleKind::HumidityTag);
+        assert!(sources_at(&log, 9000).is_empty());
+        Ok(())
+    }
+
+    fn humidity_source(module: ModuleKind, id: &str, primary: bool) -> SensorSource {
+        SensorSource {
+            metric: Metric::Humidity,
+            channel: 0,
+            module,
+            sensor: "X".into(),
+            address: 0,
+            id: id.into(),
+            primary,
+        }
+    }
+
+    #[test]
+    fn the_source_log_stays_in_order_when_the_clock_does_not() -> Result<()> {
+        let r2 = humidity_source(ModuleKind::ClimateModuleR2, "sht30-45", true);
+        let tag = humidity_source(ModuleKind::HumidityTag, "sht20-40", true);
+        let mut s = Store::open_in_memory()?;
+        s.log_sources(5000, std::slice::from_ref(&r2))?;
+        // The same millisecond, and then a clock set back: each change is a
+        // record of its own, after the one before.
+        s.log_sources(5000, std::slice::from_ref(&tag))?;
+        s.log_sources(3000, std::slice::from_ref(&r2))?;
+        s.log_sources(3500, std::slice::from_ref(&r2))?;
+        let log = source_log(s.conn())?;
+        assert_eq!(
+            log.iter().map(|(ts, l)| (*ts, l[0].3)).collect::<Vec<_>>(),
+            vec![
+                (5000, ModuleKind::ClimateModuleR2),
+                (5001, ModuleKind::HumidityTag),
+                (5002, ModuleKind::ClimateModuleR2)
+            ],
+            "an unchanged set is not logged again after the clock went back"
+        );
+        Ok(())
+    }
+
+    /// A part that comes and goes (two devices at one address) adds two
+    /// records a minute: retention keeps the log from growing for ever, and
+    /// an export reads only the records of its range.
+    #[test]
+    fn retention_and_exports_keep_the_source_log_small() -> Result<()> {
+        let r2 = humidity_source(ModuleKind::ClimateModuleR2, "sht30-45", true);
+        let tag = humidity_source(ModuleKind::HumidityTag, "sht20-40", false);
+        let mut s = Store::open_in_memory()?;
+        for i in 0..100i64 {
+            let both = [r2.clone(), tag.clone()];
+            let sources = if i % 2 == 0 { &both[..1] } else { &both[..] };
+            s.log_sources(1000 + i * 1000, sources)?;
+        }
+        // The rows of [50 500, 53 500): the record in force at the start
+        // (50 000) and the three after it.
+        let range = source_log_between(s.conn(), 50_500, 53_500)?;
+        assert_eq!(
+            range.iter().map(|(ts, _)| *ts).collect::<Vec<_>>(),
+            vec![50_000, 51_000, 52_000, 53_000]
+        );
+        let names = SourceNames::load(s.conn(), 50_500, 53_500)?;
+        assert_eq!(names.of(50_700, 0, "sht20-40"), "Humidity Tag");
+        assert_eq!(names.of(51_700, 0, "sht20-40"), "", "gone by then");
+        // Before the first record nothing is known, also with a range.
+        assert!(source_log_between(s.conn(), 0, 500)?.is_empty());
+
+        purge_older_than(s.conn(), 90_500)?;
+        let log = source_log(s.conn())?;
+        assert_eq!(
+            log.first().map(|(ts, _)| *ts),
+            Some(90_000),
+            "the record in force at the cutoff stays: it names the rows kept"
+        );
+        assert_eq!(log.len(), 11);
         Ok(())
     }
 

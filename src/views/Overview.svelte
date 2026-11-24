@@ -13,9 +13,19 @@
   import { fill, t } from "../lib/i18n/index.svelte";
   import { live } from "../lib/live.svelte";
   import { layout } from "../lib/overview-layout.svelte";
-  import { channelColor, chartStyle, lineColor } from "../lib/palette";
+  import { chartStyle, lineColor, lineColorOf } from "../lib/palette";
+  import { parseLine, readingKey } from "../lib/series";
   import { theme } from "../lib/theme.svelte";
-  import { channelLabel, channelName, metricChannels, metricSource, moduleLines, sourcesOf } from "../lib/source";
+  import {
+    collisionText,
+    lineLabel,
+    lineName,
+    metricLines,
+    metricSource,
+    moduleLines,
+    sourcesOf,
+    warningsOf,
+  } from "../lib/source";
   import { METRICS, OPTIONAL_METRICS, type History, type Metric } from "../lib/types";
   import { altitude } from "../lib/units";
   import { SPANS, type Span } from "../lib/time";
@@ -86,23 +96,27 @@
   const latest = $derived(ready ? live.latest : []);
   const newest = $derived(ready ? live.newestTs : null);
 
-  /** One line per I²C channel measuring `m` (none for CO₂ and VOC without a sensor or data). */
+  /**
+   * One line per I²C channel measuring `m`, and per further sensor of it on a
+   * channel (none for CO₂ and VOC without a sensor or data).
+   */
   function panelLines(m: Metric): PanelLine[] {
     // With the bridge working, only what is connected now: stored data of a
     // module unplugged since is on the Data page (the user, 2026-10-18).
     // Without it, the stored lines, over the whole span so a panel keeps its
     // lines while zooming.
     const fallback = !OPTIONAL_METRICS.includes(m);
-    const channels =
+    const keys =
       live.device.status === "ready"
-        ? metricChannels(live.device, m, null, [], false)
-        : metricChannels(live.device, m, [history, shown], latest, fallback);
-    return channels.map((channel) => ({
-      channel,
-      name: channelName(live.device, m, channel),
-      value: latest.find((r) => r.channel === channel)?.[m] ?? null,
-      stats: windowStats(shown, m, channel, group.zoom),
-      source: metricSource(live.device, m, channel),
+        ? metricLines(live.device, m, null, [], false)
+        : metricLines(live.device, m, [history, shown], latest, fallback);
+    return keys.map((key) => ({
+      key,
+      channel: parseLine(key).channel,
+      name: lineName(live.device, m, key),
+      value: latest.find((r) => readingKey(r) === key)?.[m] ?? null,
+      stats: windowStats(shown, m, key, group.zoom),
+      source: metricSource(live.device, m, key),
     }));
   }
 
@@ -114,11 +128,11 @@
             ? []
             : [
                 {
-                  channel: r.channel,
+                  key: readingKey(r),
                   m: altitude(r.pressure, live.settings!.sea_level_pressure_pa),
-                  name: channelLabel(live.device, "pressure", r.channel),
+                  name: lineLabel(live.device, "pressure", readingKey(r)),
                   color: lineColor(
-                    channelColor(chartStyle(live.settings!.charts, "pressure"), "pressure", r.channel),
+                    lineColorOf(chartStyle(live.settings!.charts, "pressure"), "pressure", readingKey(r)),
                     theme.effective === "dark",
                   ),
                 },
@@ -197,6 +211,12 @@
         </button>
       </div>
     </div>
+    {#each warningsOf(live.device) as w (`${w.channel}:${w.address}`)}
+      <p class="several-bridges" role="alert">
+        <Icon name="warning" size={14} />
+        <span>{collisionText(w)}</span>
+      </p>
+    {/each}
     {#if device && device.bridges_connected > 1}
       <p class="several-bridges" role="alert">
         <Icon name="warning" size={14} />
@@ -300,7 +320,7 @@
                 {#if m === "pressure" && altitudes.length}
                   <span class="altitudes tabular" title={t().overview.altitudeHint}>
                     <Icon name="mountain" size={12} />
-                    {#each altitudes as a (a.channel)}
+                    {#each altitudes as a (a.key)}
                       <span class="altitude" title={altitudes.length > 1 ? a.name : undefined}>
                         {#if altitudes.length > 1}<span class="dot" style:background={a.color}></span>{/if}
                         ≈ {fmtNumber(a.m, 0)} m

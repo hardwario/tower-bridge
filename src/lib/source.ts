@@ -1,5 +1,6 @@
 import { fill, t } from "./i18n/index.svelte";
 import type {
+  BusWarning,
   DeviceInfo,
   DeviceState,
   GpsInfo,
@@ -11,6 +12,7 @@ import type {
   RelayInfo,
   SensorSource,
 } from "./types";
+import { compareLines, historyKeys, type LineKey, lineKey, parseLine, readingKey, sourceKey } from "./series";
 
 /** Product names; they stay the same in every language. */
 export const MODULE_NAMES: Record<ModuleKind, string> = {
@@ -49,14 +51,37 @@ export function sourceText(s: Source): string {
   return `${s.module} · ${sourcePath(s)}`;
 }
 
+/** Suspected address collisions while the bridge works, otherwise none. */
+export const warningsOf = (device: DeviceState): BusWarning[] =>
+  device.status === "ready" ? (device.warnings ?? []) : [];
+
+/**
+ * "Climate Module R2 MPL3115A2 at 0x60 on channel 0 gives garbled values: …
+ * Move the tag to channel 1."
+ */
+export function collisionText(w: BusWarning): string {
+  return fill(t().banners.collisionBody, {
+    module: MODULE_NAMES[w.module] ?? w.module,
+    sensor: w.sensor,
+    address: hexAddress(w.address),
+    channel: w.channel,
+    other: w.channel === 0 ? 1 : 0,
+  });
+}
+
 /** Sensor sources while the bridge works, otherwise none. */
 export const sourcesOf = (device: DeviceState): SensorSource[] =>
   device.status === "ready" ? (device.sources ?? []) : [];
 
-/** The sensor measuring `metric` on `channel`. */
-export function metricSource(device: DeviceState, metric: Metric, channel: number): Source | null {
+/** The source of `metric` on a line: of the channel, or a further sensor on it. */
+function sourceOf(device: DeviceState, metric: Metric, key: LineKey): SensorSource | undefined {
+  return sourcesOf(device).find((x) => x.metric === metric && sourceKey(x) === key);
+}
+
+/** The sensor measuring `metric` on line `key` (a channel, or a further sensor on it). */
+export function metricSource(device: DeviceState, metric: Metric, key: LineKey): Source | null {
   if (device.status !== "ready") return null;
-  const s = sourcesOf(device).find((x) => x.metric === metric && x.channel === channel);
+  const s = sourceOf(device, metric, key);
   if (!s) return null;
   return {
     module: productName(s.module),
@@ -138,38 +163,48 @@ export function describeModules(sources: SensorSource[]): string {
 }
 
 /**
- * Channels with `metric`: measured now, in the latest readings or with data
- * in one of the histories (pass the whole span as well as a zoomed window,
- * so a panel keeps its lines while zooming). Channel 0 when there is nothing
- * at all, so a panel still has its one line, unless `fallback` is off.
+ * Lines with `metric`: each channel and each further sensor on one (a
+ * Humidity Tag next to a Climate Module) measured now, in the latest
+ * readings or with data in one of the histories (pass the whole span as well
+ * as a zoomed window, so a panel keeps its lines while zooming). Channel 0
+ * when there is nothing at all, so a panel still has its one line, unless
+ * `fallback` is off.
  */
-export function metricChannels(
+export function metricLines(
   device: DeviceState,
   metric: Metric,
   histories: History | null | (History | null)[],
   latest: Reading[],
   fallback = true,
-): number[] {
-  const set = new Set<number>();
-  for (const s of sourcesOf(device)) if (s.metric === metric) set.add(s.channel);
-  for (const r of latest) if (r[metric] !== null) set.add(r.channel);
+): LineKey[] {
+  const set = new Set<LineKey>();
+  for (const s of sourcesOf(device)) if (s.metric === metric) set.add(sourceKey(s));
+  for (const r of latest) if (r[metric] !== null) set.add(readingKey(r));
   for (const h of Array.isArray(histories) ? histories : [histories]) {
-    h?.channels.forEach((c, i) => {
-      if (h[metric][i]?.avg.some((v) => v !== null)) set.add(c);
+    if (!h) continue;
+    historyKeys(h).forEach((key, i) => {
+      if (h[metric][i]?.avg.some((v) => v !== null)) set.add(key);
     });
   }
-  const list = [...set].sort((a, b) => a - b);
-  return list.length || !fallback ? list : [0];
+  const list = [...set].sort(compareLines);
+  return list.length || !fallback ? list : [lineKey(0)];
 }
 
 /**
  * Names for the lines of one panel, in the same order: the module, with the
- * channel ("Humidity Tag · channel 1") when two lines would otherwise read
- * the same.
+ * channel ("Humidity Tag · channel 1") when a line of another channel would
+ * read the same, and with the sensor ("Lux Meter Tag · opt3001-45") when
+ * another line of the same channel would.
  */
-export function lineLabels(names: { channel: number; name: string }[]): string[] {
-  const ambiguous = new Set(names.map((n) => n.name)).size < names.length;
-  return names.map((n) => (ambiguous ? `${n.name} · ${fill(t().common.channel, { n: n.channel })}` : n.name));
+export function lineLabels(names: { key: LineKey; name: string }[]): string[] {
+  return names.map((n) => {
+    const me = parseLine(n.key);
+    const twins = names.filter((x) => x.name === n.name && x.key !== n.key).map((x) => parseLine(x.key));
+    const parts = [n.name];
+    if (twins.some((x) => x.channel !== me.channel)) parts.push(fill(t().common.channel, { n: me.channel }));
+    if (me.sensor && twins.some((x) => x.channel === me.channel)) parts.push(me.sensor);
+    return parts.join(" · ");
+  });
 }
 
 const KNOWN_KEY = "tower-bridge.known-sources";
@@ -177,7 +212,10 @@ const KNOWN_KEY = "tower-bridge.known-sources";
 /** The browser's storage; none in tests and the like. */
 const storage = (): Storage | null => (typeof window === "undefined" ? null : window.localStorage);
 
-/** The module last seen measuring each metric on each channel ("temperature:0"). */
+/**
+ * The module last seen measuring each metric on each line ("temperature:0",
+ * "temperature:0/sht20-40").
+ */
 let known: Record<string, ModuleKind> = (() => {
   try {
     return JSON.parse(storage()?.getItem(KNOWN_KEY) ?? "{}");
@@ -190,7 +228,7 @@ let known: Record<string, ModuleKind> = (() => {
 export function rememberSources(sources: SensorSource[]) {
   let changed = false;
   for (const s of sources) {
-    const key = `${s.metric}:${s.channel}`;
+    const key = `${s.metric}:${sourceKey(s)}`;
     if (known[key] !== s.module) {
       known = { ...known, [key]: s.module };
       changed = true;
@@ -205,29 +243,32 @@ export function rememberSources(sources: SensorSource[]) {
 }
 
 /**
- * Which module measures `metric` on `channel`, e.g. "Humidity Tag"; for stored
- * data of a module unplugged since, "Climate Module R1 (disconnected)", or
- * "I²C channel 1 (disconnected)" when it was never seen here.
+ * Which module measures `metric` on line `key`, e.g. "Humidity Tag"; for
+ * stored data of a module unplugged since, "Climate Module R1
+ * (disconnected)", or "I²C channel 1 (disconnected)" when it was never seen
+ * here ("I²C channel 0 · sht20-40 (disconnected)" for a further sensor).
  */
-export function channelName(device: DeviceState, metric: Metric, channel: number): string {
-  const s = sourcesOf(device).find((x) => x.metric === metric && x.channel === channel);
+export function lineName(device: DeviceState, metric: Metric, key: LineKey): string {
+  const s = sourceOf(device, metric, key);
   if (s) return MODULE_NAMES[s.module] ?? s.module;
-  const gone = known[`${metric}:${channel}`];
-  const name = gone ? (MODULE_NAMES[gone] ?? gone) : fill(t().overview.i2cChannel, { n: channel });
+  const gone = known[`${metric}:${key}`];
+  const { channel, sensor } = parseLine(key);
+  const place = fill(t().overview.i2cChannel, { n: channel });
+  const name = gone ? (MODULE_NAMES[gone] ?? gone) : sensor ? `${place} · ${sensor}` : place;
   return fill(t().chart.disconnected, { name });
 }
 
-/** `channelName`, with the channel when another channel's module has the same name. */
-export function channelLabel(
+/** `lineName`, told apart from the panel's other lines of the same name (see `lineLabels`). */
+export function lineLabel(
   device: DeviceState,
   metric: Metric,
-  channel: number,
+  key: LineKey,
   histories: History | null | (History | null)[] = null,
 ): string {
-  const channels = metricChannels(device, metric, histories, [], false);
-  if (!channels.includes(channel)) channels.push(channel);
-  const labels = lineLabels(channels.map((c) => ({ channel: c, name: channelName(device, metric, c) })));
-  return labels[channels.indexOf(channel)];
+  const keys = metricLines(device, metric, histories, [], false);
+  if (!keys.includes(key)) keys.push(key);
+  const labels = lineLabels(keys.map((k) => ({ key: k, name: lineName(device, metric, k) })));
+  return labels[keys.indexOf(key)];
 }
 
 export function nfcSource(device: DeviceState, nfc: NfcInfo): Source | null {

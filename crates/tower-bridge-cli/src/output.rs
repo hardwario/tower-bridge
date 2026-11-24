@@ -163,12 +163,34 @@ pub fn time(ts: i64) -> String {
     }
 }
 
-/// "Temperature on I²C channel 0 above 24.0 °C: 24.3 °C".
-pub fn alert(ev: &tower_bridge_core::alerts::AlertEvent, unit: TemperatureUnit) -> String {
+/// Where a series is measured: "I²C channel 0", or for a further sensor on
+/// the channel "I²C channel 0, Humidity Tag sht20-40" ("I²C channel 0,
+/// sensor sht20-40" while its module is not known).
+pub fn place(sources: &[SensorSource], channel: u8, sensor: Option<&str>) -> String {
+    let Some(id) = sensor else {
+        return format!("I²C channel {channel}");
+    };
+    match sources.iter().find(|s| s.channel == channel && s.id == id) {
+        Some(s) => format!("I²C channel {channel}, {} {id}", s.module.name()),
+        None => format!("I²C channel {channel}, sensor {id}"),
+    }
+}
+
+/// "Temperature on I²C channel 0 above 24.0 °C: 24.3 °C"; `sources` name the
+/// module of a further sensor's alert.
+pub fn alert(
+    ev: &tower_bridge_core::alerts::AlertEvent,
+    unit: TemperatureUnit,
+    sources: &[SensorSource],
+) -> String {
     use tower_bridge_core::alerts::{AlertKind, Bound};
     let value = value(ev.metric, Some(ev.value), unit);
     let limit = value_of(ev.metric, ev.threshold, unit);
-    let what = format!("{} on I²C channel {}", metric_name(ev.metric), ev.channel);
+    let what = format!(
+        "{} on {}",
+        metric_name(ev.metric),
+        place(sources, ev.channel, ev.sensor.as_deref())
+    );
     match (ev.kind, ev.bound) {
         (AlertKind::Triggered, Bound::High) => format!("{what} above {limit}: {value}"),
         (AlertKind::Triggered, Bound::Low) => format!("{what} below {limit}: {value}"),

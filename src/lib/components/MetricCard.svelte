@@ -1,9 +1,11 @@
 <script lang="ts" module>
   import type { WindowStats } from "../chart-group.svelte";
   import type { Source } from "../source";
+  import type { LineKey } from "../series";
 
-  /** One I²C channel measuring the panel's metric. */
+  /** One I²C channel, or a further sensor on one, measuring the panel's metric. */
   export interface PanelLine {
+    key: LineKey;
     channel: number;
     /** Module measuring it, e.g. "Humidity Tag". */
     name: string;
@@ -18,7 +20,8 @@
   import type { ChartGroup } from "../chart-group.svelte";
   import { fmtValue } from "../format";
   import { t } from "../i18n/index.svelte";
-  import { channelColor, hiddenChannels, lineColor, withChannelColor, withChannelHidden } from "../palette";
+  import { hiddenLines, lineColor, lineColorOf, withLineColor, withLineHidden } from "../palette";
+  import { lineKey } from "../series";
   import { lineLabels } from "../source";
   import { theme } from "../theme.svelte";
   import type { ActiveAlert, AlertRule, ChartStyle, History, Metric, TemperatureUnit } from "../types";
@@ -49,7 +52,7 @@
     onstyle,
   }: {
     metric: Metric;
-    /** At least one; several when sensors on both channels measure the metric. */
+    /** At least one; several when several sensors (on one channel or both) measure the metric. */
     lines: PanelLine[];
     unit: TemperatureUnit;
     history: History | null;
@@ -68,7 +71,9 @@
   } = $props();
 
   const dark = $derived(theme.effective === "dark");
-  const colorOf = (channel: number) => lineColor(channelColor(style, metric, channel), dark);
+  const keys = $derived(lines.map((l) => l.key));
+  const paletteOf = (key: LineKey) => lineColorOf(style, metric, key, keys);
+  const colorOf = (key: LineKey) => lineColor(paletteOf(key), dark);
   const single = $derived(lines.length === 1 ? lines[0] : null);
   const sources = $derived(lines.flatMap((l) => (l.source ? [l.source] : [])));
   /** Line names, with the channel where two would read the same. */
@@ -79,12 +84,12 @@
     const live = lines.filter((l) => l.source !== null || l.value !== null);
     return live.length ? live : lines;
   });
-  const labelOf = (channel: number) => labels[lines.findIndex((l) => l.channel === channel)] ?? "";
-  /** One badge per direction: one channel may be above while another is below. */
+  const labelOf = (key: LineKey) => labels[lines.findIndex((l) => l.key === key)] ?? "";
+  /** One badge per direction: one line may be above while another is below. */
   const bounds = $derived((["high", "low"] as const).filter((b) => alerts.some((a) => a.bound === b)));
-  const alerting = (channel: number) => alerts.some((a) => a.channel === channel);
+  const alerting = (key: LineKey) => alerts.some((a) => lineKey(a.channel, a.sensor) === key);
   /** Lines the user took out of the chart (from the legend). */
-  const hidden = $derived(hiddenChannels(style, lines.map((l) => l.channel)));
+  const hidden = $derived(hiddenLines(style, keys));
 </script>
 
 <article class="card metric" class:alerting={alerts.length > 0} class:maximized aria-label={t().metrics[metric]}>
@@ -92,7 +97,7 @@
     <span class="label"><Icon name={metric} size={15} /> {t().metrics[metric]}</span>
     <span class="tools">
       {#each bounds as bound (bound)}
-        {@const names = alerts.filter((a) => a.bound === bound).map((a) => labelOf(a.channel))}
+        {@const names = alerts.filter((a) => a.bound === bound).map((a) => labelOf(lineKey(a.channel, a.sensor)))}
         <span class="badge" title={lines.length > 1 ? names.join(", ") : undefined}
           ><Icon name="warning" size={13} />
           {bound === "high" ? t().common.aboveLimit : t().common.belowLimit}{#if lines.length > 1}<span
@@ -103,8 +108,8 @@
       {/each}
       {#if single}
         <ColorPicker
-          value={channelColor(style, metric, single.channel)}
-          onchange={(c) => onstyle(withChannelColor(style, single.channel, c))}
+          value={paletteOf(single.key)}
+          onchange={(c) => onstyle(withLineColor(style, single.key, c))}
         />
       {/if}
       {#if sources.length}<SourceInfo {sources} />{/if}
@@ -134,8 +139,8 @@
     </div>
   {:else}
     <div class="values">
-      {#each current as line (line.channel)}
-        <div class="each" class:alerting={alerting(line.channel)}>
+      {#each current as line (line.key)}
+        <div class="each" class:alerting={alerting(line.key)}>
           <div class="value">
             {#if line.value === null && line.source}
               <span class="waiting small" title={t().overview.waiting}><Icon name="loader" size={20} /></span>
@@ -143,9 +148,9 @@
               <span class="number small" class:none={line.value === null}>{fmtValue(metric, line.value, unit)}</span>
             {/if}
             {#if line.value !== null}<span class="unit">{unitLabel(metric, unit)}</span>{/if}
-            {#if alerting(line.channel)}<Icon name="warning" size={14} />{/if}
+            {#if alerting(line.key)}<Icon name="warning" size={14} />{/if}
           </div>
-          <div class="who"><span class="dot" style:background={colorOf(line.channel)}></span>{labelOf(line.channel)}</div>
+          <div class="who"><span class="dot" style:background={colorOf(line.key)}></span>{labelOf(line.key)}</div>
         </div>
       {/each}
     </div>
@@ -158,7 +163,7 @@
       {unit}
       {group}
       {rule}
-      lines={lines.map((l, i) => ({ channel: l.channel, color: colorOf(l.channel), name: labels[i], hidden: hidden.has(l.channel) }))}
+      lines={lines.map((l, i) => ({ key: l.key, color: colorOf(l.key), name: labels[i], hidden: hidden.has(l.key) }))}
       show={{ min: style.show_min, avg: style.show_avg, max: style.show_max }}
       height={chartHeight}
       compact={!maximized}
@@ -168,22 +173,23 @@
   {/if}
   <footer class:stacked={!single}>
     {#if single}
-      <ChartStats {metric} {unit} stats={single.stats} {style} color={colorOf(single.channel)} onchange={onstyle} />
+      <ChartStats {metric} {unit} stats={single.stats} {style} color={colorOf(single.key)} onchange={onstyle} />
     {:else}
       <ChartLegend
         {metric}
         {unit}
         {style}
         lines={lines.map((l, i) => ({
+          key: l.key,
           channel: l.channel,
           name: labels[i],
           stats: l.stats,
-          color: channelColor(style, metric, l.channel),
-          hidden: hidden.has(l.channel),
+          color: paletteOf(l.key),
+          hidden: hidden.has(l.key),
         }))}
         onchange={onstyle}
-        oncolor={(channel, c) => onstyle(withChannelColor(style, channel, c))}
-        ontoggle={(channel, off) => onstyle(withChannelHidden(style, channel, off))}
+        oncolor={(key, c) => onstyle(withLineColor(style, key, c))}
+        ontoggle={(key, off) => onstyle(withLineHidden(style, key, off))}
       />
     {/if}
     {#if footer}<span class="extra muted">{@render footer()}</span>{/if}

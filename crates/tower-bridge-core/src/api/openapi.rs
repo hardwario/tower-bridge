@@ -35,7 +35,9 @@ pub fn document(info: &ApiInfo) -> Value {
             "version": info.version,
             "description": "Local API of the TOWER Bridge desktop app. Values are SI units: temperature °C, \
     humidity %RH, illuminance lx, pressure Pa, altitude m; CO2 ppm and TVOC ppb. Timestamps are Unix milliseconds. Sensors can sit \
-    on I2C channel 0 and 1 of the bridge; readings and alerts carry the channel.",
+    on I2C channel 0 and 1 of the bridge; readings and alerts carry the channel. A further sensor of a quantity \
+    the channel already measures (a Humidity Tag next to a Climate Module) has readings and alerts of its own, \
+    with 'sensor' set to its part and I2C address (e.g. sht20-40).",
             "license": { "name": "MIT" }
         },
         "components": {
@@ -56,6 +58,8 @@ pub fn document(info: &ApiInfo) -> Value {
                     "properties": {
                         "ts": { "type": "integer" }, "time": { "type": "string" }, "device": { "type": "string" },
                         "channel": { "type": "integer", "description": "I2C switch channel of the sensors" },
+                        "sensor": { "type": "string",
+                            "description": "A further sensor on the channel (part and address, e.g. sht20-40); absent for the channel's own reading" },
                         "temperature": { "type": ["number", "null"] }, "humidity": { "type": ["number", "null"] },
                         "illuminance": { "type": ["number", "null"] }, "pressure": { "type": ["number", "null"] },
                         "altitude": { "type": ["number", "null"] },
@@ -69,7 +73,7 @@ pub fn document(info: &ApiInfo) -> Value {
                         "ts": { "type": "integer", "description": "Newest reading" }, "time": { "type": "string" },
                         "stale": { "type": "boolean", "description": "The bridge is not working right now" },
                         "readings": { "type": "array", "items": { "$ref": "#/components/schemas/Reading" },
-                            "description": "One per I2C channel, in channel order" }
+                            "description": "One per I2C channel, in channel order, each followed by its further sensors' (with 'sensor')" }
                     }
                 },
                 "AlertRule": {
@@ -106,7 +110,7 @@ pub fn document(info: &ApiInfo) -> Value {
                 }))
             } },
             "/api/v1/readings": { "get": {
-                "summary": "Averaged history (columnar; t in seconds; per metric one avg/min/max series for each entry of 'channels')",
+                "summary": "Averaged history (columnar; t in seconds; per metric one avg/min/max series for each entry of 'channels' and 'sensors', null for a channel's own series, a sensor id for a further sensor's)",
                 "parameters": range_params.as_array().cloned().unwrap_or_default().into_iter()
                     .chain([json!({ "name": "max_points", "in": "query", "schema": { "type": "integer", "default": 500 },
                         "description": "Approximate number of points; values outside 2 to 5000 are clamped." })])
@@ -115,7 +119,7 @@ pub fn document(info: &ApiInfo) -> Value {
                     "400": { "description": "Invalid range or hours", "content": error["content"].clone() } }))
             } },
             "/api/v1/readings.csv": { "get": {
-                "summary": "Individual readings as CSV, one row per measurement and I2C channel",
+                "summary": "Individual readings as CSV, one row per measurement and I2C channel, and per further sensor (columns 'sensor' and 'source' last)",
                 "parameters": range_params,
                 "responses": guarded(json!({ "200": { "description": "CSV, streamed", "content": { "text/csv": {} } },
                     "400": { "description": "Invalid range or hours", "content": error["content"].clone() } }))

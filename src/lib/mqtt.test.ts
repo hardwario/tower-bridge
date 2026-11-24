@@ -8,6 +8,8 @@ const src = (metric: SensorSource["metric"], channel: number): SensorSource => (
   module: "lux_meter_tag",
   sensor: "X",
   address: 0,
+  id: "",
+  primary: true,
 });
 
 describe("MQTT topics", () => {
@@ -33,6 +35,25 @@ describe("MQTT topics", () => {
       "tower/status",
     ]);
     expect(topics[0][1]).toBe("°C");
+  });
+
+  it("lists every sensor's own topics too (GitHub issue #2)", () => {
+    const sensor = (metric: SensorSource["metric"], id: string, primary: boolean): SensorSource => ({
+      ...src(metric, 0),
+      id,
+      primary,
+    });
+    const topics = mqttTopics(
+      "tower",
+      [sensor("humidity", "sht30-45", true), sensor("humidity", "sht20-40", false)],
+      null,
+    );
+    expect(topics.map(([t]) => t)).toEqual([
+      "tower/humidity/0",
+      "tower/humidity/0/sht20-40",
+      "tower/humidity/0/sht30-45",
+      "tower/status",
+    ]);
   });
 
   it("is empty without sensors or relay", () => {

@@ -1,3 +1,4 @@
+import { compareLines, readingKey, sourceKey } from "./series";
 import { api, errorMessage, on } from "./api";
 import { i18n, resolveLang } from "./i18n/index.svelte";
 import { rememberSources } from "./source";
@@ -130,9 +131,12 @@ class Live {
   }
 
   private pushReading(r: Reading) {
-    const known = this.latest.find((x) => x.channel === r.channel);
+    const key = readingKey(r);
+    const known = this.latest.find((x) => readingKey(x) === key);
     if (known && known.ts > r.ts) return; // an older reading (the snapshot's) arrived late
-    this.latest = [...this.latest.filter((x) => x.channel !== r.channel), r].sort((a, b) => a.channel - b.channel);
+    this.latest = [...this.latest.filter((x) => readingKey(x) !== key), r].sort((a, b) =>
+      compareLines(readingKey(a), readingKey(b)),
+    );
     this.tick++;
   }
 
@@ -183,10 +187,10 @@ class Live {
   }
 }
 
-/** The readings of channels that still have sensors. */
+/** The readings of channels, and of further sensors, that are still measured. */
 export function pruneLatest(latest: Reading[], sources: SensorSource[]): Reading[] {
-  const channels = new Set(sources.map((s) => s.channel));
-  return latest.filter((r) => channels.has(r.channel));
+  const lines = new Set(sources.map(sourceKey));
+  return latest.filter((r) => lines.has(readingKey(r)));
 }
 
 export const live = new Live();

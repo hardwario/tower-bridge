@@ -21,7 +21,10 @@ fn fmt(v: Option<f64>, decimals: usize) -> String {
     v.map(|x| format!("{x:.decimals$}")).unwrap_or_default()
 }
 
-/// Write readings in `[from, to)` as CSV, one row per cycle and I2C channel.
+/// Write readings in `[from, to)` as CSV, one row per cycle and I2C channel,
+/// and one per cycle and further sensor on a channel; the last two columns
+/// name the further sensor (empty for a channel's own row) and the modules
+/// that measured the row's values.
 /// `progress(done, total)` is called every 10 000 rows and may return
 /// `false` to cancel.
 pub fn write_csv<W: Write>(
@@ -40,13 +43,10 @@ pub fn write_csv<W: Write>(
     };
     writeln!(
         out,
-        "timestamp,unix_ms,device,channel,{temp_col},humidity_pct,illuminance_lx,pressure_hpa,altitude_m,co2_ppm,voc_ppb"
+        "timestamp,unix_ms,device,channel,{temp_col},humidity_pct,illuminance_lx,pressure_hpa,altitude_m,co2_ppm,voc_ppb,sensor,source"
     )?;
-    let mut stmt = conn.prepare(
-        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel, r.co2, r.voc
-         FROM readings r JOIN devices d ON d.id = r.device_id
-         WHERE r.ts >= ?1 AND r.ts < ?2 ORDER BY r.ts, r.channel",
-    )?;
+    let names = super::SourceNames::load(conn, from, to)?;
+    let mut stmt = conn.prepare(super::EXPORT_ROWS)?;
     let mut rows = stmt.query(params![from, to])?;
     let mut n = 0u64;
     while let Some(r) = rows.next()? {
@@ -56,9 +56,11 @@ pub fn write_csv<W: Write>(
         let h: Option<f64> = r.get(3)?;
         let l: Option<f64> = r.get(4)?;
         let p: Option<f64> = r.get(5)?;
-        let channel: i64 = r.get(6)?;
+        let channel: u8 = r.get(6)?;
         let co2: Option<f64> = r.get(7)?;
         let voc: Option<f64> = r.get(8)?;
+        let sensor: String = r.get(9)?;
+        let source = names.of(ts, channel, &sensor);
         let stamp = Local
             .timestamp_millis_opt(ts)
             .single()
@@ -71,7 +73,7 @@ pub fn write_csv<W: Write>(
         };
         writeln!(
             out,
-            "{stamp},{ts},{serial},{channel},{},{},{},{},{},{},{}",
+            "{stamp},{ts},{serial},{channel},{},{},{},{},{},{},{},{sensor},{}",
             fmt(t, 2),
             fmt(h, 1),
             fmt(l, 1),
@@ -79,6 +81,7 @@ pub fn write_csv<W: Write>(
             fmt(p.map(|p| altitude(p, opts.sea_level_pa)), 1),
             fmt(co2, 0),
             fmt(voc, 0),
+            csv_field(&source),
         )?;
         n += 1;
         if n.is_multiple_of(10_000) && !progress(n, total) {
@@ -88,6 +91,15 @@ pub fn write_csv<W: Write>(
     out.flush()?;
     progress(n, total);
     Ok(n)
+}
+
+/// Quote a field that holds a comma or a quote.
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
 }
 
 /// Export into `path` atomically: write `<path>.part`, then rename.
@@ -152,7 +164,7 @@ mod tests {
         assert_eq!(
             lines.next(),
             Some(
-                "timestamp,unix_ms,device,channel,temperature_c,humidity_pct,illuminance_lx,pressure_hpa,altitude_m,co2_ppm,voc_ppb"
+                "timestamp,unix_ms,device,channel,temperature_c,humidity_pct,illuminance_lx,pressure_hpa,altitude_m,co2_ppm,voc_ppb,sensor,source"
             )
         );
         let row: Vec<&str> = lines.next().unwrap_or_default().split(',').collect();
@@ -164,6 +176,71 @@ mod tests {
         assert_eq!(row[6], "");
         assert_eq!(row[7], "1000.00");
         assert_eq!(row[8], "110.9");
+        assert_eq!(&row[11..], ["", ""], "no further sensor, no source logged");
+        Ok(())
+    }
+
+    /// GitHub issue #2: the export names the module of every row.
+    #[test]
+    fn further_sensors_have_rows_naming_their_module() -> Result<()> {
+        use crate::model::{Metric, ModuleKind, SensorSource};
+        let source = |metric, module, id: &str, primary| SensorSource {
+            metric,
+            channel: 0,
+            module,
+            sensor: "X".into(),
+            address: 0,
+            id: id.into(),
+            primary,
+        };
+        let mut s = Store::open_in_memory()?;
+        s.log_sources(
+            1000,
+            &[
+                source(
+                    Metric::Temperature,
+                    ModuleKind::ClimateModuleR2,
+                    "sht30-45",
+                    true,
+                ),
+                source(
+                    Metric::Temperature,
+                    ModuleKind::HumidityTag,
+                    "sht20-40",
+                    false,
+                ),
+                source(Metric::Co2, ModuleKind::Co2Module, "lp8-4d", true),
+            ],
+        )?;
+        let mut tag = reading(2000, 5.0);
+        tag.sensor = Some("sht20-40".into());
+        s.insert_many(&[tag, reading(2000, 21.0), reading(500, 20.0)])?;
+        let mut buf = Vec::new();
+        let opts = CsvOptions {
+            fahrenheit: false,
+            sea_level_pa: 101_325.0,
+        };
+        assert_eq!(
+            write_csv(s.conn(), 0, i64::MAX, opts, &mut buf, |_, _| true)?,
+            3
+        );
+        let text = String::from_utf8(buf).map_err(std::io::Error::other)?;
+        let tails: Vec<String> = text
+            .lines()
+            .skip(1)
+            .map(|l| {
+                let f: Vec<&str> = l.splitn(12, ',').collect();
+                format!("{} {} {}", f[1], f[4], f[11])
+            })
+            .collect();
+        assert_eq!(
+            tails,
+            vec![
+                "500 20.00 ,".to_string(),
+                "2000 21.00 ,\"Climate Module R2, CO2 Module\"".to_string(),
+                "2000 5.00 sht20-40,Humidity Tag".to_string(),
+            ]
+        );
         Ok(())
     }
 

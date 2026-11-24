@@ -7,6 +7,9 @@
 //                   &bridges=2 (more than one TOWER Bridge Module plugged in)
 //                   &nfc=url|empty|unformatted (an NFC Tag on channel 0)
 //                   &co2=1 (a CO2 Module and a VOC-LP Tag on channel 0)  &gps=fix|nofix (a GPS Module)
+//                   &sensors=1 (a Humidity Tag and a Temperature Tag next to the Climate Module on channel 0,
+//                   each with series of their own, as in GitHub issue #2)
+//                   &collision=1 (a second device at the Climate Module's light sensor address, 0x44)
 //                   &notify=blocked (macOS has the app's notifications turned off: "Send test" says so)
 //                   &update=available|checking|failed|unchecked (the update check; up to date by default)
 
@@ -39,13 +42,37 @@ const DAY = 86_400_000;
 const CHANNELS = params.get("tags") === "0" ? [0] : [0, 1];
 /** ?co2=1: a CO2 Module and a VOC-LP Tag on channel 0. */
 const AIR = params.get("co2") === "1";
+/** ?sensors=1: a Humidity Tag (SHT20) and a Temperature Tag (TMP112) next to the Climate Module. */
+const BESIDE = params.get("sensors") === "1";
+/** The series: each channel's own, and the further sensors on channel 0. */
+const LINES: { channel: number; sensor: string | null }[] = [
+  ...CHANNELS.map((channel) => ({ channel, sensor: null })),
+  ...(BESIDE
+    ? [
+        { channel: 0, sensor: "sht20-40" },
+        { channel: 0, sensor: "tmp112-48" },
+      ]
+    : []),
+].sort((a, b) => a.channel - b.channel || (a.sensor ?? "").localeCompare(b.sensor ?? ""));
 
 type Mocked = Record<"temperature" | "humidity" | "illuminance" | "pressure", number> & {
   co2: number | null;
   voc: number | null;
 };
 
-function values(ts: number, channel = 0): Mocked {
+function values(ts: number, channel = 0, sensor: string | null = null): Mocked {
+  if (sensor) {
+    // Next to the Climate Module, near a radiator: a little warmer and drier.
+    const v = values(ts, channel);
+    return {
+      temperature: v.temperature + (sensor === "tmp112-48" ? 1.9 : 1.4),
+      humidity: sensor === "sht20-40" ? Math.max(0, v.humidity - 4.5) : (null as unknown as number),
+      illuminance: null as unknown as number,
+      pressure: null as unknown as number,
+      co2: null,
+      voc: null,
+    };
+  }
   if (channel === 1) {
     // The tags are somewhere a bit cooler, damper and brighter.
     const v = values(ts - 1_800_000);
@@ -74,9 +101,10 @@ function values(ts: number, channel = 0): Mocked {
   };
 }
 
-function reading(ts: number, channel = 0): Reading {
-  const v = values(ts, channel);
-  return { ts, device: "TB4F2A91", channel, ...v, altitude: 44330.77 * (1 - Math.pow(v.pressure / 101325, 0.190263)) };
+function reading(ts: number, channel = 0, sensor: string | null = null): Reading {
+  const v = values(ts, channel, sensor);
+  const altitude = v.pressure === null ? null : 44330.77 * (1 - Math.pow(v.pressure / 101325, 0.190263));
+  return { ts, device: "TB4F2A91", channel, ...(sensor ? { sensor } : {}), ...v, altitude };
 }
 
 function history(from: number, to: number, maxPoints = 900): History {
@@ -85,13 +113,14 @@ function history(from: number, to: number, maxPoints = 900): History {
   // ?gap=<hours>: data only for the last <hours> hours (the data range claims 30 days, to test panning limits).
   const gap = params.has("gap") ? Number(params.get("gap")) * 3_600_000 : null;
   const first = gap === null ? Date.now() - 14 * DAY : Date.now() - gap;
-  const empty = (): Series[] => CHANNELS.map(() => ({ avg: [], min: [], max: [] }));
+  const empty = (): Series[] => LINES.map(() => ({ avg: [], min: [], max: [] }));
   const h: History = {
     from,
     to,
     bucket_ms: bucket,
     t: [],
-    channels: CHANNELS,
+    channels: LINES.map((l) => l.channel),
+    sensors: LINES.map((l) => l.sensor),
     temperature: empty(),
     humidity: empty(),
     illuminance: empty(),
@@ -101,8 +130,8 @@ function history(from: number, to: number, maxPoints = 900): History {
   };
   for (let b = Math.floor(Math.max(from, first) / bucket) * bucket; b < Math.min(to, Date.now()); b += bucket) {
     h.t.push((b + bucket / 2) / 1000);
-    CHANNELS.forEach((channel, c) => {
-      const samples = [0, 0.33, 0.66].map((f) => values(b + f * bucket, channel));
+    LINES.forEach(({ channel, sensor }, c) => {
+      const samples = [0, 0.33, 0.66].map((f) => values(b + f * bucket, channel, sensor));
       for (const m of METRICS) {
         const xs = samples.map((s) => s[m]).filter((x): x is number => x !== null);
         h[m][c].avg.push(xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : null);
@@ -114,7 +143,14 @@ function history(from: number, to: number, maxPoints = 900): History {
   return h;
 }
 
-const SOURCES: SensorSource[] = [
+type Part = Omit<SensorSource, "id" | "primary">;
+const part = (s: Part, primary = true): SensorSource => ({
+  ...s,
+  id: `${s.sensor.toLowerCase()}-${s.address.toString(16).padStart(2, "0")}`,
+  primary,
+});
+
+const BASE: Part[] = [
   {
     metric: "temperature",
     channel: 0,
@@ -147,7 +183,7 @@ const SOURCES: SensorSource[] = [
     ? ([
         { metric: "co2", channel: 0, module: "co2_module", sensor: "LP8", address: 0x4d },
         { metric: "voc", channel: 0, module: "voc_lp_tag", sensor: "SGPC3", address: 0x58 },
-      ] satisfies SensorSource[])
+      ] satisfies Part[])
     : []),
   ...(CHANNELS.includes(1)
     ? ([
@@ -179,7 +215,20 @@ const SOURCES: SensorSource[] = [
           sensor: "MPL3115A2",
           address: 0x60,
         },
-      ] satisfies SensorSource[])
+      ] satisfies Part[])
+    : []),
+];
+
+const SOURCES: SensorSource[] = [
+  ...BASE.map((s) => part(s)),
+  ...(BESIDE
+    ? (
+        [
+          ["temperature", "temperature_tag", "TMP112", 0x48],
+          ["temperature", "humidity_tag", "SHT20", 0x40],
+          ["humidity", "humidity_tag", "SHT20", 0x40],
+        ] as const
+      ).map(([metric, module, sensor, address]) => part({ metric, channel: 0, module, sensor, address }, false))
     : []),
 ];
 
@@ -199,7 +248,15 @@ const device: DeviceState = (() => {
     case "permission":
       return { status: "error", kind: "permission_denied", message: "/dev/hidraw3: Permission denied" };
     default:
-      return { status: "ready", device: info, sources: SOURCES };
+      return {
+        status: "ready",
+        device: info,
+        sources: SOURCES,
+        warnings:
+          params.get("collision") === "1"
+            ? [{ channel: 0, address: 0x44, sensor: "OPT3001", module: "climate_module_r2", kind: "address_collision" }]
+            : [],
+      };
   }
 })();
 
@@ -216,6 +273,7 @@ const settings: Settings = {
   retention_days: 90,
   sea_level_pressure_pa: 101325,
   i2c_channel: "auto",
+  climate_r1: ["auto", "auto"],
   backend: "auto",
   alerts: {
     temperature: { enabled: true, min: 18, max: 24, hysteresis: 0.5, cooldown_ms: 900_000, notify_recovery: true },
@@ -258,7 +316,7 @@ const settings: Settings = {
 };
 
 const now = Date.now();
-const latest = device.status === "ready" ? CHANNELS.map((c) => reading(now, c)) : [];
+const latest = device.status === "ready" ? LINES.map((l) => reading(now, l.channel, l.sensor)) : [];
 // ?update=...: what the update check found, two hours ago.
 let update: UpdateState = (() => {
   const last_check = now - 7_200_000;
@@ -466,7 +524,7 @@ await import("./main");
 if (latest.length) {
   setInterval(() => {
     const ts = Date.now();
-    for (const c of CHANNELS) void emit("reading", reading(ts, c));
+    for (const l of LINES) void emit("reading", reading(ts, l.channel, l.sensor));
   }, 10_000);
 }
 

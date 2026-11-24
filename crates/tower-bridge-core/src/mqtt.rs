@@ -19,6 +19,15 @@
 //! tower/status           online | offline (also the client's last will)
 //! ```
 //!
+//! Every sensor also publishes its values one level down, named by its part
+//! and address (see [`crate::model::sensor_id`]), so several sensors of the
+//! same metric on one channel can be told apart: a Humidity Tag next to a
+//! Climate Module R2 on channel 0 publishes on `tower/humidity/0/sht20-40`,
+//! the Climate Module on `tower/humidity/0/sht30-45` and, as the channel's
+//! primary source, on `tower/humidity/0` as before (see
+//! [`crate::model::SensorSource::primary`]). `tower/humidity/0/+` follows
+//! every humidity sensor on channel 0.
+//!
 //! Commands for the Relay Module are accepted on (messages with the retain
 //! flag are ignored, so a stored command never fires later):
 //!
@@ -36,7 +45,7 @@ use crossbeam_channel::Sender;
 use tracing::{info, warn};
 
 use crate::gps::GpsInfo;
-use crate::model::{Metric, Reading};
+use crate::model::{Metric, Reading, SensorSource};
 use crate::relay::{RelayInfo, parse_state, pulse_from_ms};
 
 pub const DEFAULT_PREFIX: &str = "tower";
@@ -426,8 +435,9 @@ impl Publisher {
     }
 
     /// Clear the retained values of metrics no longer measured on their
-    /// channel (a sensor or a whole module gone).
-    pub fn retain_sources(&mut self, measured: &[(Metric, u8)]) -> Result<(), MqttError> {
+    /// channel, or by the sensor a topic names (a sensor or a whole module
+    /// gone). `sources` are the sources measured now.
+    pub fn retain_sources(&mut self, sources: &[SensorSource]) -> Result<(), MqttError> {
         let stem = format!("{}/", self.prefix);
         let stale: Vec<String> = self
             .published
@@ -437,7 +447,8 @@ impl Publisher {
                     return false;
                 };
                 let mut parts = rest.split('/');
-                let (Some(name), Some(channel), None) = (parts.next(), parts.next(), parts.next())
+                let (Some(name), Some(channel), sensor, None) =
+                    (parts.next(), parts.next(), parts.next(), parts.next())
                 else {
                     return false;
                 };
@@ -449,7 +460,16 @@ impl Publisher {
                 } else {
                     Metric::ALL.into_iter().find(|m| m.as_str() == name)
                 };
-                metric.is_some_and(|m| !measured.contains(&(m, channel)))
+                metric.is_some_and(|m| {
+                    !sources.iter().any(|s| {
+                        s.metric == m
+                            && s.channel == channel
+                            && match sensor {
+                                Some(id) => s.id == id,
+                                None => s.primary,
+                            }
+                    })
+                })
             })
             .cloned()
             .collect();
@@ -521,8 +541,14 @@ impl Publisher {
         Ok(())
     }
 
-    pub fn publish_reading(&mut self, reading: &Reading) -> Result<(), MqttError> {
-        for (topic, payload) in topics(&self.prefix, reading) {
+    /// Publish a reading; `sources` name the sensors of a channel's
+    /// reading for their own topics.
+    pub fn publish_reading(
+        &mut self,
+        reading: &Reading,
+        sources: &[SensorSource],
+    ) -> Result<(), MqttError> {
+        for (topic, payload) in topics(&self.prefix, reading, sources) {
             self.publish(topic, payload)?;
         }
         Ok(())
@@ -553,22 +579,68 @@ pub fn sanitize_prefix(prefix: &str) -> String {
     }
 }
 
-/// Topic/payload pairs for a reading of one channel (missing values are
-/// skipped, since an empty retained payload would clear the topic).
-pub fn topics(prefix: &str, r: &Reading) -> Vec<(String, String)> {
+/// Topic/payload pairs for a reading of one channel or of a further sensor
+/// on it (missing values are skipped, since an empty retained payload would
+/// clear the topic). A channel's reading goes to `{prefix}/{metric}/{channel}`
+/// and, for each value whose primary source is among `sources`, to
+/// `{prefix}/{metric}/{channel}/{sensor}` too; a further sensor's reading
+/// only to the latter.
+pub fn topics(prefix: &str, r: &Reading, sources: &[SensorSource]) -> Vec<(String, String)> {
+    let channel = r.channel;
+    let mut out = Vec::new();
+    for (name, metric, payload) in values(r) {
+        let Some(payload) = payload else {
+            continue;
+        };
+        match &r.sensor {
+            Some(sensor) => out.push((format!("{prefix}/{name}/{channel}/{sensor}"), payload)),
+            None => {
+                out.push((format!("{prefix}/{name}/{channel}"), payload.clone()));
+                if let Some(s) = sources
+                    .iter()
+                    .find(|s| s.metric == metric && s.channel == channel && s.primary)
+                {
+                    out.push((format!("{prefix}/{name}/{channel}/{}", s.id), payload));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The topic name, metric (pressure for the altitude) and payload of each
+/// value of a reading.
+fn values(r: &Reading) -> [(&'static str, Metric, Option<String>); 7] {
     let v = &r.values;
     [
-        ("temperature", v.temperature.map(|t| format!("{t:.2}"))),
-        ("humidity", v.humidity.map(|h| format!("{h:.1}"))),
-        ("illuminance", v.illuminance.map(|l| format!("{l:.1}"))),
-        ("pressure", v.pressure.map(|p| format!("{p:.2}"))),
-        ("altitude", r.altitude.map(|a| format!("{a:.1}"))),
-        ("co2", v.co2.map(|c| format!("{c:.0}"))),
-        ("voc", v.voc.map(|c| format!("{c:.0}"))),
+        (
+            "temperature",
+            Metric::Temperature,
+            v.temperature.map(|t| format!("{t:.2}")),
+        ),
+        (
+            "humidity",
+            Metric::Humidity,
+            v.humidity.map(|h| format!("{h:.1}")),
+        ),
+        (
+            "illuminance",
+            Metric::Illuminance,
+            v.illuminance.map(|l| format!("{l:.1}")),
+        ),
+        (
+            "pressure",
+            Metric::Pressure,
+            v.pressure.map(|p| format!("{p:.2}")),
+        ),
+        (
+            "altitude",
+            Metric::Pressure,
+            r.altitude.map(|a| format!("{a:.1}")),
+        ),
+        ("co2", Metric::Co2, v.co2.map(|c| format!("{c:.0}"))),
+        ("voc", Metric::Voc, v.voc.map(|c| format!("{c:.0}"))),
     ]
-    .into_iter()
-    .filter_map(|(name, payload)| payload.map(|p| (format!("{prefix}/{name}/{}", r.channel), p)))
-    .collect()
 }
 
 #[cfg(test)]
@@ -587,6 +659,7 @@ mod tests {
             ts: 0,
             device: "x".into(),
             channel: 1,
+            sensor: None,
             values: Values {
                 temperature: Some(23.456),
                 humidity: Some(45.21),
@@ -598,12 +671,79 @@ mod tests {
             altitude: Some(312.44),
         };
         assert_eq!(
-            topics("tower", &r),
+            topics("tower", &r, &[]),
             vec![
                 ("tower/temperature/1".to_string(), "23.46".to_string()),
                 ("tower/humidity/1".to_string(), "45.2".to_string()),
                 ("tower/pressure/1".to_string(), "98765.25".to_string()),
                 ("tower/altitude/1".to_string(), "312.4".to_string()),
+            ]
+        );
+    }
+
+    fn source(metric: Metric, channel: u8, id: &str, primary: bool) -> SensorSource {
+        SensorSource {
+            metric,
+            channel,
+            module: crate::model::ModuleKind::HumidityTag,
+            sensor: "X".into(),
+            address: 0,
+            id: id.into(),
+            primary,
+        }
+    }
+
+    /// GitHub issue #2: a Humidity Tag next to a Climate Module R2.
+    #[test]
+    fn every_sensor_has_its_own_topic() {
+        let sources = [
+            source(Metric::Temperature, 0, "sht30-45", true),
+            source(Metric::Humidity, 0, "sht30-45", true),
+            source(Metric::Temperature, 0, "sht20-40", false),
+            source(Metric::Humidity, 0, "sht20-40", false),
+        ];
+        let channel = Reading {
+            ts: 0,
+            device: "x".into(),
+            channel: 0,
+            sensor: None,
+            values: Values {
+                temperature: Some(23.5),
+                humidity: Some(41.0),
+                ..Values::default()
+            },
+            altitude: None,
+        };
+        let tag = Reading {
+            sensor: Some("sht20-40".into()),
+            values: Values {
+                temperature: Some(5.5),
+                humidity: Some(80.0),
+                ..Values::default()
+            },
+            ..channel.clone()
+        };
+        let pairs = |r: &Reading| -> Vec<String> {
+            topics("tower", r, &sources)
+                .into_iter()
+                .map(|(t, p)| format!("{t}={p}"))
+                .collect()
+        };
+        assert_eq!(
+            pairs(&channel),
+            vec![
+                "tower/temperature/0=23.50",
+                "tower/temperature/0/sht30-45=23.50",
+                "tower/humidity/0=41.0",
+                "tower/humidity/0/sht30-45=41.0",
+            ],
+            "the channel's topics stay as they were"
+        );
+        assert_eq!(
+            pairs(&tag),
+            vec![
+                "tower/temperature/0/sht20-40=5.50",
+                "tower/humidity/0/sht20-40=80.0"
             ]
         );
     }
@@ -652,6 +792,7 @@ mod tests {
             ts: 0,
             device: "x".into(),
             channel,
+            sensor: None,
             values: Values {
                 pressure: Some(100_000.0),
                 ..Default::default()
@@ -664,24 +805,48 @@ mod tests {
     fn the_publisher_keeps_track_of_its_topics() -> Result<(), MqttError> {
         let (mut p, link) = fake("t");
         p.publish_status(true)?;
-        p.publish_reading(&reading(1))?;
+        let barometer = [source(Metric::Pressure, 1, "mpl3115a2-60", true)];
+        p.publish_reading(&reading(1), &barometer)?;
         assert_eq!(
             link.take(),
             vec![
                 "t/status=online",
                 "t/pressure/1=100000.00",
-                "t/altitude/1=110.0"
+                "t/pressure/1/mpl3115a2-60=100000.00",
+                "t/altitude/1=110.0",
+                "t/altitude/1/mpl3115a2-60=110.0"
             ]
         );
         // Channel 1 lost its barometer (pressure and altitude go), not its
         // thermometer.
-        p.retain_sources(&[(Metric::Temperature, 1)])?;
+        let thermometer = [source(Metric::Temperature, 1, "tmp112-48", true)];
+        p.retain_sources(&thermometer)?;
         let mut cleared = link.take();
         cleared.sort();
-        assert_eq!(cleared, vec!["t/altitude/1=", "t/pressure/1="]);
-        p.retain_sources(&[(Metric::Temperature, 1)])?;
+        assert_eq!(
+            cleared,
+            vec![
+                "t/altitude/1/mpl3115a2-60=",
+                "t/altitude/1=",
+                "t/pressure/1/mpl3115a2-60=",
+                "t/pressure/1="
+            ]
+        );
+        p.retain_sources(&thermometer)?;
         assert!(link.take().is_empty(), "cleared once");
-        p.publish_reading(&reading(0))?;
+        // A further sensor gone: only its own topics go.
+        let mut tag = reading(1);
+        tag.sensor = Some("sht20-40".into());
+        tag.values = Values {
+            temperature: Some(5.0),
+            ..Values::default()
+        };
+        tag.altitude = None;
+        p.publish_reading(&tag, &thermometer)?;
+        link.take();
+        p.retain_sources(&thermometer)?;
+        assert_eq!(link.take(), vec!["t/temperature/1/sht20-40="]);
+        p.publish_reading(&reading(0), &[])?;
         link.take();
         p.clear_all()?;
         let mut cleared = link.take();
@@ -886,7 +1051,7 @@ mod tests {
             LinkEvent::Connected
         );
         publisher.publish_status(true)?;
-        publisher.publish_reading(&reading(0))?;
+        publisher.publish_reading(&reading(0), &[])?;
         std::thread::sleep(Duration::from_millis(300));
         let seen = broker.seen.lock().map_err(|_| "lock")?;
         assert_eq!(
@@ -1032,7 +1197,7 @@ mod tests {
         );
         publisher.publish_status(true)?;
         for channel in 0..2 {
-            publisher.publish_reading(&reading(channel))?;
+            publisher.publish_reading(&reading(channel), &[])?;
         }
         std::thread::sleep(Duration::from_millis(200));
         // A prefix change: clear everything, say offline, go.

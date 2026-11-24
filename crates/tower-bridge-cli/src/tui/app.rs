@@ -92,7 +92,13 @@ impl App {
         }
     }
 
-    /// The measured values, by channel and in the usual metric order.
+    /// The sources measured now.
+    pub fn sources(&self) -> &[tower_bridge_core::model::SensorSource] {
+        self.snap.as_ref().map_or(&[], |s| s.device.sources())
+    }
+
+    /// The measured values, by channel and in the usual metric order (the
+    /// channels' own; further sensors show in the row of their metric).
     pub fn rows(&self) -> Vec<(u8, Metric)> {
         let Some(snap) = &self.snap else {
             return Vec::new();
@@ -106,7 +112,11 @@ impl App {
             .flat_map(|c| {
                 Metric::ALL
                     .into_iter()
-                    .filter(move |m| sources.iter().any(|s| s.channel == c && s.metric == *m))
+                    .filter(move |m| {
+                        sources
+                            .iter()
+                            .any(|s| s.channel == c && s.metric == *m && s.primary)
+                    })
                     .map(move |m| (c, m))
             })
             .collect()

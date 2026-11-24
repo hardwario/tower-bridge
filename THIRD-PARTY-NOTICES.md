@@ -2793,7 +2793,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - foreign-types 0.5.0: MIT/Apache-2.0, used under MIT, https://github.com/sfackler/foreign-types
 - foreign-types-macros 0.2.4: MIT/Apache-2.0, used under MIT, https://github.com/sfackler/foreign-types
 - foreign-types-shared 0.3.1: MIT/Apache-2.0, used under MIT, https://github.com/sfackler/foreign-types
-- form_urlencoded 1.2.2: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-url
+- form_urlencoded 1.2.3: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-url
 - futures-channel 0.3.34: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/futures-rs
 - futures-core 0.3.34: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/futures-rs
 - futures-executor 0.3.34: MIT OR Apache-2.0, used under MIT, https://github.com/rust-lang/futures-rs
@@ -3136,7 +3136,7 @@ Repository: https://github.com/sveltejs/zimmerframe
 - untrusted 0.9.0: ISC, https://github.com/briansmith/untrusted
 - ureq 3.5.1: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/ureq
 - ureq-proto 0.7.1: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/ureq-proto
-- url 2.5.8: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-url
+- url 2.5.9: MIT OR Apache-2.0, used under MIT, https://github.com/servo/rust-url
 - urlpattern 0.6.0: MIT, https://github.com/denoland/rust-urlpattern
 - utf8-zero 0.8.1: MIT OR Apache-2.0, used under MIT, https://github.com/algesten/utf8-zero
 - utf8_iter 1.1.0: Apache-2.0 OR MIT, used under MIT, https://github.com/hsivonen/utf8_iter
@@ -5488,7 +5488,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: form_urlencoded 1.2.2</summary>
+<summary>MIT: form_urlencoded 1.2.3</summary>
 
 ```text
 Copyright (c) 2013-2016 The rust-url developers
@@ -6135,7 +6135,7 @@ SOFTWARE.
 </details>
 
 <details>
-<summary>MIT: idna 1.1.0, percent-encoding 2.3.2, url 2.5.8</summary>
+<summary>MIT: idna 1.1.0, percent-encoding 2.3.2, url 2.5.9</summary>
 
 ```text
 Copyright (c) 2013-2025 The rust-url developers

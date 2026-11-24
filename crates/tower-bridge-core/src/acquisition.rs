@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 use crate::bus::discovery::{BackendPref, Discovery, OpenError};
 use crate::bus::{BusError, Clock, I2cBus, SystemClock};
 use crate::climate::select_channel;
-use crate::climate::{ChannelMode, Sensors};
+use crate::climate::{ChannelMode, ClimateR1, Sensors};
 use crate::gps::{GpsInfo, GpsModule};
 use crate::model::{DeviceInfo, DeviceState, Reading, SensorSource};
 use crate::nfc::{NfcError, NfcInfo, NfcTag};
@@ -72,6 +72,8 @@ pub type Reply<T> = Sender<Result<T, AcqError>>;
 pub enum AcqCommand {
     SetInterval(Duration),
     SetChannel(ChannelMode),
+    /// How the Climate Module R1 parts are named on each channel.
+    SetClimateR1([ClimateR1; 2]),
     /// Blink the bridge LED; replies when the blinking has finished.
     Identify(Option<Reply<()>>),
     /// Forget the detected sensors and look again right away; replies with
@@ -113,8 +115,10 @@ impl AcqCommand {
 #[derive(Clone, Debug)]
 pub enum AcqEvent {
     Device(DeviceState),
-    /// A completed measurement of one channel (`altitude` is not filled in
-    /// here). Channels measured in the same cycle share the timestamp.
+    /// A completed measurement of one channel, or of one further sensor on
+    /// it (`sensor` set; `altitude` is not filled in here). Everything
+    /// measured in the same cycle shares the timestamp, and a channel's
+    /// reading comes before those of its further sensors.
     Reading(Reading),
     /// Relay Module found, switched or gone (`None`).
     Relay(Option<RelayInfo>),
@@ -128,6 +132,7 @@ pub enum AcqEvent {
 pub struct AcqConfig {
     pub interval: Duration,
     pub channel: ChannelMode,
+    pub climate_r1: [ClimateR1; 2],
     /// Where sensors keep state between runs (the LP8 sensor state, the
     /// SGPC3 baseline); none keeps nothing.
     pub state_dir: Option<std::path::PathBuf>,
@@ -138,6 +143,7 @@ impl Default for AcqConfig {
         Self {
             interval: Duration::from_secs(10),
             channel: ChannelMode::Auto,
+            climate_r1: [ClimateR1::Auto; 2],
             state_dir: None,
         }
     }
@@ -378,9 +384,18 @@ impl Worker {
         self.resolve_rescan(Ok(RescanOutcome::Found {
             sources: sources.clone(),
         }));
+        let warnings = sensors.warnings();
+        for w in &warnings {
+            warn!(
+                "I2C channel {}: {} at 0x{:02X} gives garbled data; another device answers \
+                 at its address (move the tag to the other channel)",
+                w.channel, w.sensor, w.address
+            );
+        }
         self.emit_state(DeviceState::Ready {
             device: device.clone(),
             sources,
+            warnings,
         });
     }
 
@@ -815,8 +830,9 @@ impl Worker {
         let mut device = bus.info().clone();
         self.recount(opener, &mut device);
         let _ = self.blink(bus, 1);
-        let mut sensors =
-            Sensors::new(self.config.channel).with_state_dir(self.config.state_dir.clone());
+        let mut sensors = Sensors::new(self.config.channel)
+            .with_state_dir(self.config.state_dir.clone())
+            .with_climate_r1(self.config.climate_r1);
         let mut gps: Option<GpsModule> = None;
         let mut relay: Option<RelayModule> = None;
         let mut nfc: Option<NfcTag> = None;
@@ -967,7 +983,19 @@ impl Worker {
                                 ts,
                                 device: device.serial.clone(),
                                 channel,
+                                sensor: None,
                                 values: report.values,
+                                altitude: None,
+                            }));
+                        }
+                        for (sensor, values) in report.extra {
+                            measured_any = true;
+                            let _ = self.events.send(AcqEvent::Reading(Reading {
+                                ts,
+                                device: device.serial.clone(),
+                                channel,
+                                sensor: Some(sensor),
+                                values,
                                 altitude: None,
                             }));
                         }
@@ -986,8 +1014,10 @@ impl Worker {
             // Parts that stopped answering were dropped, here or between
             // the cycles (a VOC-LP Tag served in the background).
             if !sensors.is_empty()
-                && self.last_state.as_ref().map(DeviceState::sources)
+                && (self.last_state.as_ref().map(DeviceState::sources)
                     != Some(&sensors.sources()[..])
+                    || self.last_state.as_ref().map(DeviceState::warnings)
+                        != Some(&sensors.warnings()[..]))
             {
                 self.report_sensors(&device, &sensors);
             }
@@ -1103,6 +1133,14 @@ impl Worker {
                     self.config.channel = mode;
                     if let Some(s) = target.as_mut() {
                         s.sensors.set_mode(mode);
+                        return Flow::Now;
+                    }
+                }
+                AcqCommand::SetClimateR1(r1) => {
+                    self.config.climate_r1 = r1;
+                    if let Some(s) = target.as_mut() {
+                        // The parts stay; the next cycle reports the new names.
+                        s.sensors.set_climate_r1(r1);
                         return Flow::Now;
                     }
                 }

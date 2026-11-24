@@ -303,6 +303,8 @@ pub async fn export_xlsx(
             altitude: format!("{} (m)", tr.altitude),
             co2: format!("{} (ppm)", tr.metric(Metric::Co2)),
             voc: format!("{} (ppb)", tr.metric(Metric::Voc)),
+            sensor: tr.xlsx_sensor.into(),
+            source: tr.xlsx_source.into(),
         };
         let rows =
             store::export_xlsx_to_file(&conn, &path, from, to, opts, &labels, |done, total| {

@@ -5,6 +5,8 @@
 //! channel, the sum, count, min and max of every metric, so buckets of an hour
 //! or more read a few thousand rows instead. Sum and count rather than the
 //! average, so several hours merge into an exact average.
+//! `sensor_readings_hourly` does the same for the further sensors of a
+//! channel (`sensor_readings`), per hour, channel and sensor.
 //!
 //! The summary of an hour is computed again from its readings whenever a
 //! reading of that hour is written or removed, so it never drifts (a replaced
@@ -23,31 +25,56 @@ pub fn hour_of(ts: i64) -> i64 {
     ts.div_euclid(HOUR) * HOUR
 }
 
-/// Compute the summary of one hour of one channel again from its readings.
-pub fn refresh(conn: &Connection, hour: i64, channel: u8) -> Result<()> {
-    conn.prepare_cached("DELETE FROM readings_hourly WHERE hour = ?1 AND channel = ?2")?
-        .execute(params![hour, channel])?;
-    // No readings left: no row, rather than one of nulls.
-    conn.prepare_cached(
-        "INSERT INTO readings_hourly
-         SELECT ?1, channel,
-                SUM(temperature), COUNT(temperature), MIN(temperature), MAX(temperature),
-                SUM(humidity), COUNT(humidity), MIN(humidity), MAX(humidity),
-                SUM(illuminance), COUNT(illuminance), MIN(illuminance), MAX(illuminance),
-                SUM(pressure), COUNT(pressure), MIN(pressure), MAX(pressure),
-                SUM(co2), COUNT(co2), MIN(co2), MAX(co2),
-                SUM(voc), COUNT(voc), MIN(voc), MAX(voc)
-         FROM readings WHERE ts >= ?1 AND ts < ?1 + 3600000 AND channel = ?2
-         GROUP BY channel",
-    )?
-    .execute(params![hour, channel])?;
+/// The summary columns of the readings in a `WHERE`, in the tables' order.
+const SUMMARY: &str = "SUM(temperature), COUNT(temperature), MIN(temperature), MAX(temperature),
+        SUM(humidity), COUNT(humidity), MIN(humidity), MAX(humidity),
+        SUM(illuminance), COUNT(illuminance), MIN(illuminance), MAX(illuminance),
+        SUM(pressure), COUNT(pressure), MIN(pressure), MAX(pressure),
+        SUM(co2), COUNT(co2), MIN(co2), MAX(co2),
+        SUM(voc), COUNT(voc), MIN(voc), MAX(voc)";
+
+/// An hour of one series: of a channel (`sensor` `None`) or of one of its
+/// further sensors.
+pub type HourKey = (i64, u8, Option<String>);
+
+/// Compute the summary of one hour of one channel, or of one further sensor
+/// on it, again from its readings.
+pub fn refresh(conn: &Connection, hour: i64, channel: u8, sensor: Option<&str>) -> Result<()> {
+    match sensor {
+        None => {
+            conn.prepare_cached("DELETE FROM readings_hourly WHERE hour = ?1 AND channel = ?2")?
+                .execute(params![hour, channel])?;
+            // No readings left: no row, rather than one of nulls.
+            conn.prepare_cached(&format!(
+                "INSERT INTO readings_hourly
+                 SELECT ?1, channel, {SUMMARY}
+                 FROM readings WHERE ts >= ?1 AND ts < ?1 + 3600000 AND channel = ?2
+                 GROUP BY channel"
+            ))?
+            .execute(params![hour, channel])?;
+        }
+        Some(sensor) => {
+            conn.prepare_cached(
+                "DELETE FROM sensor_readings_hourly WHERE hour = ?1 AND channel = ?2 AND sensor = ?3",
+            )?
+            .execute(params![hour, channel, sensor])?;
+            conn.prepare_cached(&format!(
+                "INSERT INTO sensor_readings_hourly
+                 SELECT ?1, channel, sensor, {SUMMARY}
+                 FROM sensor_readings
+                 WHERE ts >= ?1 AND ts < ?1 + 3600000 AND channel = ?2 AND sensor = ?3
+                 GROUP BY channel, sensor"
+            ))?
+            .execute(params![hour, channel, sensor])?;
+        }
+    }
     Ok(())
 }
 
-/// Refresh every hour and channel in `hours` (after a batch of inserts).
-pub fn refresh_all(conn: &Connection, hours: &BTreeSet<(i64, u8)>) -> Result<()> {
-    for &(hour, channel) in hours {
-        refresh(conn, hour, channel)?;
+/// Refresh every hour and series in `hours` (after a batch of inserts).
+pub fn refresh_all(conn: &Connection, hours: &BTreeSet<HourKey>) -> Result<()> {
+    for (hour, channel, sensor) in hours {
+        refresh(conn, *hour, *channel, sensor.as_deref())?;
     }
     Ok(())
 }
@@ -57,12 +84,21 @@ pub fn refresh_all(conn: &Connection, hours: &BTreeSet<(i64, u8)>) -> Result<()>
 pub fn purge_older_than(conn: &Connection, cutoff_ms: i64) -> Result<()> {
     let hour = hour_of(cutoff_ms);
     conn.execute("DELETE FROM readings_hourly WHERE hour < ?1", params![hour])?;
-    let channels: Vec<u8> = conn
+    conn.execute(
+        "DELETE FROM sensor_readings_hourly WHERE hour < ?1",
+        params![hour],
+    )?;
+    let mut series: Vec<(u8, Option<String>)> = conn
         .prepare("SELECT channel FROM readings_hourly WHERE hour = ?1")?
-        .query_map(params![hour], |r| r.get(0))?
+        .query_map(params![hour], |r| Ok((r.get(0)?, None)))?
         .collect::<rusqlite::Result<_>>()?;
-    for channel in channels {
-        refresh(conn, hour, channel)?;
+    series.extend(
+        conn.prepare("SELECT channel, sensor FROM sensor_readings_hourly WHERE hour = ?1")?
+            .query_map(params![hour], |r| Ok((r.get(0)?, Some(r.get(1)?))))?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+    );
+    for (channel, sensor) in series {
+        refresh(conn, hour, channel, sensor.as_deref())?;
     }
     Ok(())
 }
@@ -70,7 +106,8 @@ pub fn purge_older_than(conn: &Connection, cutoff_ms: i64) -> Result<()> {
 /// Summarize the hours recorded without the summary: an older build (from
 /// before the table) that wrote to the same database writes readings only.
 /// The newest summarized hour onward is computed again, which is an hour
-/// or two after a normal stop.
+/// or two after a normal stop. Further sensors are written only by builds
+/// that keep their summary.
 pub fn catch_up(conn: &Connection) -> Result<()> {
     let newest: Option<i64> = conn.query_row("SELECT MAX(ts) FROM readings", [], |r| r.get(0))?;
     let Some(newest) = newest else {
@@ -89,13 +126,13 @@ pub fn catch_up(conn: &Connection) -> Result<()> {
             .query_map(params![hour_of(newest)], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
         for channel in channels {
-            refresh(conn, hour_of(newest), channel)?;
+            refresh(conn, hour_of(newest), channel, None)?;
         }
         return Ok(());
     }
-    let hours: BTreeSet<(i64, u8)> = conn
+    let hours: BTreeSet<HourKey> = conn
         .prepare("SELECT DISTINCT (ts / 3600000) * 3600000, channel FROM readings WHERE ts >= ?1")?
-        .query_map(params![hour_of(from)], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .query_map(params![hour_of(from)], |r| Ok((r.get(0)?, r.get(1)?, None)))?
         .collect::<rusqlite::Result<_>>()?;
     refresh_all(conn, &hours)
 }

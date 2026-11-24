@@ -75,38 +75,151 @@ limit this to one channel):
 
 | Part | Address | Probe |
 |---|---|---|
-| OPT3001 | `0x44`, then `0x45` (Lux Meter Tag) | device ID register `0x7F` reads `0x3001` |
-| SHT30 | `0x45` | soft reset `30 A2` acknowledged |
-| SHT20 | `0x40` | soft reset `FE` acknowledged |
-| TMP112 | `0x48`, then `0x49` (Temperature Tag) | configuration register `0x01` readable |
+| OPT3001 | `0x44`, `0x45` (Lux Meter Tag) | device ID register `0x7F` reads `0x3001` |
+| SHT30 | `0x45`, `0x44` (Humidity Tag R4), where no OPT3001 answered | soft reset `30 A2` acknowledged |
+| SHT20 | `0x40` | soft reset `FE` acknowledged (not an HDC2080, whose register `0xFC` reads `0x4954`) |
+| TMP112 | `0x48`, `0x49` (Temperature Tag) | configuration register `0x01` readable |
 | MPL3115A2 | `0x60` | WHO_AM_I register `0x0C` reads `0xC4` |
 
-The OPT3001 is probed first and by its ID: an OPT3001 at `0x45` would also
-acknowledge the SHT30 soft reset. One part of each kind is used per channel,
-the one at the default address when both answer.
+Every address is probed, and every part found is measured: a Humidity Tag
+next to a Climate Module R2, or a Lux Meter Tag at `0x45` next to one at
+`0x44`, is a sensor of its own. The OPT3001 is probed first and by its ID at
+`0x44` and `0x45`: an OPT3001 would also acknowledge the SHT30 soft reset.
 
 The SHT humidity sensors are probed with command writes: a read probe would not
 work, since the SHT3x NACKs reads when no measurement is pending.
 
-The parts on a channel are named after the module that carries them:
+Humidity Tag revisions (twr-sdk `twr_tag_humidity.c`): R1 HTS221 `0x5F` and
+R2 HDC2080 `0x40`/`0x41` are not supported; R3 SHT20 `0x40` and R4 SHT30
+`0x44` (or `0x45`) are.
 
-| Parts on the channel | Module |
-|---|---|
-| SHT30 with OPT3001 (at `0x44`) or MPL3115A2 | Climate Module R2 |
-| SHT20 with TMP112 (at `0x48`) | Climate Module R1 |
-| otherwise SHT20 or SHT30 | Humidity Tag |
-| otherwise TMP112, and a TMP112 at `0x49` | Temperature Tag |
-| otherwise OPT3001, and an OPT3001 at `0x45` | Lux Meter Tag |
-| otherwise MPL3115A2 | Barometer Tag |
-
-Temperature comes from the SHT30, else the TMP112, else the SHT20 (the Humidity
-Tag measures both); humidity from the SHT30, else the SHT20. Checked on real
-hardware: the Humidity Tag (SHT20), Lux Meter Tag (OPT3001) and Barometer Tag
-(MPL3115A2) on channel 1 next to a Climate Module R1 on channel 0.
+Checked on real hardware: the Humidity Tag (SHT20), Lux Meter Tag (OPT3001)
+and Barometer Tag (MPL3115A2) on channel 1 next to a Climate Module R1 on
+channel 0 (1.0), and a Climate Module R2 with a Humidity Tag on channel 0
+(2026-11-16, when the Humidity Tag was still left out: GitHub issue #2).
 
 A part that fails three measurements in a row is taken as unplugged. Channels
 are probed again every minute, so a tag plugged in later is found, and
 **Rescan** probes right away.
+
+### Naming the modules
+
+The parts on a channel are put together into modules; within a module each
+quantity has one part:
+
+| Parts | Module | Temperature from |
+|---|---|---|
+| SHT30 at `0x45` with OPT3001 at `0x44` or MPL3115A2 | Climate Module R2 | SHT30 |
+| SHT20 at `0x40`, TMP112 at `0x48`, OPT3001 at `0x44` and MPL3115A2, all four (see below) | Climate Module R1 | TMP112 |
+| any other SHT20 or SHT30 | Humidity Tag | its own sensor |
+| any other TMP112 | Temperature Tag | TMP112 |
+| any other OPT3001 | Lux Meter Tag | |
+| any other MPL3115A2 | Barometer Tag | |
+
+A Climate Module R1 has no part of its own to recognise it by: a Humidity,
+Temperature, Lux Meter and Barometer Tag at their default addresses are the
+same four chips at the same addresses. Decided on 2026-11-23 (GitHub issue
+#2): the app names the parts a Climate Module R1 only when all four answer
+(the module always has them all), and separate tags otherwise; a Humidity Tag
+with a Temperature Tag is no longer taken for a Climate Module R1. Once
+recognised, a module stays one while its SHT20 and TMP112 answer, so a light
+sensor that stops for a while does not turn it into tags. All four tags
+together on one channel still look like a Climate Module R1; *Settings →
+Measurement → Climate Module R1 or tags* sets it per channel: *Automatic* (as
+above), *Climate Module R1* (whenever the SHT20 and TMP112 answer) or
+*Separate tags* (never a module). Series are named by part and address, not
+by module, so a different name keeps the history.
+
+### The channel's sensor and further sensors
+
+The first module of a channel that measures a quantity is the channel's
+**primary** source of it: a Climate Module first, then the tags with an
+SHT30, a TMP112, an SHT20 (as the Climate Modules measure temperature),
+then the others, each by address. Its values make the channel's reading, as
+they did before every sensor was measured: the history, the MQTT topic
+`tower/<metric>/<channel>`, the Prometheus series and the alerts of the
+channel go on unchanged.
+
+Every other module measuring the same quantity on the channel is a
+**further** sensor with readings of its own, named by its part and address
+(`sht20-40`): a history series, MQTT topics one level down
+(`tower/humidity/0/sht20-40`), Prometheus series with `sensor` and `module`
+labels, alerts, and rows of its own in the exports. Example, a Climate Module
+R2 with a Humidity Tag and a Temperature Tag on channel 0 (the test setup of
+2026-11-16):
+
+| Quantity | Primary | Further |
+|---|---|---|
+| temperature | Climate Module R2 (`sht30-45`) | Temperature Tag (`tmp112-48`), Humidity Tag (`sht20-40`) |
+| humidity | Climate Module R2 (`sht30-45`) | Humidity Tag (`sht20-40`) |
+| illuminance | Climate Module R2 (`opt3001-44`) | |
+| pressure | Climate Module R2 (`mpl3115a2-60`) | |
+
+When the primary part stops answering for good, the next one takes over the
+channel's values (as before).
+
+### Two devices at one address
+
+Some combinations put two devices at one address on one channel, and the bus
+cannot keep them apart: both answer every read, and the open-drain bus ANDs
+their bits, so the values come out garbled. Put the tag on the other
+channel:
+
+| On one channel | Shared address |
+|---|---|
+| Climate Module (R1, R2) and Lux Meter Tag | `0x44` (OPT3001) |
+| Climate Module (R1, R2) and Barometer Tag | `0x60` (MPL3115A2) |
+| Climate Module R1 and Humidity Tag R3 | `0x40` (SHT20) |
+| Climate Module R1 and Temperature Tag | `0x48` (TMP112) |
+| Climate Module R2 and a Humidity Tag R4 or Lux Meter Tag set to `0x45` | `0x45` |
+
+Such a pair is found as one part (`toolbox i2c-identify` lists one chip),
+and its values stay plausible while both sensors measure about the same: a
+Climate Module R2 with a Lux Meter Tag read 415 lx in the room, with a
+Barometer Tag about 1 hPa low. Covering either light sensor pulled the
+reading down to 0 to 2 lx (tested on 2026-11-23). The app warns (Dashboard
+banner, Bridge Module card, `tower-bridge-cli status`, the log, the API's
+`warnings`) when a part's data point to a second device:
+
+- SHT20 and SHT30: two checksum errors close together.
+- OPT3001, MPL3115A2 and TMP112 (no checksum): the three lowest bits of the
+  raw reading are all zero too often. A lone sensor's lowest bits are noise,
+  all three zero in one reading of eight; two sensors read ANDed have each
+  bit zero three times in four, all three in 42 % of the readings. Every
+  changed reading with the three bits zero adds 3 to a score, any other
+  takes 1 away, so the score falls below one zero in four and climbs above.
+  From 72 the part is suspect, and it stays so until the score is back at
+  48. A reading adds to the score only while the last 32 changed readings
+  hold at least 12 different values: a steady reading that flips between
+  two values would otherwise count one of them over and over.
+
+  Measured on 2026-11-23 at a 2 s interval, 71 minutes each: 12 to 14.5 % of
+  zeros alone (two barometers, two light sensors, a TMP112), 40 to 42 %
+  with two barometers or two light sensors at one address. A pair is
+  reported after about 150 changed readings: five to six minutes at 2 s,
+  about an hour at the default 20 s. A steady temperature changes too
+  rarely to be judged, so a TMP112 pair may go unnoticed (not tested: no
+  Climate Module R1 at hand).
+
+  The first version of this check counted the zeros among the last 90
+  changed readings and took 22 or more for a pair. It reported the pairs
+  after four minutes, but a lone sensor reaches 22 by chance in one window
+  of 700, and a window was judged at every reading: the correct set-up
+  warned five times in 70 minutes. On the same readings the score of a lone
+  part never passed 23 of the 72; this version has not run on the hardware
+  yet (TODO.md).
+- A Climate Module's barometer whose die temperature is more than 6 °C off
+  the module's thermometer (a Barometer Tag warmed in the hand).
+
+Two suspicious cycles close together raise a warning from checksums or the
+die temperature, and it stays until as many clean cycles made up for them
+(at most 12). A part given up for its garbled checksums stays reported for
+five minutes, in which the probe finds it again. A warning from the lowest
+bits ends about 65 changed readings after the second device is gone (two
+minutes at 2 s, about 20 at the default 20 s); **Rescan**, or unplugging the
+bridge to move the tag, ends every warning at once. The table above stays
+the rule: the detection is a safety net, not a way to use two parts at one
+address.
 
 ### Measurement cycle
 

@@ -623,7 +623,9 @@ async fn metrics(State(ctx): State<Ctx>) -> Response {
             |r| Some(r.ts as f64 / 1000.0),
         ),
     ];
-    // One sample per I2C channel, all of a metric under one HELP and TYPE.
+    let sources = device.sources();
+    // One sample per I2C channel, and per further sensor on a channel (with
+    // its `sensor` and `module`), all of a metric under one HELP and TYPE.
     for (name, help, value) in gauges {
         let samples: Vec<(&Reading, f64)> = latest
             .iter()
@@ -637,9 +639,10 @@ async fn metrics(State(ctx): State<Ctx>) -> Response {
         for (r, v) in samples {
             let _ = writeln!(
                 out,
-                "tower_bridge_{name}{{device=\"{}\",channel=\"{}\"}} {v}",
+                "tower_bridge_{name}{{device=\"{}\",channel=\"{}\"{}}} {v}",
                 escape_label(&r.device),
-                r.channel
+                r.channel,
+                sensor_labels(sources, r.channel, r.sensor.as_deref())
             );
         }
     }
@@ -666,19 +669,24 @@ async fn metrics(State(ctx): State<Ctx>) -> Response {
     );
     let _ = writeln!(out, "# TYPE tower_bridge_alert_active gauge");
     let active_alerts = ctx.backend.active_alerts();
-    let mut channels: Vec<u8> = device.sources().iter().map(|s| s.channel).collect();
-    channels.extend(active_alerts.iter().map(|a| a.channel));
-    channels.sort_unstable();
-    channels.dedup();
-    for channel in channels {
+    // The series: each channel, and each further sensor on one.
+    let mut series: Vec<(u8, Option<String>)> = sources
+        .iter()
+        .map(|s| (s.channel, s.series().map(str::to_string)))
+        .collect();
+    series.extend(active_alerts.iter().map(|a| (a.channel, a.sensor.clone())));
+    series.sort_unstable();
+    series.dedup();
+    for (channel, sensor) in series {
+        let labels = sensor_labels(sources, channel, sensor.as_deref());
         for m in Metric::ALL {
             for (bound, label) in [(Bound::Low, "low"), (Bound::High, "high")] {
-                let active = active_alerts
-                    .iter()
-                    .any(|a| a.metric == m && a.channel == channel && a.bound == bound);
+                let active = active_alerts.iter().any(|a| {
+                    a.metric == m && a.channel == channel && a.sensor == sensor && a.bound == bound
+                });
                 let _ = writeln!(
                     out,
-                    "tower_bridge_alert_active{{metric=\"{}\",channel=\"{channel}\",bound=\"{label}\"}} {}",
+                    "tower_bridge_alert_active{{metric=\"{}\",channel=\"{channel}\"{labels},bound=\"{label}\"}} {}",
                     m.as_str(),
                     u8::from(active)
                 );
@@ -693,6 +701,24 @@ async fn metrics(State(ctx): State<Ctx>) -> Response {
         out,
     )
         .into_response()
+}
+
+/// The labels of a further sensor's sample: `,sensor="sht20-40",module="Humidity
+/// Tag"`; none for a channel's own, so its series stay as they were.
+fn sensor_labels(
+    sources: &[crate::model::SensorSource],
+    channel: u8,
+    sensor: Option<&str>,
+) -> String {
+    let Some(id) = sensor else {
+        return String::new();
+    };
+    let module = sources
+        .iter()
+        .find(|s| s.channel == channel && s.id == id)
+        .map(|s| format!(",module=\"{}\"", escape_label(s.module.name())))
+        .unwrap_or_default();
+    format!(",sensor=\"{}\"{module}", escape_label(id))
 }
 
 async fn mcp_method_not_allowed(State(ctx): State<Ctx>) -> Response {

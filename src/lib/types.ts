@@ -19,12 +19,17 @@ export interface Values {
   voc: number | null;
 }
 
-/** The values measured on one I²C channel in one cycle. */
+/**
+ * The values measured on one I²C channel in one cycle, or those of a further
+ * sensor on it (a Humidity Tag next to a Climate Module), named by `sensor`.
+ */
 export interface Reading extends Values {
   ts: number;
   device: string;
   /** I²C switch channel of the sensors. */
   channel: number;
+  /** A further sensor's id (part and address, e.g. "sht20-40"); absent for the channel's reading. */
+  sensor?: string;
   altitude: number | null;
 }
 
@@ -43,7 +48,19 @@ export type DeviceState =
   | { status: "searching" }
   | { status: "error"; kind: DeviceErrorKind; message: string }
   | { status: "no_module"; device: DeviceInfo }
-  | { status: "ready"; device: DeviceInfo; sources: SensorSource[] };
+  | { status: "ready"; device: DeviceInfo; sources: SensorSource[]; warnings?: BusWarning[] };
+
+/**
+ * A part whose data suggest a second device at its address on the same
+ * channel (a Lux Meter Tag next to a Climate Module, both at 0x44).
+ */
+export interface BusWarning {
+  channel: number;
+  address: number;
+  sensor: string;
+  module: ModuleKind;
+  kind: "address_collision";
+}
 
 /** A TOWER module or tag that carries sensors. */
 export type ModuleKind =
@@ -63,6 +80,10 @@ export interface SensorSource {
   module: ModuleKind;
   sensor: string;
   address: number;
+  /** The part and address, e.g. "sht20-40". */
+  id: string;
+  /** The channel's source of the metric; every other has a series of its own, named by `id`. */
+  primary: boolean;
 }
 
 export interface AlertRule {
@@ -78,6 +99,9 @@ export type AlertRules = Record<Metric, AlertRule>;
 
 export type TemperatureUnit = "celsius" | "fahrenheit";
 export type ChannelMode = "auto" | "channel0" | "channel1";
+/** How the Climate Module R1 parts are named on a channel. */
+export type ClimateR1 = "auto" | "module" | "tags";
+export const CLIMATE_R1: ClimateR1[] = ["auto", "module", "tags"];
 /** "auto" follows the language; the others are 2026-10-17, 17.10.2026, 17/10/2026, 10/17/2026. */
 export type DateFormat = "auto" | "iso" | "dmy" | "dmy_slash" | "mdy";
 export type TimeFormat = "auto" | "h24" | "h12";
@@ -114,6 +138,10 @@ export interface ChartStyle {
   show_max: boolean;
   /** Channels whose lines the user hid; never all of them. */
   hidden_channels: number[];
+  /** Line colour of each further sensor, by "<channel>/<sensor id>". */
+  sensor_colors?: Record<string, ChartColor>;
+  /** Further sensors whose lines the user hid, as "<channel>/<sensor id>". */
+  hidden_sensors?: string[];
 }
 
 export interface RelaySettings {
@@ -143,6 +171,8 @@ export interface Settings {
   retention_days: number;
   sea_level_pressure_pa: number;
   i2c_channel: ChannelMode;
+  /** Per I²C channel 0 and 1. */
+  climate_r1: [ClimateR1, ClimateR1];
   backend: "auto" | "hid" | "i2c_dev";
   alerts: AlertRules;
   notify_device_lost: boolean;
@@ -171,6 +201,8 @@ export type Bound = "low" | "high";
 export interface ActiveAlert {
   metric: Metric;
   channel: number;
+  /** A further sensor's id; absent for the channel's own series. */
+  sensor?: string;
   bound: Bound;
   since: number;
   threshold: number;
@@ -181,6 +213,7 @@ export interface AlertEvent {
   ts: number;
   metric: Metric;
   channel: number;
+  sensor?: string;
   bound: Bound;
   kind: "triggered" | "recovered";
   value: number;
@@ -192,6 +225,7 @@ export interface AlertLogEntry {
   ts: number;
   metric: Metric;
   channel: number;
+  sensor?: string;
   bound: Bound;
   kind: "triggered" | "recovered";
   value: number;
@@ -204,13 +238,18 @@ export interface Series {
   max: (number | null)[];
 }
 
-/** Each metric has one series per entry of `channels`, aligned with `t` (seconds). */
+/**
+ * Each metric has one series per entry of `channels` (and `sensors`), aligned
+ * with `t` (seconds): a channel's own (`sensors[i]` null) or a further
+ * sensor's on it, so a channel can appear more than once.
+ */
 export interface History {
   from: number;
   to: number;
   bucket_ms: number;
   t: number[];
   channels: number[];
+  sensors?: (string | null)[];
   temperature: Series[];
   humidity: Series[];
   illuminance: Series[];
@@ -284,7 +323,7 @@ export interface Snapshot {
   relay: RelayInfo | null;
   nfc: NfcInfo | null;
   gps: GpsInfo | null;
-  /** The latest reading of each I²C channel, in channel order. */
+  /** The latest reading of each I²C channel and of each further sensor, in channel order. */
   latest: Reading[];
   settings: Settings;
   open_at_login: boolean;

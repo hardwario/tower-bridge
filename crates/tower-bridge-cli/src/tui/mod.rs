@@ -309,10 +309,10 @@ fn event_loop(
             match &ev {
                 Event::Alert(a) => match a.kind {
                     tower_bridge_core::alerts::AlertKind::Triggered => {
-                        warn!("alert: {}", output::alert(a, unit))
+                        warn!("alert: {}", output::alert(a, unit, app.sources()))
                     }
                     tower_bridge_core::alerts::AlertKind::Recovered => {
-                        info!("alert over: {}", output::alert(a, unit))
+                        info!("alert over: {}", output::alert(a, unit, app.sources()))
                     }
                 },
                 Event::Device(d) => info!("bridge {}", output::device(d)),

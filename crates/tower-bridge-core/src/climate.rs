@@ -2,9 +2,10 @@
 //! and the TOWER sensor tags, on either switch channel.
 //!
 //! Parts and addresses (see twr-sdk):
-//! - SHT30 @0x45: temperature and humidity (Climate Module R2)
-//! - SHT20 @0x40: humidity, and temperature when there is no TMP112
-//!   (Climate Module R1, Humidity Tag)
+//! - SHT30 @0x45: temperature and humidity (Climate Module R2; a Humidity
+//!   Tag R4 at 0x44, or 0x45)
+//! - SHT20 @0x40: humidity, and temperature on its own (Climate Module R1,
+//!   Humidity Tag R3)
 //! - TMP112 @0x48: temperature (Climate Module R1, Temperature Tag; the tag
 //!   can also sit at 0x49)
 //! - OPT3001 @0x44: illuminance (Climate Module, Lux Meter Tag; the tag can
@@ -13,10 +14,19 @@
 //! - LP8 behind an SC16IS740 @0x4D: CO2 (CO2 Module, see [`crate::co2`])
 //! - SGPC3 @0x58: TVOC (VOC-LP Tag)
 //!
-//! Every channel is probed part by part, at the default address first. A
-//! Climate Module is recognised by its parts at their default addresses (an
-//! SHT30, or an SHT20 with a TMP112); any other part is named after the tag
-//! that carries it. One part of each kind is used per channel.
+//! Every channel is probed part by part, at every address a part can have,
+//! and every part found is measured. The parts are then put together into
+//! modules ([`ChannelSensors::modules`]): a Climate Module is recognised by
+//! its parts at their default addresses, any other part is named after the
+//! tag that carries it. Within a module each metric has one part (a Climate
+//! Module R1 measures temperature with its TMP112, not its SHT20).
+//!
+//! The first module of a channel that measures a metric is the channel's
+//! primary source of it, whose values go into the channel's reading; a
+//! Climate Module comes first, then the tags in the order SHT30, TMP112,
+//! SHT20. Every other module measuring the same metric on the channel (a
+//! Humidity Tag next to a Climate Module) reports in a reading of its own,
+//! named by its part and address (see [`crate::model::sensor_id`]).
 //!
 //! A measurement cycle triggers every conversion on a channel first and then
 //! collects the results as they become ready, so one channel takes about one
@@ -28,6 +38,7 @@
 //! every 30 s between the cycles ([`Sensors::service`]); a cycle reports
 //! their latest values.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -36,7 +47,9 @@ use tracing::{debug, info, warn};
 
 use crate::bus::{BusError, Clock, I2cBus};
 use crate::co2::{self, Co2Module};
-use crate::model::{Metric, ModuleKind, SensorSource, Values};
+use crate::model::{
+    BusWarning, BusWarningKind, Metric, ModuleKind, SensorSource, Values, sensor_id,
+};
 use crate::sensors::sgpc3::{self, Sgpc3};
 use crate::sensors::{SensorError, mpl3115a2, opt3001, sht20, sht30, tmp112};
 
@@ -70,6 +83,23 @@ impl ChannelMode {
     }
 }
 
+/// How the parts of a Climate Module R1 are named on a channel. The R1 has
+/// no part of its own to recognise it by: a Humidity, Temperature, Lux Meter
+/// and Barometer Tag at their default addresses look exactly the same.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClimateR1 {
+    /// A Climate Module R1 when all four of its parts answer (SHT20 0x40,
+    /// TMP112 0x48, OPT3001 0x44, MPL3115A2 0x60), else tags. Once
+    /// recognised, it stays a module while its SHT20 and TMP112 answer.
+    #[default]
+    Auto,
+    /// A Climate Module R1 whenever its SHT20 and TMP112 answer.
+    Module,
+    /// Always tags.
+    Tags,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SensorKind {
@@ -101,7 +131,50 @@ impl SensorKind {
             SensorKind::Mpl3115a2 => mpl3115a2::ADDR,
         }
     }
+
+    /// Every address the part answers at on a TOWER module or tag, the
+    /// Climate Module's first.
+    pub fn addresses(self) -> &'static [u8] {
+        match self {
+            SensorKind::Sht30 => &[sht30::ADDR, sht30::TAG_ADDR],
+            SensorKind::Sht20 => &[sht20::ADDR],
+            SensorKind::Tmp112 => &[tmp112::ADDR, tmp112::ALT_ADDR],
+            SensorKind::Opt3001 => &[opt3001::ADDR, opt3001::ALT_ADDR],
+            SensorKind::Mpl3115a2 => &[mpl3115a2::ADDR],
+        }
+    }
+
+    /// The tag that carries the part on its own.
+    fn tag(self) -> ModuleKind {
+        match self {
+            SensorKind::Sht30 | SensorKind::Sht20 => ModuleKind::HumidityTag,
+            SensorKind::Tmp112 => ModuleKind::TemperatureTag,
+            SensorKind::Opt3001 => ModuleKind::LuxMeterTag,
+            SensorKind::Mpl3115a2 => ModuleKind::BarometerTag,
+        }
+    }
+
+    /// What the part measures on its own (on a tag).
+    fn metrics(self) -> &'static [Metric] {
+        match self {
+            SensorKind::Sht30 | SensorKind::Sht20 => &[Metric::Temperature, Metric::Humidity],
+            SensorKind::Tmp112 => &[Metric::Temperature],
+            SensorKind::Opt3001 => &[Metric::Illuminance],
+            SensorKind::Mpl3115a2 => &[Metric::Pressure],
+        }
+    }
 }
+
+/// The order in which tags become a channel's primary source: the SHT30
+/// before the TMP112 before the SHT20 (as the Climate Modules measure
+/// temperature), then the light sensor and the barometer.
+const TAG_ORDER: [SensorKind; 5] = [
+    SensorKind::Sht30,
+    SensorKind::Tmp112,
+    SensorKind::Sht20,
+    SensorKind::Opt3001,
+    SensorKind::Mpl3115a2,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Slot {
@@ -113,6 +186,7 @@ enum Slot {
 /// One sensor part on a channel.
 #[derive(Clone, Copy, Debug)]
 struct Part {
+    kind: SensorKind,
     slot: Slot,
     /// Failed measurements in a row.
     fails: u8,
@@ -121,12 +195,6 @@ struct Part {
 }
 
 impl Part {
-    const ABSENT: Part = Part {
-        slot: Slot::Absent,
-        fails: 0,
-        addr: 0,
-    };
-
     fn present(self) -> bool {
         self.slot != Slot::Absent
     }
@@ -135,23 +203,174 @@ impl Part {
         self.slot == Slot::Ready
     }
 
-    fn found(slot: Slot, addr: u8) -> Part {
+    fn found(kind: SensorKind, slot: Slot, addr: u8) -> Part {
         Part {
+            kind,
             slot,
             fails: 0,
             addr,
         }
     }
+
+    fn id(self) -> String {
+        sensor_id(self.kind.name(), self.addr)
+    }
+}
+
+/// The parts of one module or tag on a channel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Module {
+    pub kind: ModuleKind,
+    /// The part measuring each metric, as an index into the channel's parts.
+    parts: Vec<(Metric, usize)>,
 }
 
 /// A part that fails this many measurements in a row is taken as unplugged;
 /// the periodic probe finds it again when it comes back.
 const PART_GIVE_UP: u8 = 3;
 
+/// Suspicion of an address collision from what a cycle shows (a checksum
+/// error, a Climate Module's barometer far off its thermometer): a suspicious
+/// cycle adds [`SUSPECT_STEP`], a clean one takes one away. At
+/// [`SUSPECT_AT`] (two suspicious cycles close together) the part is
+/// reported, and it stays reported until the score is back at zero, so a
+/// warning does not come and go around one level.
+const SUSPECT_STEP: u8 = 3;
+const SUSPECT_AT: u8 = 6;
+const SUSPECT_MAX: u8 = 12;
+/// What is known about a part that stopped answering is kept this long:
+/// two devices at one address garble each other's checksums until the part
+/// is given up, and the probe finds it again within a minute. Counting
+/// cycles instead let the warning go between two probes at a short interval.
+const SUSPECT_HOLD: Duration = Duration::from_secs(300);
+
+/// How many changed readings [`LowBits`] remembers, to see whether a part's
+/// readings vary.
+const LOW_BITS_RECENT: usize = 32;
+/// A reading can only add to the score while this many different values are
+/// among the remembered ones: a lone sensor whose reading flips between a few
+/// values, one of them a multiple of eight, would otherwise count that one
+/// value over and over. With twelve codes in play at most three in seventeen
+/// are multiples of eight (18 %).
+const LOW_BITS_VARIETY: usize = 12;
+/// A changed reading with its three lowest bits all zero adds this to the
+/// score, any other takes one away: the score falls below one zero in four.
+/// A lone sensor has its lowest bits at random, all three zero in one reading
+/// of eight, and loses half a point a reading. Two sensors at one address
+/// are read ANDed bit by bit: a bit is zero three times in four, all three
+/// in (3/4)³ = 42 % of the readings, 0.7 points up a reading.
+///
+/// Measured on 2026-11-23 at a 2 s interval (Climate Module R2.1, tags):
+/// 12 to 14.5 % alone (two barometers, two light sensors, a TMP112, 71
+/// minutes each), 40 to 42 % together (a barometer pair, a light sensor
+/// pair). Alone the score stayed below 24 there, and below 51 in 1200
+/// simulated days of the worst case (a sensor spread evenly over 17 codes
+/// that start at a multiple of eight).
+const LOW_BITS_STEP: u8 = 3;
+/// The score from which a part is suspect; a pair gets there in about 150
+/// changed readings.
+const LOW_BITS_SUSPECT: u8 = 72;
+/// The score down to which a suspect part stays one: a pair does not drop
+/// out on a run of other readings, and a part left alone is cleared about
+/// 65 changed readings later.
+const LOW_BITS_CLEAR: u8 = 48;
+const LOW_BITS_MAX: u8 = 80;
+
+/// Watches the lowest bits of a part's raw readings for a second device at
+/// its address (see [`LOW_BITS_STEP`]). Only changed readings count.
+///
+/// An earlier version counted the zeros among the last 90 changed readings
+/// (22 or more made the part suspect). A lone sensor gets there by chance in
+/// one window of 700, and a window was judged at every reading: the clean
+/// set-up of 2026-11-23 warned five times in 70 minutes.
+#[derive(Clone, Debug, Default)]
+struct LowBits {
+    /// The last changed readings, newest last.
+    recent: VecDeque<u32>,
+    score: u8,
+    suspect: bool,
+}
+
+impl LowBits {
+    /// Note a raw reading; whether the readings so far suggest a second
+    /// device.
+    fn push(&mut self, raw: u32) -> bool {
+        if self.recent.back() == Some(&raw) {
+            return self.suspect;
+        }
+        self.recent.push_back(raw);
+        if self.recent.len() > LOW_BITS_RECENT {
+            self.recent.pop_front();
+        }
+        let varied = self.recent.len() == LOW_BITS_RECENT && {
+            let mut distinct: Vec<u32> = self.recent.iter().copied().collect();
+            distinct.sort_unstable();
+            distinct.dedup();
+            distinct.len() >= LOW_BITS_VARIETY
+        };
+        // Without variety nothing can be told; what was gathered fades, so
+        // a warning ends once its cause is gone and the reading steady.
+        self.score = if varied && raw & 0b111 == 0 {
+            self.score.saturating_add(LOW_BITS_STEP).min(LOW_BITS_MAX)
+        } else {
+            self.score.saturating_sub(1)
+        };
+        if self.score >= LOW_BITS_SUSPECT {
+            self.suspect = true;
+        } else if self.score <= LOW_BITS_CLEAR {
+            self.suspect = false;
+        }
+        self.suspect
+    }
+}
+
+/// What the readings of one part tell about a second device at its address.
+#[derive(Clone, Debug)]
+struct Watch {
+    kind: SensorKind,
+    addr: u8,
+    /// See [`SUSPECT_STEP`].
+    score: u8,
+    /// The score reached [`SUSPECT_AT`] and is not back at zero yet.
+    reported: bool,
+    /// The lowest bits of the raw readings, for the parts without a
+    /// checksum.
+    low_bits: LowBits,
+    /// Since when the part does not answer, while it does not.
+    away_since: Option<Duration>,
+}
+
+impl Watch {
+    fn new(kind: SensorKind, addr: u8) -> Self {
+        Self {
+            kind,
+            addr,
+            score: 0,
+            reported: false,
+            low_bits: LowBits::default(),
+            away_since: None,
+        }
+    }
+
+    /// Nothing gathered: not worth keeping.
+    fn idle(&self) -> bool {
+        self.score == 0 && self.low_bits.recent.is_empty()
+    }
+}
+
+/// A Climate Module's barometer differs this much from its thermometer only
+/// when a second barometer answers at its address (its die runs a degree or
+/// two warm).
+const BAROMETER_MISMATCH_C: f64 = 6.0;
+
 /// Result of measuring one channel.
 #[derive(Clone, Debug, Default)]
 pub struct CycleReport {
+    /// The channel's values, from the primary source of each metric.
     pub values: Values,
+    /// The values of the channel's further sensors, by sensor id (see
+    /// [`crate::model::sensor_id`]); only sensors with a value.
+    pub extra: Vec<(String, Values)>,
     pub errors: Vec<(SensorKind, SensorError)>,
     pub duration: Duration,
     /// The switch did not select the channel, or lost it during the cycle:
@@ -184,13 +403,20 @@ fn answered<T>(r: Result<T, BusError>) -> Result<Option<T>, BusError> {
 #[derive(Clone, Debug)]
 pub struct ChannelSensors {
     channel: u8,
-    sht30: Part,
-    sht20: Part,
-    tmp112: Part,
-    opt3001: Part,
-    mpl: Part,
+    /// Every part found, in the order found; a part given up is marked
+    /// absent during a cycle and removed at its end.
+    parts: Vec<Part>,
     co2: Option<Co2Module>,
     voc: Option<Sgpc3>,
+    /// How the parts at the Climate Module R1 addresses are named.
+    r1: ClimateR1,
+    /// All four parts of a Climate Module R1 were seen together (see
+    /// [`ClimateR1::Auto`]).
+    r1_seen: bool,
+    /// What suggests a second device at a part's address, by part and
+    /// address; kept for [`SUSPECT_HOLD`] while the part is away, so a part
+    /// dropped for its garbled data stays reported.
+    watched: Vec<Watch>,
     /// Modules kept from before a re-detection (Rescan, a channel change):
     /// taken over if found again, instead of starting them anew (a minute
     /// of charging for the LP8, a new preheat for the SGPC3 that loses what
@@ -202,16 +428,15 @@ pub struct ChannelSensors {
 }
 
 impl ChannelSensors {
-    fn new(channel: u8, state_dir: Option<PathBuf>) -> Self {
+    fn new(channel: u8, state_dir: Option<PathBuf>, r1: ClimateR1) -> Self {
         Self {
             channel,
-            sht30: Part::ABSENT,
-            sht20: Part::ABSENT,
-            tmp112: Part::ABSENT,
-            opt3001: Part::ABSENT,
-            mpl: Part::ABSENT,
+            parts: Vec::new(),
             co2: None,
             voc: None,
+            r1,
+            r1_seen: false,
+            watched: Vec::new(),
             spare_co2: None,
             spare_voc: None,
             state_dir,
@@ -229,63 +454,66 @@ impl ChannelSensors {
     }
 
     pub fn is_empty(&self) -> bool {
-        !(self.sht30.present()
-            || self.sht20.present()
-            || self.tmp112.present()
-            || self.opt3001.present()
-            || self.mpl.present()
-            || self.co2.is_some()
-            || self.voc.is_some())
+        !(self.parts.iter().any(|p| p.present()) || self.co2.is_some() || self.voc.is_some())
+    }
+
+    /// The index of `kind` at `addr`, when present.
+    fn find(&self, kind: SensorKind, addr: u8) -> Option<usize> {
+        self.parts
+            .iter()
+            .position(|p| p.present() && p.kind == kind && p.addr == addr)
+    }
+
+    /// Whether a part was found at `addr`.
+    fn holds(&self, addr: u8) -> bool {
+        self.parts.iter().any(|p| p.present() && p.addr == addr)
+    }
+
+    fn add(&mut self, kind: SensorKind, slot: Slot, addr: u8) {
+        self.parts.push(Part::found(kind, slot, addr));
     }
 
     /// Look for the parts not present yet (the channel must be selected).
     /// Returns whether one was found.
     fn probe(&mut self, bus: &mut dyn I2cBus, clock: &dyn Clock) -> Result<bool, BusError> {
         let mut found = false;
-        // The light sensor first, by its ID: at 0x45 an OPT3001 would also
-        // acknowledge the SHT30 soft reset below. 0x45 is not probed while an
-        // SHT30 holds it.
-        if !self.opt3001.present() {
-            for addr in [opt3001::ADDR, opt3001::ALT_ADDR] {
-                if addr == sht30::ADDR && self.sht30.present() {
-                    continue;
-                }
-                if answered(opt3001::device_id(bus, addr))? == Some(opt3001::DEVICE_ID) {
-                    self.opt3001 = Part::found(Slot::Uninit, addr);
-                    found = true;
-                    break;
-                }
+        // 0x44 and 0x45 hold an OPT3001 or an SHT30. The light sensor first,
+        // by its ID: an OPT3001 would also acknowledge the SHT30 soft reset.
+        // SHT humidity sensors only acknowledge commands, so probe them with
+        // a soft reset (an idle SHT3x does not even acknowledge a read).
+        for addr in [opt3001::ADDR, opt3001::ALT_ADDR] {
+            if self.holds(addr) {
+                continue;
             }
-        }
-        // SHT humidity sensors only acknowledge commands, so probe with a
-        // soft reset (an idle SHT3x does not even acknowledge a read).
-        let lux_at_sht30 = self.opt3001.present() && self.opt3001.addr == sht30::ADDR;
-        if !self.sht30.present() && !lux_at_sht30 && answered(sht30::soft_reset(bus))?.is_some() {
-            clock.sleep(sht30::RESET_TIME);
-            self.sht30 = Part::found(Slot::Ready, sht30::ADDR);
-            found = true;
+            if answered(opt3001::device_id(bus, addr))? == Some(opt3001::DEVICE_ID) {
+                self.add(SensorKind::Opt3001, Slot::Uninit, addr);
+                found = true;
+            } else if answered(sht30::soft_reset(bus, addr))?.is_some() {
+                clock.sleep(sht30::RESET_TIME);
+                self.add(SensorKind::Sht30, Slot::Ready, addr);
+                found = true;
+            }
         }
         // An HDC2080 at the same address would take the SHT20's commands as
         // register pointers and read back nonsense (-46.85 °C from zeros).
-        if !self.sht20.present()
+        if !self.holds(sht20::ADDR)
             && !crate::sensors::identify::is_hdc2080(bus, sht20::ADDR)?
             && answered(sht20::soft_reset(bus))?.is_some()
         {
             clock.sleep(sht20::RESET_TIME);
-            self.sht20 = Part::found(Slot::Ready, sht20::ADDR);
+            self.add(SensorKind::Sht20, Slot::Ready, sht20::ADDR);
             found = true;
         }
-        if !self.tmp112.present() {
-            for addr in [tmp112::ADDR, tmp112::ALT_ADDR] {
-                if answered(tmp112::probe(bus, addr))?.is_some() {
-                    self.tmp112 = Part::found(Slot::Ready, addr);
-                    found = true;
-                    break;
-                }
+        for addr in [tmp112::ADDR, tmp112::ALT_ADDR] {
+            if !self.holds(addr) && answered(tmp112::probe(bus, addr))?.is_some() {
+                self.add(SensorKind::Tmp112, Slot::Ready, addr);
+                found = true;
             }
         }
-        if !self.mpl.present() && answered(mpl3115a2::who_am_i(bus))? == Some(mpl3115a2::WHO_AM_I) {
-            self.mpl = Part::found(Slot::Uninit, mpl3115a2::ADDR);
+        if !self.holds(mpl3115a2::ADDR)
+            && answered(mpl3115a2::who_am_i(bus))? == Some(mpl3115a2::WHO_AM_I)
+        {
+            self.add(SensorKind::Mpl3115a2, Slot::Uninit, mpl3115a2::ADDR);
             found = true;
         }
         if self.voc.is_none() && sgpc3::probe(bus)?.is_some() {
@@ -308,112 +536,143 @@ impl ChannelSensors {
             };
             found |= self.co2.is_some();
         }
+        // Measured in this order, as the drivers expect (see the cycle).
+        self.parts.sort_by_key(|p| {
+            let kind = TAG_ORDER.iter().position(|k| *k == p.kind);
+            let addr = p.kind.addresses().iter().position(|a| *a == p.addr);
+            (kind, addr)
+        });
+        self.note_r1();
         Ok(found)
     }
 
-    fn part_of(&self, kind: SensorKind) -> &Part {
-        match kind {
-            SensorKind::Sht30 => &self.sht30,
-            SensorKind::Sht20 => &self.sht20,
-            SensorKind::Tmp112 => &self.tmp112,
-            SensorKind::Opt3001 => &self.opt3001,
-            SensorKind::Mpl3115a2 => &self.mpl,
-        }
+    /// Remember a complete Climate Module R1, and forget it once its SHT20
+    /// or TMP112 is gone (see [`ClimateR1::Auto`]).
+    fn note_r1(&mut self) {
+        let thermometers = self.find(SensorKind::Sht20, sht20::ADDR).is_some()
+            && self.find(SensorKind::Tmp112, tmp112::ADDR).is_some();
+        let complete = thermometers
+            && self.find(SensorKind::Opt3001, opt3001::ADDR).is_some()
+            && self.find(SensorKind::Mpl3115a2, mpl3115a2::ADDR).is_some();
+        self.r1_seen = thermometers && (self.r1_seen || complete);
     }
 
-    /// Whether `kind` is present at its Climate Module address.
-    fn at_default(&self, kind: SensorKind) -> bool {
-        let part = self.part_of(kind);
-        part.present() && part.addr == kind.default_address()
-    }
-
-    /// The Climate Module whose parts are on this channel, if any.
-    fn climate_module(&self) -> Option<ModuleKind> {
-        let lux_or_baro = self.at_default(SensorKind::Opt3001) || self.mpl.present();
-        if self.at_default(SensorKind::Sht30) && lux_or_baro {
-            Some(ModuleKind::ClimateModuleR2)
-        } else if self.at_default(SensorKind::Sht20) && self.at_default(SensorKind::Tmp112) {
-            Some(ModuleKind::ClimateModuleR1)
-        } else {
-            None
-        }
-    }
-
-    fn module_of(&self, kind: SensorKind) -> ModuleKind {
-        let tag = match kind {
-            SensorKind::Sht30 | SensorKind::Sht20 => ModuleKind::HumidityTag,
-            SensorKind::Tmp112 => ModuleKind::TemperatureTag,
-            SensorKind::Opt3001 => ModuleKind::LuxMeterTag,
-            SensorKind::Mpl3115a2 => ModuleKind::BarometerTag,
+    /// The modules and tags on this channel, Climate Module first, then the
+    /// tags in [`TAG_ORDER`] and by address: the first that measures a
+    /// metric is the channel's primary source of it.
+    pub fn modules(&self) -> Vec<Module> {
+        let at = |kind: SensorKind, addr: u8| self.find(kind, addr);
+        let mut modules = Vec::new();
+        let lux = at(SensorKind::Opt3001, opt3001::ADDR);
+        let baro = at(SensorKind::Mpl3115a2, mpl3115a2::ADDR);
+        let climate_extras = || {
+            lux.map(|i| (Metric::Illuminance, i))
+                .into_iter()
+                .chain(baro.map(|i| (Metric::Pressure, i)))
         };
-        // A part at a tag's alternative address is never the Climate Module's.
-        match self.climate_module() {
-            Some(module) if self.at_default(kind) => module,
-            _ => tag,
+        let sht30 = at(SensorKind::Sht30, sht30::ADDR);
+        let sht20 = at(SensorKind::Sht20, sht20::ADDR);
+        let tmp112 = at(SensorKind::Tmp112, tmp112::ADDR);
+        if let Some(s) = sht30
+            && (lux.is_some() || baro.is_some())
+        {
+            let mut parts = vec![(Metric::Temperature, s), (Metric::Humidity, s)];
+            parts.extend(climate_extras());
+            modules.push(Module {
+                kind: ModuleKind::ClimateModuleR2,
+                parts,
+            });
+        } else if let (Some(h), Some(t)) = (sht20, tmp112) {
+            let r1 = match self.r1 {
+                ClimateR1::Module => true,
+                ClimateR1::Tags => false,
+                ClimateR1::Auto => self.r1_seen || (lux.is_some() && baro.is_some()),
+            };
+            if r1 {
+                let mut parts = vec![(Metric::Temperature, t), (Metric::Humidity, h)];
+                parts.extend(climate_extras());
+                modules.push(Module {
+                    kind: ModuleKind::ClimateModuleR1,
+                    parts,
+                });
+            }
         }
-    }
-
-    /// The part measuring temperature: SHT30, else TMP112, else SHT20.
-    fn temperature_part(&self) -> Option<SensorKind> {
-        if self.sht30.present() {
-            Some(SensorKind::Sht30)
-        } else if self.tmp112.present() {
-            Some(SensorKind::Tmp112)
-        } else if self.sht20.present() {
-            Some(SensorKind::Sht20)
-        } else {
-            None
+        let used: Vec<usize> = modules
+            .iter()
+            .flat_map(|m| m.parts.iter().map(|(_, i)| *i))
+            .collect();
+        for kind in TAG_ORDER {
+            for &addr in kind.addresses() {
+                if let Some(i) = at(kind, addr)
+                    && !used.contains(&i)
+                {
+                    modules.push(Module {
+                        kind: kind.tag(),
+                        parts: kind.metrics().iter().map(|m| (*m, i)).collect(),
+                    });
+                }
+            }
         }
-    }
-
-    fn humidity_part(&self) -> Option<SensorKind> {
-        if self.sht30.present() {
-            Some(SensorKind::Sht30)
-        } else if self.sht20.present() {
-            Some(SensorKind::Sht20)
-        } else {
-            None
-        }
+        modules
     }
 
     pub fn sources(&self) -> Vec<SensorSource> {
-        [
-            (Metric::Temperature, self.temperature_part()),
-            (Metric::Humidity, self.humidity_part()),
-            (
-                Metric::Illuminance,
-                self.opt3001.present().then_some(SensorKind::Opt3001),
-            ),
-            (
-                Metric::Pressure,
-                self.mpl.present().then_some(SensorKind::Mpl3115a2),
-            ),
-        ]
-        .into_iter()
-        .filter_map(|(metric, kind)| {
-            kind.map(|kind| SensorSource {
-                metric,
+        self.sources_of(&self.modules())
+    }
+
+    /// The source of each metric of each module, by metric; the first of a
+    /// metric is the primary one.
+    fn sources_of(&self, modules: &[Module]) -> Vec<SensorSource> {
+        let mut out = Vec::new();
+        for metric in [
+            Metric::Temperature,
+            Metric::Humidity,
+            Metric::Illuminance,
+            Metric::Pressure,
+        ] {
+            let mut primary = true;
+            for module in modules {
+                for &(m, i) in &module.parts {
+                    if m != metric {
+                        continue;
+                    }
+                    let part = self.parts[i];
+                    out.push(SensorSource {
+                        metric,
+                        channel: self.channel,
+                        module: module.kind,
+                        sensor: part.kind.name().into(),
+                        address: part.addr,
+                        id: part.id(),
+                        primary,
+                    });
+                    primary = false;
+                }
+            }
+        }
+        if self.co2.is_some() {
+            out.push(SensorSource {
+                metric: Metric::Co2,
                 channel: self.channel,
-                module: self.module_of(kind),
-                sensor: kind.name().into(),
-                address: self.part_of(kind).addr,
-            })
-        })
-        .chain(self.co2.is_some().then(|| SensorSource {
-            metric: Metric::Co2,
-            channel: self.channel,
-            module: ModuleKind::Co2Module,
-            sensor: "LP8".into(),
-            address: co2::UART,
-        }))
-        .chain(self.voc.is_some().then(|| SensorSource {
-            metric: Metric::Voc,
-            channel: self.channel,
-            module: ModuleKind::VocLpTag,
-            sensor: "SGPC3".into(),
-            address: sgpc3::ADDR,
-        }))
-        .collect()
+                module: ModuleKind::Co2Module,
+                sensor: "LP8".into(),
+                address: co2::UART,
+                id: sensor_id("LP8", co2::UART),
+                primary: true,
+            });
+        }
+        if self.voc.is_some() {
+            out.push(SensorSource {
+                metric: Metric::Voc,
+                channel: self.channel,
+                module: ModuleKind::VocLpTag,
+                sensor: "SGPC3".into(),
+                address: sgpc3::ADDR,
+                id: sensor_id("SGPC3", sgpc3::ADDR),
+                primary: true,
+            });
+        }
+        out
     }
 
     /// Measure TVOC when due (the channel must be selected); `climate` is
@@ -445,49 +704,151 @@ impl ChannelSensors {
         }
     }
 
-    fn part(&mut self, kind: SensorKind) -> &mut Part {
-        match kind {
-            SensorKind::Sht30 => &mut self.sht30,
-            SensorKind::Sht20 => &mut self.sht20,
-            SensorKind::Tmp112 => &mut self.tmp112,
-            SensorKind::Opt3001 => &mut self.opt3001,
-            SensorKind::Mpl3115a2 => &mut self.mpl,
+    /// A measurement of part `i` succeeded: its failures in a row start over.
+    fn measured(&mut self, i: usize) {
+        self.parts[i].fails = 0;
+        let part = self.parts[i];
+        self.suspect(part.kind, part.addr, false);
+    }
+
+    fn watch_index(&self, kind: SensorKind, addr: u8) -> Option<usize> {
+        self.watched
+            .iter()
+            .position(|w| w.kind == kind && w.addr == addr)
+    }
+
+    /// The watch of `kind` at `addr`, started if there is none.
+    fn watch(&mut self, kind: SensorKind, addr: u8) -> &mut Watch {
+        let i = match self.watch_index(kind, addr) {
+            Some(i) => i,
+            None => {
+                self.watched.push(Watch::new(kind, addr));
+                self.watched.len() - 1
+            }
+        };
+        &mut self.watched[i]
+    }
+
+    /// Note a cycle of `kind` at `addr` that suggests a second device at its
+    /// address (`true`), or one that does not.
+    fn suspect(&mut self, kind: SensorKind, addr: u8, suspicious: bool) {
+        if suspicious {
+            let w = self.watch(kind, addr);
+            w.score = w.score.saturating_add(SUSPECT_STEP).min(SUSPECT_MAX);
+            w.reported |= w.score >= SUSPECT_AT;
+        } else if let Some(i) = self.watch_index(kind, addr) {
+            let w = &mut self.watched[i];
+            w.score = w.score.saturating_sub(1);
+            w.reported &= w.score > 0;
         }
     }
 
-    /// A measurement of `kind` succeeded: its failures in a row start over.
-    fn measured(&mut self, kind: SensorKind) {
-        self.part(kind).fails = 0;
+    /// Note a raw reading of part `i` (without a checksum), for a second
+    /// device that shows in its lowest bits (see [`LowBits`]).
+    fn watch_low_bits(&mut self, i: usize, raw: u32) {
+        let Part { kind, addr, .. } = self.parts[i];
+        self.watch(kind, addr).low_bits.push(raw);
     }
 
-    /// Sort out a part's result: failures are recorded and the part is set
+    /// At the end of a cycle: forget what is known about parts away for
+    /// longer than [`SUSPECT_HOLD`], and watches with nothing in them.
+    fn tidy_watched(&mut self, now: Duration) {
+        let present: Vec<bool> = self
+            .watched
+            .iter()
+            .map(|w| self.find(w.kind, w.addr).is_some())
+            .collect();
+        for (w, present) in self.watched.iter_mut().zip(present) {
+            w.away_since = match (present, w.away_since) {
+                (true, _) => None,
+                (false, None) => Some(now),
+                (false, since) => since,
+            };
+        }
+        self.watched.retain(|w| {
+            let held = w
+                .away_since
+                .is_none_or(|since| now.saturating_sub(since) < SUSPECT_HOLD);
+            held && !w.idle()
+        });
+    }
+
+    /// The parts whose data suggest a second device at their address.
+    pub fn warnings(&self) -> Vec<BusWarning> {
+        let modules = self.modules();
+        let mut out: Vec<BusWarning> = self
+            .watched
+            .iter()
+            // What the lowest bits told counts while the part answers:
+            // unlike garbled checksums, it does not make a part go away.
+            .filter(|w| w.reported || (w.low_bits.suspect && w.away_since.is_none()))
+            .map(|w| {
+                let (kind, addr) = (w.kind, w.addr);
+                let module = self
+                    .find(kind, addr)
+                    .and_then(|i| {
+                        modules
+                            .iter()
+                            .find(|m| m.parts.iter().any(|(_, p)| *p == i))
+                    })
+                    .map_or(kind.tag(), |m| m.kind);
+                BusWarning {
+                    channel: self.channel,
+                    address: addr,
+                    sensor: kind.name().into(),
+                    module,
+                    kind: BusWarningKind::AddressCollision,
+                }
+            })
+            .collect();
+        out.sort_by_key(|w| w.address);
+        out
+    }
+
+    /// Sort out part `i`'s result: failures are recorded and the part is set
     /// up again next time, or given up after [`PART_GIVE_UP`] failed
     /// measurements in a row (a set-up that works does not reset the count;
     /// see [`measured`](Self::measured)). `Err` only for transport failures.
     fn check<T>(
         &mut self,
         errors: &mut Vec<(SensorKind, SensorError)>,
-        kind: SensorKind,
+        i: usize,
         r: Result<T, SensorError>,
     ) -> Result<Option<T>, BusError> {
         let channel = self.channel;
-        let part = self.part(kind);
+        let part = &mut self.parts[i];
         match r {
             Ok(v) => Ok(Some(v)),
             Err(SensorError::Bus(e)) if e.is_fatal() => Err(e),
             Err(e) => {
-                debug!("{} on channel {channel} failed: {e}", kind.name());
+                let name = part.kind.name();
+                let addr = part.addr;
+                // Two devices answering one read garble its checksum; a
+                // lone sensor almost never does.
+                let garbled = matches!(e, SensorError::Crc);
+                debug!("{name} at 0x{addr:02X} on channel {channel} failed: {e}");
                 part.fails = part.fails.saturating_add(1);
                 if part.fails >= PART_GIVE_UP {
-                    info!("{} on channel {channel} stopped answering", kind.name());
-                    *part = Part::ABSENT;
+                    info!("{name} at 0x{addr:02X} on channel {channel} stopped answering");
+                    part.slot = Slot::Absent;
                 } else {
                     part.slot = Slot::Uninit;
                 }
+                let kind = part.kind;
                 errors.push((kind, e));
+                if garbled {
+                    self.suspect(kind, addr, true);
+                }
                 Ok(None)
             }
         }
+    }
+
+    /// The indices of the ready parts of `kind`.
+    fn ready(&self, kind: SensorKind) -> Vec<usize> {
+        (0..self.parts.len())
+            .filter(|&i| self.parts[i].kind == kind && self.parts[i].ready())
+            .collect()
     }
 
     /// Measure this channel; see [`Sensors::measure_with`]. `pressure_hint`
@@ -512,14 +873,19 @@ impl ChannelSensors {
                 return Ok(report);
             }
         }
+        // Who measures what is decided at the start of the cycle; a part
+        // given up during it is left out from the next cycle on.
+        let modules = self.modules();
+        let sources = self.sources_of(&modules);
+        // An SHT20 measures temperature when a tag carries it, not on a
+        // Climate Module R1 (whose TMP112 does).
+        let sht20_temperature = modules.iter().any(|m| {
+            m.parts.iter().any(|&(metric, i)| {
+                metric == Metric::Temperature && self.parts[i].kind == SensorKind::Sht20
+            })
+        });
         let errors = &mut report.errors;
-        let temperature = self.temperature_part();
-        let humidity = self.humidity_part();
-        let use_sht20 =
-            temperature == Some(SensorKind::Sht20) || humidity == Some(SensorKind::Sht20);
-        let use_tmp112 = temperature == Some(SensorKind::Tmp112);
-        let tmp112_addr = self.tmp112.addr;
-        let opt3001_addr = self.opt3001.addr;
+        let mut results = vec![Values::default(); self.parts.len()];
 
         // Long waits go to the idle hook, which may use the bus meanwhile (a
         // relay on the other channel); then this channel is selected again.
@@ -541,37 +907,34 @@ impl ChannelSensors {
         let mut on_channel = true;
 
         // Set up parts that are new or failed last time.
-        if self.sht30.slot == Slot::Uninit {
-            let r = sht30::soft_reset(bus).map_err(SensorError::from);
-            if self.check(errors, SensorKind::Sht30, r)?.is_some() {
-                clock.sleep(sht30::RESET_TIME);
-                self.sht30.slot = Slot::Ready;
+        for i in 0..self.parts.len() {
+            let part = self.parts[i];
+            if part.slot != Slot::Uninit {
+                continue;
+            }
+            let r = match part.kind {
+                SensorKind::Sht30 => sht30::soft_reset(bus, part.addr).map(|()| sht30::RESET_TIME),
+                SensorKind::Sht20 => sht20::soft_reset(bus).map(|()| sht20::RESET_TIME),
+                SensorKind::Tmp112 => Ok(Duration::ZERO),
+                SensorKind::Opt3001 => opt3001::init(bus, part.addr).map(|()| Duration::ZERO),
+                // Below: its reset takes a second.
+                SensorKind::Mpl3115a2 => continue,
+            };
+            if let Some(wait) = self.check(errors, i, r.map_err(SensorError::from))? {
+                clock.sleep(wait);
+                self.parts[i].slot = Slot::Ready;
             }
         }
-        if use_sht20 && self.sht20.slot == Slot::Uninit {
-            let r = sht20::soft_reset(bus).map_err(SensorError::from);
-            if self.check(errors, SensorKind::Sht20, r)?.is_some() {
-                clock.sleep(sht20::RESET_TIME);
-                self.sht20.slot = Slot::Ready;
-            }
-        }
-        if self.tmp112.slot == Slot::Uninit {
-            self.tmp112.slot = Slot::Ready;
-        }
-        if self.opt3001.slot == Slot::Uninit {
-            let r = opt3001::init(bus, opt3001_addr).map_err(SensorError::from);
-            if self.check(errors, SensorKind::Opt3001, r)?.is_some() {
-                self.opt3001.slot = Slot::Ready;
-            }
-        }
-        if self.mpl.slot == Slot::Uninit {
+        if let Some(i) = (0..self.parts.len()).find(|&i| {
+            self.parts[i].kind == SensorKind::Mpl3115a2 && self.parts[i].slot == Slot::Uninit
+        }) {
             mpl3115a2::reset(bus);
             // A second of reset: keep the relay responsive meanwhile.
             on_channel = idle_until(bus, clock.now() + mpl3115a2::RESET_TIME)?;
             if on_channel {
                 let r = mpl3115a2::configure(bus).map_err(SensorError::from);
-                if self.check(errors, SensorKind::Mpl3115a2, r)?.is_some() {
-                    self.mpl.slot = Slot::Ready;
+                if self.check(errors, i, r)?.is_some() {
+                    self.parts[i].slot = Slot::Ready;
                 }
             }
         }
@@ -583,81 +946,75 @@ impl ChannelSensors {
 
         // Trigger all conversions.
         let t0 = clock.now();
-        if self.sht30.ready() {
-            let r = sht30::trigger(bus).map_err(SensorError::from);
-            self.check(errors, SensorKind::Sht30, r)?;
-        }
-        if use_tmp112 && self.tmp112.ready() {
-            let r = tmp112::trigger(bus, tmp112_addr).map_err(SensorError::from);
-            self.check(errors, SensorKind::Tmp112, r)?;
-        }
-        // The SHT20 converts one quantity at a time: temperature first when
-        // it is the thermometer, humidity right after.
-        let sht20_temperature = temperature == Some(SensorKind::Sht20);
-        if use_sht20 && self.sht20.ready() {
-            let r = if sht20_temperature {
-                sht20::trigger_temperature(bus)
-            } else {
-                sht20::trigger_humidity(bus)
+        for i in 0..self.parts.len() {
+            let part = self.parts[i];
+            if !part.ready() {
+                continue;
             }
-            .map_err(SensorError::from);
-            self.check(errors, SensorKind::Sht20, r)?;
+            let r = match part.kind {
+                SensorKind::Sht30 => sht30::trigger(bus, part.addr),
+                SensorKind::Tmp112 => tmp112::trigger(bus, part.addr),
+                // The SHT20 converts one quantity at a time: temperature
+                // first when it measures it, humidity right after.
+                SensorKind::Sht20 if sht20_temperature => sht20::trigger_temperature(bus),
+                SensorKind::Sht20 => sht20::trigger_humidity(bus),
+                SensorKind::Opt3001 => opt3001::trigger(bus, part.addr),
+                SensorKind::Mpl3115a2 => mpl3115a2::trigger(bus),
+            };
+            self.check(errors, i, r.map_err(SensorError::from))?;
         }
-        if self.opt3001.ready() {
-            let r = opt3001::trigger(bus, opt3001_addr).map_err(SensorError::from);
-            self.check(errors, SensorKind::Opt3001, r)?;
-        }
-        if self.mpl.ready() {
-            let r = mpl3115a2::trigger(bus).map_err(SensorError::from);
-            self.check(errors, SensorKind::Mpl3115a2, r)?;
-        }
-
-        let mut values = Values::default();
 
         // Fast sensors.
         clock.sleep_until(t0 + FAST_FETCH_AT);
-        if self.sht30.ready() {
-            let r = sht30::fetch(bus);
-            if let Some((t, rh)) = self.check(errors, SensorKind::Sht30, r)? {
-                self.measured(SensorKind::Sht30);
-                values.temperature = Some(t);
-                values.humidity = Some(rh.clamp(0.0, 100.0));
+        for i in self.ready(SensorKind::Sht30) {
+            let r = sht30::fetch(bus, self.parts[i].addr);
+            if let Some((t, rh)) = self.check(errors, i, r)? {
+                self.measured(i);
+                results[i].temperature = Some(t);
+                results[i].humidity = Some(rh.clamp(0.0, 100.0));
             }
         }
-        if use_tmp112 && self.tmp112.ready() {
-            let r = poll_ready(clock, || tmp112::is_ready(bus, tmp112_addr), 3, SHT20_RETRY)
-                .and_then(|()| tmp112::fetch(bus, tmp112_addr));
-            if let Some(t) = self.check(errors, SensorKind::Tmp112, r)? {
-                self.measured(SensorKind::Tmp112);
-                values.temperature = Some(t);
+        for i in self.ready(SensorKind::Tmp112) {
+            let addr = self.parts[i].addr;
+            let r = poll_ready(clock, || tmp112::is_ready(bus, addr), 3, SHT20_RETRY)
+                .and_then(|()| tmp112::fetch(bus, addr));
+            if let Some(t) = self.check(errors, i, r)? {
+                self.measured(i);
+                results[i].temperature = Some(t);
+                // The 12-bit register: steps of 0.0625 °C.
+                self.watch_low_bits(i, ((t / 0.0625).round() as i32 & 0x0FFF) as u32);
             }
         }
-        if use_sht20 && self.sht20.ready() && sht20_temperature {
-            let r = sht20_fetch(clock, || sht20::fetch_temperature(bus));
-            if let Some(t) = self.check(errors, SensorKind::Sht20, r)? {
-                self.measured(SensorKind::Sht20);
-                values.temperature = Some(t);
-            }
-            if humidity == Some(SensorKind::Sht20) && self.sht20.ready() {
-                let r = sht20::trigger_humidity(bus).map_err(SensorError::from);
-                if self.check(errors, SensorKind::Sht20, r)?.is_some() {
-                    clock.sleep(sht20::HUMIDITY_TIME);
+        for i in self.ready(SensorKind::Sht20) {
+            if sht20_temperature {
+                let r = sht20_fetch(clock, || sht20::fetch_temperature(bus));
+                if let Some(t) = self.check(errors, i, r)? {
+                    self.measured(i);
+                    results[i].temperature = Some(t);
+                }
+                if self.parts[i].ready() {
+                    let r = sht20::trigger_humidity(bus).map_err(SensorError::from);
+                    if self.check(errors, i, r)?.is_some() {
+                        clock.sleep(sht20::HUMIDITY_TIME);
+                    }
                 }
             }
-        }
-        if humidity == Some(SensorKind::Sht20) && self.sht20.ready() {
-            let r = sht20_fetch(clock, || sht20::fetch_humidity(bus));
-            if let Some(rh) = self.check(errors, SensorKind::Sht20, r)? {
-                self.measured(SensorKind::Sht20);
-                values.humidity = Some(rh.clamp(0.0, 100.0));
+            if self.parts[i].ready() {
+                let r = sht20_fetch(clock, || sht20::fetch_humidity(bus));
+                if let Some(rh) = self.check(errors, i, r)? {
+                    self.measured(i);
+                    results[i].humidity = Some(rh.clamp(0.0, 100.0));
+                }
             }
         }
 
         // Barometer (waiting for the slow sensors goes to the idle hook).
-        if self.mpl.ready() {
+        let barometers = self.ready(SensorKind::Mpl3115a2);
+        if !barometers.is_empty() {
             on_channel = idle_until(bus, t0 + mpl3115a2::CONVERSION_TIME)?;
         }
-        if self.mpl.ready() && on_channel {
+        let mut die = Vec::new();
+        for i in barometers.into_iter().filter(|_| on_channel) {
             let r = poll_ready(
                 clock,
                 || mpl3115a2::is_ready(bus),
@@ -665,36 +1022,96 @@ impl ChannelSensors {
                 READY_POLL,
             )
             .and_then(|()| mpl3115a2::fetch(bus))
-            .and_then(|(p, _)| {
+            .and_then(|(p, t)| {
                 if (20_000.0..=120_000.0).contains(&p) {
-                    Ok(p)
+                    Ok((p, t))
                 } else {
                     Err(SensorError::Invalid(format!(
                         "pressure {p} Pa out of range"
                     )))
                 }
             });
-            if let Some(p) = self.check(errors, SensorKind::Mpl3115a2, r)? {
-                self.measured(SensorKind::Mpl3115a2);
-                values.pressure = Some(p);
+            if let Some((p, t)) = self.check(errors, i, r)? {
+                self.measured(i);
+                results[i].pressure = Some(p);
+                die.push((i, t));
+                // The 20-bit register: quarters of a pascal.
+                self.watch_low_bits(i, (p * 4.0).round() as u32);
+            }
+        }
+        // A Climate Module's barometer far off its thermometer: a second
+        // barometer (a Barometer Tag) answers at its address too.
+        for (i, t) in die {
+            let thermometer = modules.iter().find_map(|m| {
+                let climate = matches!(
+                    m.kind,
+                    ModuleKind::ClimateModuleR1 | ModuleKind::ClimateModuleR2
+                );
+                let mine = m.parts.iter().any(|&(_, p)| p == i);
+                let t = m
+                    .parts
+                    .iter()
+                    .find(|(metric, _)| *metric == Metric::Temperature)
+                    .and_then(|&(_, p)| results[p].temperature);
+                (climate && mine).then_some(t).flatten()
+            });
+            if let Some(reference) = thermometer {
+                let part = self.parts[i];
+                self.suspect(
+                    part.kind,
+                    part.addr,
+                    (t - reference).abs() > BAROMETER_MISMATCH_C,
+                );
             }
         }
 
-        // Light sensor.
-        if self.opt3001.ready() && on_channel {
+        // Light sensors.
+        let light = self.ready(SensorKind::Opt3001);
+        if !light.is_empty() && on_channel {
             on_channel = idle_until(bus, t0 + opt3001::CONVERSION_TIME)?;
         }
-        if self.opt3001.ready() && on_channel {
+        for i in light.into_iter().filter(|_| on_channel) {
+            let addr = self.parts[i].addr;
             let r = poll_ready(
                 clock,
-                || opt3001::is_ready(bus, opt3001_addr),
+                || opt3001::is_ready(bus, addr),
                 READY_POLL_COUNT,
                 READY_POLL,
             )
-            .and_then(|()| opt3001::fetch(bus, opt3001_addr));
-            if let Some(lux) = self.check(errors, SensorKind::Opt3001, r)? {
-                self.measured(SensorKind::Opt3001);
-                values.illuminance = Some(lux);
+            .and_then(|()| opt3001::fetch_raw(bus, addr));
+            if let Some(raw) = self.check(errors, i, r)? {
+                self.measured(i);
+                results[i].illuminance = Some(opt3001::lux(raw));
+                // The mantissa; in the dark it is too small to tell.
+                let mantissa = raw & 0x0FFF;
+                if mantissa >= 64 {
+                    self.watch_low_bits(i, u32::from(mantissa));
+                }
+            }
+        }
+
+        // Each value goes to its source's series: the channel's reading for
+        // the primary sources, the sensor's own for the others.
+        let mut values = Values::default();
+        let mut extra: Vec<(String, Values)> = Vec::new();
+        for module in &modules {
+            for &(metric, i) in &module.parts {
+                let Some(v) = results[i].get(metric) else {
+                    continue;
+                };
+                let id = self.parts[i].id();
+                let primary = sources
+                    .iter()
+                    .any(|s| s.metric == metric && s.primary && s.id == id);
+                if primary {
+                    values.set(metric, Some(v));
+                } else if let Some((_, e)) = extra.iter_mut().find(|(x, _)| *x == id) {
+                    e.set(metric, Some(v));
+                } else {
+                    let mut e = Values::default();
+                    e.set(metric, Some(v));
+                    extra.push((id, e));
+                }
             }
         }
 
@@ -717,7 +1134,11 @@ impl ChannelSensors {
         values.co2 = self.co2.as_ref().and_then(|c| c.value(now, CO2_MAX_AGE));
         values.voc = self.voc.as_ref().and_then(|v| v.value(now, VOC_MAX_AGE));
 
+        self.parts.retain(|p| p.present());
+        self.tidy_watched(now);
+        self.note_r1();
         report.values = values;
+        report.extra = extra;
         report.duration = clock.now() - started;
         Ok(report)
     }
@@ -743,6 +1164,8 @@ fn sht20_fetch(
 /// The sensors on all switch channels.
 pub struct Sensors {
     mode: ChannelMode,
+    /// How the Climate Module R1 parts are named, per channel.
+    r1: [ClimateR1; 2],
     /// Channels with at least one part, in channel order.
     channels: Vec<ChannelSensors>,
     state_dir: Option<PathBuf>,
@@ -756,6 +1179,7 @@ impl Sensors {
     pub fn new(mode: ChannelMode) -> Self {
         Self {
             mode,
+            r1: [ClimateR1::Auto; 2],
             channels: Vec::new(),
             state_dir: None,
             last: Vec::new(),
@@ -817,6 +1241,20 @@ impl Sensors {
         Ok(())
     }
 
+    /// How the Climate Module R1 parts are named on each channel; takes
+    /// effect at once (the sources change, the parts stay).
+    pub fn set_climate_r1(&mut self, r1: [ClimateR1; 2]) {
+        self.r1 = r1;
+        for c in self.channels.iter_mut().chain(self.spares.iter_mut()) {
+            c.r1 = r1_of(r1, c.channel);
+        }
+    }
+
+    pub fn with_climate_r1(mut self, r1: [ClimateR1; 2]) -> Self {
+        self.set_climate_r1(r1);
+        self
+    }
+
     pub fn set_mode(&mut self, mode: ChannelMode) {
         self.mode = mode;
         self.forget();
@@ -831,7 +1269,7 @@ impl Sensors {
             .drain(..)
             .filter(|c| c.co2.is_some() || c.voc.is_some())
             .map(|c| {
-                let mut spare = ChannelSensors::new(c.channel, c.state_dir.clone());
+                let mut spare = ChannelSensors::new(c.channel, c.state_dir.clone(), c.r1);
                 spare.spare_co2 = c.co2;
                 spare.spare_voc = c.voc;
                 spare
@@ -853,6 +1291,12 @@ impl Sensors {
         self.channels.iter().flat_map(|c| c.sources()).collect()
     }
 
+    /// Parts whose data suggest a second device at their address, by
+    /// channel.
+    pub fn warnings(&self) -> Vec<BusWarning> {
+        self.channels.iter().flat_map(|c| c.warnings()).collect()
+    }
+
     /// Look for parts not found yet on every channel of the mode; already
     /// found parts are left alone, so this can run between measurements.
     /// Returns whether a part was found. `Err` only for transport failures.
@@ -872,20 +1316,21 @@ impl Sensors {
                 Some(i) => self.channels[i].clone(),
                 None => match self.spares.iter().position(|s| s.channel == channel) {
                     Some(i) => self.spares.remove(i),
-                    None => ChannelSensors::new(channel, self.state_dir.clone()),
+                    None => ChannelSensors::new(
+                        channel,
+                        self.state_dir.clone(),
+                        r1_of(self.r1, channel),
+                    ),
                 },
             };
             if !sensors.probe(bus, clock)? {
                 continue;
             }
             found = true;
-            let mut names: Vec<String> = sensors
-                .sources()
-                .iter()
-                .map(|s| format!("{} {}", s.module.name(), s.sensor))
-                .collect();
-            names.dedup();
-            info!("I2C channel {channel}: {}", names.join(", "));
+            info!(
+                "I2C channel {channel}: {}",
+                describe_parts(&sensors.sources())
+            );
             match index {
                 Some(i) => self.channels[i] = sensors,
                 None => {
@@ -941,6 +1386,29 @@ impl Sensors {
     }
 }
 
+fn r1_of(r1: [ClimateR1; 2], channel: u8) -> ClimateR1 {
+    r1.get(usize::from(channel)).copied().unwrap_or_default()
+}
+
+/// Every part once, for the log: `Climate Module R2 SHT30 0x45, Humidity
+/// Tag SHT20 0x40`.
+fn describe_parts(sources: &[SensorSource]) -> String {
+    let mut seen: Vec<&str> = Vec::new();
+    let mut names = Vec::new();
+    for s in sources {
+        if !seen.contains(&s.id.as_str()) {
+            seen.push(&s.id);
+            names.push(format!(
+                "{} {} 0x{:02X}",
+                s.module.name(),
+                s.sensor,
+                s.address
+            ));
+        }
+    }
+    names.join(", ")
+}
+
 fn poll_ready(
     clock: &dyn Clock,
     mut ready: impl FnMut() -> Result<bool, BusError>,
@@ -964,7 +1432,8 @@ mod tests {
 
     use super::*;
     use crate::bus::mock::{
-        MockBus, MockClock, SharedEnv, SimMpl3115a2, SimOpt3001, SimSht20, SimTmp112, Transaction,
+        MockBus, MockClock, SharedEnv, SimMpl3115a2, SimOpt3001, SimSht20, SimSht30, SimTmp112,
+        Transaction,
     };
     use crate::model::ClimateRevision;
 
@@ -998,6 +1467,24 @@ mod tests {
             .next()
             .map(|(_, r)| r)
             .unwrap_or_default()
+    }
+
+    fn tag(t: f64, rh: f64) -> SharedEnv {
+        Arc::new(Mutex::new(Values {
+            temperature: Some(t),
+            humidity: Some(rh),
+            ..Values::default()
+        }))
+    }
+
+    /// The temperature sources: module, sensor id and whether primary.
+    fn temperatures(sensors: &Sensors) -> Vec<(ModuleKind, String, bool)> {
+        sensors
+            .sources()
+            .into_iter()
+            .filter(|s| s.metric == Metric::Temperature)
+            .map(|s| (s.module, s.id, s.primary))
+            .collect()
     }
 
     /// Humidity, Lux Meter and Barometer Tags.
@@ -1188,7 +1675,8 @@ mod tests {
         );
         let sources = sensors.sources();
         assert_eq!(
-            crate::model::source_label(&sources, Metric::Humidity, 1, "channel {n}").as_deref(),
+            crate::model::source_label(&sources, Metric::Humidity, 1, None, "channel {n}")
+                .as_deref(),
             Some("Humidity Tag, channel 1"),
             "the same name on both channels: the channel tells them apart"
         );
@@ -1376,9 +1864,7 @@ mod tests {
 
     #[test]
     fn a_lux_meter_tag_at_0x45_next_to_a_climate_module_r1() -> Result<(), BusError> {
-        let mut bus = MockBus::new();
-        bus.attach(0, 0x48, Box::new(SimTmp112::new(env())));
-        bus.attach(0, 0x40, Box::new(SimSht20::new(env())));
+        let mut bus = MockBus::with_climate(ClimateRevision::R1, 0, env());
         bus.attach(0, 0x45, Box::new(SimOpt3001::new(env())));
         let clock = MockClock::new();
         let mut sensors = Sensors::new(ChannelMode::Channel0);
@@ -1394,20 +1880,548 @@ mod tests {
     }
 
     #[test]
-    fn the_default_address_wins_when_both_answer() -> Result<(), BusError> {
+    fn a_temperature_tag_at_0x49_next_to_a_climate_module_r1() -> Result<(), BusError> {
         let mut bus = MockBus::with_climate(ClimateRevision::R1, 0, env());
-        bus.attach(0, 0x49, Box::new(SimTmp112::new(env())));
+        bus.attach(0, 0x49, Box::new(SimTmp112::new(tag(5.5, 80.0))));
         let clock = MockClock::new();
         let mut sensors = Sensors::new(ChannelMode::Channel0);
         sensors.detect(&mut bus, &clock)?;
-        let t = sensors
+        assert_eq!(
+            temperatures(&sensors),
+            vec![
+                (ModuleKind::ClimateModuleR1, "tmp112-48".into(), true),
+                (ModuleKind::TemperatureTag, "tmp112-49".into(), false),
+            ],
+            "the module's TMP112 is the channel's, the tag's has its own series"
+        );
+        let report = single(sensors.measure(&mut bus, &clock)?);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert_close(report.values.temperature, 23.5, 0.07);
+        assert_eq!(report.extra.len(), 1, "{:?}", report.extra);
+        assert_eq!(report.extra[0].0, "tmp112-49");
+        assert_close(report.extra[0].1.temperature, 5.5, 0.07);
+        Ok(())
+    }
+
+    /// The setup of the test of 2026-11-16 (GitHub issue #2): a Climate
+    /// Module R2 with a Humidity Tag and a Temperature Tag on channel 0.
+    #[test]
+    fn tags_next_to_a_climate_module_r2_get_their_own_series() -> Result<(), BusError> {
+        let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, env());
+        bus.attach(0, 0x40, Box::new(SimSht20::new(tag(5.5, 80.0))));
+        bus.attach(0, 0x48, Box::new(SimTmp112::new(tag(-3.25, 0.0))));
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        assert_eq!(
+            modules(&sensors),
+            vec![
+                (0, ModuleKind::ClimateModuleR2),
+                (0, ModuleKind::HumidityTag),
+                (0, ModuleKind::TemperatureTag),
+            ],
+            "not a Climate Module R1: the SHT20 and TMP112 sit next to an R2"
+        );
+        assert_eq!(
+            temperatures(&sensors),
+            vec![
+                (ModuleKind::ClimateModuleR2, "sht30-45".into(), true),
+                (ModuleKind::TemperatureTag, "tmp112-48".into(), false),
+                (ModuleKind::HumidityTag, "sht20-40".into(), false),
+            ]
+        );
+        let humidity: Vec<(String, bool)> = sensors
             .sources()
             .into_iter()
-            .find(|s| s.metric == Metric::Temperature);
+            .filter(|s| s.metric == Metric::Humidity)
+            .map(|s| (s.id, s.primary))
+            .collect();
         assert_eq!(
-            t.map(|s| (s.module, s.address)),
-            Some((ModuleKind::ClimateModuleR1, 0x48))
+            humidity,
+            vec![("sht30-45".into(), true), ("sht20-40".into(), false)]
         );
+        let report = single(sensors.measure(&mut bus, &clock)?);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert_close(report.values.temperature, 23.5, 0.01);
+        assert_close(report.values.humidity, 41.0, 0.01);
+        assert_close(report.values.illuminance, 512.0, 0.1);
+        let extra = |id: &str| {
+            report
+                .extra
+                .iter()
+                .find(|(x, _)| x == id)
+                .map(|(_, v)| *v)
+                .unwrap_or_default()
+        };
+        assert_eq!(report.extra.len(), 2, "{:?}", report.extra);
+        assert_close(extra("sht20-40").temperature, 5.5, 0.05);
+        assert_close(extra("sht20-40").humidity, 80.0, 0.1);
+        assert_close(extra("tmp112-48").temperature, -3.25, 0.07);
+        assert_eq!(extra("tmp112-48").humidity, None);
+        Ok(())
+    }
+
+    #[test]
+    fn two_lux_meter_tags_at_0x44_and_0x45() -> Result<(), BusError> {
+        let mut bus = MockBus::new();
+        bus.attach(0, 0x44, Box::new(SimOpt3001::new(env())));
+        bus.attach(
+            0,
+            0x45,
+            Box::new(SimOpt3001::new(Arc::new(Mutex::new(Values {
+                illuminance: Some(9000.0),
+                ..Values::default()
+            })))),
+        );
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        let ids: Vec<(String, bool)> = sensors
+            .sources()
+            .into_iter()
+            .map(|s| (s.id, s.primary))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![("opt3001-44".into(), true), ("opt3001-45".into(), false)]
+        );
+        let report = single(sensors.measure(&mut bus, &clock)?);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert_close(report.values.illuminance, 512.0, 0.5);
+        assert_eq!(report.extra.len(), 1);
+        assert_close(report.extra[0].1.illuminance, 9000.0, 10.0);
+        Ok(())
+    }
+
+    #[test]
+    fn a_humidity_tag_r4_with_an_sht30_at_0x44() -> Result<(), BusError> {
+        let mut bus = MockBus::new();
+        bus.attach(1, 0x44, Box::new(SimSht30::new(tag(7.5, 66.0))));
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Auto);
+        sensors.detect(&mut bus, &clock)?;
+        let sources = sensors.sources();
+        assert_eq!(sources.len(), 2, "{sources:?}");
+        assert!(sources.iter().all(|s| s.module == ModuleKind::HumidityTag
+            && s.sensor == "SHT30"
+            && s.address == 0x44
+            && s.primary));
+        let report = single(sensors.measure(&mut bus, &clock)?);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert_close(report.values.temperature, 7.5, 0.01);
+        assert_close(report.values.humidity, 66.0, 0.01);
+        Ok(())
+    }
+
+    #[test]
+    fn tags_at_the_climate_module_r1_addresses_are_tags() -> Result<(), BusError> {
+        let mut bus = MockBus::new();
+        bus.attach(0, 0x40, Box::new(SimSht20::new(tag(5.5, 80.0))));
+        bus.attach(0, 0x48, Box::new(SimTmp112::new(env())));
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        assert_eq!(
+            modules(&sensors),
+            vec![
+                (0, ModuleKind::HumidityTag),
+                (0, ModuleKind::TemperatureTag)
+            ],
+            "a Climate Module R1 always has its light sensor and barometer too"
+        );
+        assert_eq!(
+            temperatures(&sensors),
+            vec![
+                (ModuleKind::TemperatureTag, "tmp112-48".into(), true),
+                (ModuleKind::HumidityTag, "sht20-40".into(), false),
+            ]
+        );
+        let report = single(sensors.measure(&mut bus, &clock)?);
+        assert_close(report.values.temperature, 23.5, 0.07);
+        assert_close(report.values.humidity, 80.0, 0.1);
+        assert_close(report.extra[0].1.temperature, 5.5, 0.05);
+        Ok(())
+    }
+
+    #[test]
+    fn all_four_r1_parts_are_a_climate_module_r1_unless_set_to_tags() -> Result<(), BusError> {
+        let mut bus = MockBus::with_climate(ClimateRevision::R1, 0, env());
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        assert_eq!(modules(&sensors), vec![(0, ModuleKind::ClimateModuleR1)]);
+        sensors.set_climate_r1([ClimateR1::Tags, ClimateR1::Auto]);
+        assert_eq!(
+            modules(&sensors),
+            vec![
+                (0, ModuleKind::HumidityTag),
+                (0, ModuleKind::TemperatureTag),
+                (0, ModuleKind::LuxMeterTag),
+                (0, ModuleKind::BarometerTag),
+            ]
+        );
+        let ids: Vec<String> = sensors.sources().into_iter().map(|s| s.id).collect();
+        assert!(
+            ids.contains(&"tmp112-48".to_string()) && ids.contains(&"sht20-40".to_string()),
+            "the parts keep their ids, so their series go on: {ids:?}"
+        );
+        // Only the thermometers: a module only when the user says so.
+        let mut bus = MockBus::new();
+        bus.attach(0, 0x40, Box::new(SimSht20::new(env())));
+        bus.attach(0, 0x48, Box::new(SimTmp112::new(env())));
+        let mut sensors =
+            Sensors::new(ChannelMode::Channel0).with_climate_r1([ClimateR1::Module; 2]);
+        sensors.detect(&mut bus, &clock)?;
+        assert_eq!(modules(&sensors), vec![(0, ModuleKind::ClimateModuleR1)]);
+        Ok(())
+    }
+
+    /// GitHub issue #2: a Humidity Tag next to a Climate Module R1, both
+    /// SHT20 at 0x40, garble each other's answers.
+    #[test]
+    fn two_sht20_at_one_address_are_reported() -> Result<(), BusError> {
+        use crate::bus::mock::SimCollision;
+        let mut bus = MockBus::with_climate(ClimateRevision::R1, 0, env());
+        bus.attach(
+            0,
+            0x40,
+            Box::new(SimCollision {
+                a: Box::new(SimSht20::new(env())),
+                b: Box::new(SimSht20::new(tag(5.5, 80.0))),
+            }),
+        );
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        assert!(sensors.warnings().is_empty(), "nothing known yet");
+        for _ in 0..3 {
+            sensors.measure(&mut bus, &clock)?;
+            sensors.detect(&mut bus, &clock)?;
+        }
+        let warnings = sensors.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(
+            (
+                warnings[0].channel,
+                warnings[0].address,
+                warnings[0].sensor.as_str()
+            ),
+            (0, 0x40, "SHT20")
+        );
+        // The garbled part is given up and found again by the probe, once
+        // a minute; at a 2 s interval the warning used to go in between.
+        for cycle in 0..150 {
+            sensors.measure(&mut bus, &clock)?;
+            clock.sleep(Duration::from_secs(1));
+            if cycle % 30 == 29 {
+                sensors.detect(&mut bus, &clock)?;
+            }
+            assert_eq!(sensors.warnings().len(), 1, "cycle {cycle}");
+        }
+        // The tag is taken out: the module's own SHT20 reads clean, and the
+        // warning ends a few cycles later.
+        bus.attach(0, 0x40, Box::new(SimSht20::new(env())));
+        sensors.detect(&mut bus, &clock)?;
+        for _ in 0..=SUSPECT_MAX {
+            sensors.measure(&mut bus, &clock)?;
+        }
+        assert!(sensors.warnings().is_empty(), "{:?}", sensors.warnings());
+        Ok(())
+    }
+
+    /// A Barometer Tag next to a Climate Module R2, both MPL3115A2 at 0x60:
+    /// the barometer's die reads far off the module's thermometer.
+    #[test]
+    fn two_barometers_at_one_address_are_reported() -> Result<(), BusError> {
+        use crate::bus::mock::SimCollision;
+        let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, env());
+        let outdoor: SharedEnv = Arc::new(Mutex::new(Values {
+            temperature: Some(-8.0),
+            pressure: Some(99_000.0),
+            ..Values::default()
+        }));
+        bus.attach(
+            0,
+            0x60,
+            Box::new(SimCollision {
+                a: Box::new(SimMpl3115a2::new(env())),
+                b: Box::new(SimMpl3115a2::new(outdoor)),
+            }),
+        );
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        for _ in 0..4 {
+            sensors.measure(&mut bus, &clock)?;
+        }
+        let warnings = sensors.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(
+            (warnings[0].address, warnings[0].module),
+            (0x60, ModuleKind::ClimateModuleR2)
+        );
+        Ok(())
+    }
+
+    /// A small xorshift, so the tests draw the same values every run.
+    struct Noise(u64);
+
+    impl Noise {
+        fn next(&mut self) -> u32 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 >> 16) as u32
+        }
+    }
+
+    /// Two sensors at one address, each wobbling over `span` codes, read
+    /// ANDed.
+    fn anded(noise: &mut Noise, span: u32) -> u32 {
+        (390_000 + noise.next() % span) & (390_010 + noise.next() % span)
+    }
+
+    #[test]
+    fn low_bits_tell_two_ands_from_one_sensor() {
+        let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
+        // A lone sensor drifting and wobbling: never suspect.
+        let mut lone = LowBits::default();
+        for i in 0..2000u32 {
+            let raw = 390_000 + i / 4 + noise.next() % 24;
+            assert!(!lone.push(raw), "a lone sensor was suspected at {i}");
+        }
+        // A steady reading flipping between two values, one of them a
+        // multiple of eight: nothing gathered at all.
+        let mut steady = LowBits::default();
+        for i in 0..500u32 {
+            assert!(!steady.push(392 + i % 2));
+            assert_eq!(steady.score, 0);
+        }
+        // Two sensors read ANDed: suspect after about 150 changed readings,
+        // and for good.
+        let mut pair = LowBits::default();
+        let mut since = None;
+        for i in 0..3000u32 {
+            let suspect = pair.push(anded(&mut noise, 64));
+            if suspect && since.is_none() {
+                since = Some(i);
+            }
+            assert!(since.is_none() || suspect, "dropped out at {i}");
+        }
+        assert!(since.is_some_and(|i| (60..300).contains(&i)), "{since:?}");
+    }
+
+    /// The earlier detector (22 zeros among the last 90 changed readings)
+    /// warned about a lone sensor several times a month, and five times in
+    /// 70 minutes on the real set-up: a month of readings at the default
+    /// interval and more, with several series of noise, must stay quiet.
+    #[test]
+    fn low_bits_of_a_lone_sensor_stay_quiet_for_months() {
+        // 130 000 readings: 30 days at the default 20 s.
+        for seed in 1..=4u64 {
+            let mut noise = Noise(0x9E37_79B9_7F4A_7C15 ^ (seed * 0x0123_4567_89AB_CDEF));
+            // Its lowest bits at random, on a slow drift.
+            let mut drifting = LowBits::default();
+            // The worst case that still varies: spread evenly over 17
+            // codes that start at a multiple of eight (3 in 17).
+            let mut aligned = LowBits::default();
+            let mut highest = 0;
+            for i in 0..130_000u32 {
+                let wobble = noise.next();
+                assert!(
+                    !drifting.push(390_000 + i / 50 + wobble % 64),
+                    "seed {seed}"
+                );
+                assert!(!aligned.push(392_000 + (wobble >> 8) % 17), "seed {seed}");
+                highest = highest.max(drifting.score).max(aligned.score);
+            }
+            assert!(
+                highest < LOW_BITS_SUSPECT - 12,
+                "seed {seed}: too close, {highest}"
+            );
+        }
+    }
+
+    #[test]
+    fn low_bits_do_not_take_a_reading_that_settles_for_a_pair() {
+        // A ramp (variety), then a flip between two values, one of them a
+        // multiple of eight: it counts only while the ramp is remembered.
+        let mut bits = LowBits::default();
+        for round in 0..50u32 {
+            for i in 0..40 {
+                assert!(!bits.push(392_000 + round * 100 + i));
+            }
+            for i in 0..400 {
+                assert!(
+                    !bits.push(392_000 + round * 100 + 40 + i % 2),
+                    "round {round}"
+                );
+            }
+            assert_eq!(bits.score, 0, "faded while steady");
+        }
+    }
+
+    #[test]
+    fn low_bits_clear_a_part_left_alone() {
+        let mut noise = Noise(0xD1B5_4A32_D192_ED03);
+        let mut bits = LowBits::default();
+        for _ in 0..600 {
+            bits.push(anded(&mut noise, 64));
+        }
+        assert!(bits.suspect);
+        // The second device is gone: cleared within about 65 readings.
+        let cleared = (0..200u32).find(|_| !bits.push(390_000 + noise.next() % 64));
+        assert!(
+            cleared.is_some_and(|i| (20..100).contains(&i)),
+            "{cleared:?}"
+        );
+        // A steady reading (no variety) ends a warning too.
+        let mut bits = LowBits::default();
+        for _ in 0..600 {
+            bits.push(anded(&mut noise, 64));
+        }
+        let cleared = (0..200u32).find(|i| !bits.push(390_000 + i % 2));
+        assert!(cleared.is_some(), "a steady reading kept the warning");
+    }
+
+    /// A pair is told by its changed readings alone: a cycle that reads the
+    /// same value again must not take anything away (it used to, so a pair
+    /// whose reading changed every third cycle was never reported).
+    #[test]
+    fn a_pair_whose_reading_often_repeats_is_reported() {
+        let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
+        let mut c = ChannelSensors::new(0, None, ClimateR1::Auto);
+        c.add(SensorKind::Opt3001, Slot::Ready, 0x44);
+        let clock = MockClock::new();
+        for _ in 0..400 {
+            let raw = anded(&mut noise, 64) & 0x0FFF;
+            for _ in 0..3 {
+                c.measured(0);
+                c.watch_low_bits(0, raw);
+                c.tidy_watched(clock.now());
+            }
+        }
+        let warnings = c.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].address, 0x44);
+        // The part is unplugged: what its lowest bits told goes with it.
+        c.parts.clear();
+        c.tidy_watched(clock.now());
+        assert!(c.warnings().is_empty());
+    }
+
+    #[test]
+    fn a_checksum_warning_does_not_flicker() {
+        let mut c = ChannelSensors::new(0, None, ClimateR1::Auto);
+        c.add(SensorKind::Sht20, Slot::Ready, 0x40);
+        c.suspect(SensorKind::Sht20, 0x40, true);
+        assert!(c.warnings().is_empty(), "one garbled cycle is not enough");
+        c.suspect(SensorKind::Sht20, 0x40, true);
+        assert_eq!(c.warnings().len(), 1);
+        // Reported until the score is back at zero, not just below the
+        // level that raised it.
+        for _ in 0..SUSPECT_AT - 1 {
+            c.suspect(SensorKind::Sht20, 0x40, false);
+            assert_eq!(c.warnings().len(), 1);
+        }
+        c.suspect(SensorKind::Sht20, 0x40, false);
+        assert!(c.warnings().is_empty());
+    }
+
+    /// GitHub issue #2: a Lux Meter Tag next to a Climate Module, both
+    /// OPT3001 at 0x44. Their light differs a little from cycle to cycle.
+    #[test]
+    fn two_light_sensors_at_one_address_are_reported() -> Result<(), BusError> {
+        use crate::bus::mock::SimCollision;
+        let module = env();
+        let tag: SharedEnv = Arc::new(Mutex::new(Values::default()));
+        let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, module.clone());
+        bus.attach(
+            0,
+            0x44,
+            Box::new(SimCollision {
+                a: Box::new(SimOpt3001::new(module.clone())),
+                b: Box::new(SimOpt3001::new(tag.clone())),
+            }),
+        );
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        let mut noise = Noise(0x2545_F491_4F6C_DD1D);
+        for _ in 0..400 {
+            if let (Ok(mut m), Ok(mut t)) = (module.lock(), tag.lock()) {
+                m.illuminance = Some(400.0 + f64::from(noise.next() % 6000) / 100.0);
+                t.illuminance = Some(420.0 + f64::from(noise.next() % 6000) / 100.0);
+            }
+            sensors.measure(&mut bus, &clock)?;
+        }
+        let warnings = sensors.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(
+            (warnings[0].address, warnings[0].sensor.as_str()),
+            (0x44, "OPT3001")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_lone_climate_module_with_changing_values_raises_no_warning() -> Result<(), BusError> {
+        let module = env();
+        let mut bus = MockBus::with_climate(ClimateRevision::R2, 0, module.clone());
+        bus.attach(0, 0x48, Box::new(SimTmp112::new(module.clone())));
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        let mut noise = Noise(0xD1B5_4A32_D192_ED03);
+        for i in 0..400u32 {
+            if let Ok(mut m) = module.lock() {
+                m.temperature =
+                    Some(22.0 + f64::from(i) / 100.0 + f64::from(noise.next() % 50) / 100.0);
+                m.illuminance = Some(300.0 + f64::from(noise.next() % 30_000) / 100.0);
+                m.pressure = Some(97_700.0 + f64::from(noise.next() % 400) / 4.0);
+            }
+            sensors.measure(&mut bus, &clock)?;
+            assert!(
+                sensors.warnings().is_empty(),
+                "cycle {i}: {:?}",
+                sensors.warnings()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_lone_climate_module_raises_no_warning() -> Result<(), BusError> {
+        for revision in [ClimateRevision::R1, ClimateRevision::R2] {
+            let mut bus = MockBus::with_climate(revision, 0, env());
+            let clock = MockClock::new();
+            let mut sensors = Sensors::new(ChannelMode::Channel0);
+            sensors.detect(&mut bus, &clock)?;
+            for _ in 0..5 {
+                sensors.measure(&mut bus, &clock)?;
+            }
+            assert!(sensors.warnings().is_empty(), "{:?}", sensors.warnings());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_climate_module_r1_stays_one_when_its_light_sensor_stops() -> Result<(), BusError> {
+        let mut bus = MockBus::with_climate(ClimateRevision::R1, 0, env());
+        let clock = MockClock::new();
+        let mut sensors = Sensors::new(ChannelMode::Channel0);
+        sensors.detect(&mut bus, &clock)?;
+        bus.attach(0, 0x44, Box::new(Mute));
+        for _ in 0..PART_GIVE_UP {
+            sensors.measure(&mut bus, &clock)?;
+        }
+        assert_eq!(
+            sensors.sources().len(),
+            3,
+            "the light sensor is gone: {:?}",
+            sensors.sources()
+        );
+        assert_eq!(modules(&sensors), vec![(0, ModuleKind::ClimateModuleR1)]);
         Ok(())
     }
 

@@ -75,6 +75,9 @@ export const en = {
     noModuleTitle: "No sensors found",
     noModuleBody:
       "The Bridge Module is connected, but neither a Climate Module nor a sensor tag answers. Check that they are firmly plugged in.",
+    collisionTitle: "Two devices at one I²C address",
+    collisionBody:
+      "{module} {sensor} at {address} on channel {channel} gives garbled values: another device answers at the same address, for example a Lux Meter Tag or Barometer Tag next to a Climate Module. Move the tag to channel {other}.",
     updateTitle: "Update available: {version}",
     updateBody: "A new version of TOWER Bridge is ready to download. Settings and history are kept.",
   },
@@ -249,6 +252,12 @@ export const en = {
     channelHint: "Where to look for the Climate Module and sensor tags; Automatic uses both channels.",
     channelAuto: "Automatic",
     channelN: "Channel {n}",
+    climateR1: "Climate Module R1 or tags, channel {n}",
+    climateR1Hint:
+      "A Climate Module R1 has the same chips at the same addresses as a Humidity, Temperature, Lux Meter and Barometer Tag. Automatic takes all four together for a Climate Module R1.",
+    climateR1Auto: "Automatic",
+    climateR1Module: "Climate Module R1",
+    climateR1Tags: "Separate tags",
     mqtt: {
       title: "MQTT",
       description:

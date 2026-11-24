@@ -1536,9 +1536,9 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -5696,7 +5696,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "block2",
@@ -5734,7 +5734,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge-cli"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -5758,7 +5758,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge-core"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "axum",
  "chrono",
@@ -5781,7 +5781,7 @@ dependencies = [
 
 [[package]]
 name = "tower-bridge-service"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "chrono",
  "crossbeam-channel",
@@ -6036,9 +6036,9 @@ dependencies = [
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

@@ -28,6 +28,10 @@ pub struct XlsxLabels {
     pub altitude: String,
     pub co2: String,
     pub voc: String,
+    /// A further sensor on the channel (empty for the channel's own row).
+    pub sensor: String,
+    /// The modules that measured the row's values.
+    pub source: String,
 }
 
 fn xlsx_err(e: XlsxError) -> StoreError {
@@ -82,15 +86,19 @@ fn start_sheet<'a>(
         &labels.altitude,
         &labels.co2,
         &labels.voc,
+        &labels.sensor,
+        &labels.source,
     ];
     for (col, text) in headers.iter().enumerate() {
         sheet
             .write_string_with_format(0, col as u16, text.as_str(), &f.header)
             .map_err(xlsx_err)?;
     }
-    for (col, width) in [20.0, 14.0, 12.0, 18.0, 16.0, 18.0, 16.0, 18.0, 12.0, 12.0]
-        .iter()
-        .enumerate()
+    for (col, width) in [
+        20.0, 14.0, 12.0, 18.0, 16.0, 18.0, 16.0, 18.0, 12.0, 12.0, 14.0, 28.0,
+    ]
+    .iter()
+    .enumerate()
     {
         sheet
             .set_column_width(col as u16, *width)
@@ -129,11 +137,8 @@ pub fn export_xlsx_to_file(
     };
 
     let mut workbook = Workbook::new();
-    let mut stmt = conn.prepare(
-        "SELECT r.ts, d.serial, r.temperature, r.humidity, r.illuminance, r.pressure, r.channel, r.co2, r.voc
-         FROM readings r JOIN devices d ON d.id = r.device_id
-         WHERE r.ts >= ?1 AND r.ts < ?2 ORDER BY r.ts, r.channel",
-    )?;
+    let names = super::SourceNames::load(conn, from, to)?;
+    let mut stmt = conn.prepare(super::EXPORT_ROWS)?;
     let mut rows = stmt.query(params![from, to])?;
 
     let mut n = 0u64;
@@ -184,10 +189,18 @@ pub fn export_xlsx_to_file(
                 .map_err(xlsx_err)?;
         }
         sheet.write_string(row, 1, serial).map_err(xlsx_err)?;
-        let channel: i64 = r.get(6)?;
+        let channel: u8 = r.get(6)?;
         sheet
-            .write_number(row, 2, channel as f64)
+            .write_number(row, 2, f64::from(channel))
             .map_err(xlsx_err)?;
+        let sensor: String = r.get(9)?;
+        let source = names.of(ts, channel, &sensor);
+        if !sensor.is_empty() {
+            sheet.write_string(row, 10, &sensor).map_err(xlsx_err)?;
+        }
+        if !source.is_empty() {
+            sheet.write_string(row, 11, &source).map_err(xlsx_err)?;
+        }
         for (i, v) in values.iter().enumerate() {
             if let Some(v) = v {
                 sheet
@@ -204,7 +217,7 @@ pub fn export_xlsx_to_file(
     last_row_per_sheet.push(row);
     for (i, last) in last_row_per_sheet.iter().enumerate() {
         if let Ok(s) = workbook.worksheet_from_index(i) {
-            let _ = s.autofilter(0, 0, (*last).max(1), 9);
+            let _ = s.autofilter(0, 0, (*last).max(1), 11);
         }
     }
 
@@ -244,6 +257,8 @@ mod tests {
             altitude: "Nadmořská výška (m)".into(),
             co2: "CO₂ (ppm)".into(),
             voc: "VOC (ppb)".into(),
+            sensor: "Čidlo".into(),
+            source: "Zdroj".into(),
         }
     }
 

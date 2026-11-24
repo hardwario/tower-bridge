@@ -1,3 +1,4 @@
+import { type LineKey, parseLine } from "./series";
 import type { ChartColor, ChartStyle, Metric } from "./types";
 
 /**
@@ -33,7 +34,14 @@ const DEFAULT_COLORS: Record<Metric, ChartColor[]> = {
   voc: ["teal", "orange"],
 };
 
-const DEFAULT_LINES = { show_min: false, show_avg: true, show_max: false, hidden_channels: [] };
+const DEFAULT_LINES = {
+  show_min: false,
+  show_avg: true,
+  show_max: false,
+  hidden_channels: [],
+  sensor_colors: {},
+  hidden_sensors: [],
+};
 
 export function lineColor(color: ChartColor | undefined, dark: boolean): string {
   const shades = SHADES[color ?? "blue"] ?? SHADES.blue;
@@ -57,25 +65,53 @@ export function chartStyle(charts: Partial<Record<Metric, ChartStyle>> | undefin
   return { ...DEFAULT_LINES, ...saved, colors };
 }
 
-/** The colour of `channel`'s line. */
-export function channelColor(style: ChartStyle, metric: Metric, channel: number): ChartColor {
-  return style.colors[channel] ?? DEFAULT_COLORS[metric][channel % DEFAULT_COLORS[metric].length];
+/**
+ * The colour of line `key`: a channel's from `colors`, a further sensor's
+ * from `sensor_colors`, else the first colour not used by `others` (the
+ * panel's other lines, channels first), so a tag next to a Climate Module
+ * never looks like it.
+ */
+export function lineColorOf(style: ChartStyle, metric: Metric, key: LineKey, others: LineKey[] = []): ChartColor {
+  const { channel, sensor } = parseLine(key);
+  const own = (c: number) => style.colors[c] ?? DEFAULT_COLORS[metric][c % DEFAULT_COLORS[metric].length];
+  if (!sensor) return own(channel);
+  const saved = style.sensor_colors?.[key];
+  if (saved) return saved;
+  const taken: ChartColor[] = [];
+  for (const other of others) {
+    if (other === key) break;
+    taken.push(lineColorOf(style, metric, other, others));
+  }
+  for (const c of [0, 1]) taken.push(own(c));
+  return CHART_COLORS.find((c) => !taken.includes(c)) ?? "graphite";
 }
 
-/** Of `channels` (the lines a chart has), those hidden: never all, so a single line always shows. */
-export function hiddenChannels(style: ChartStyle, channels: number[]): Set<number> {
-  const hidden = channels.filter((c) => style.hidden_channels?.includes(c));
-  return new Set(hidden.length < channels.length ? hidden : []);
+const hiddenKeys = (style: ChartStyle): LineKey[] => [
+  ...(style.hidden_channels ?? []).map(String),
+  ...(style.hidden_sensors ?? []),
+];
+
+/** Of `keys` (the lines a chart has), those hidden: never all, so a single line always shows. */
+export function hiddenLines(style: ChartStyle, keys: LineKey[]): Set<LineKey> {
+  const hidden = keys.filter((k) => hiddenKeys(style).includes(k));
+  return new Set(hidden.length < keys.length ? hidden : []);
 }
 
-/** `style` with `channel`'s line hidden or shown. */
-export function withChannelHidden(style: ChartStyle, channel: number, hidden: boolean): ChartStyle {
+/** `style` with line `key` hidden or shown. */
+export function withLineHidden(style: ChartStyle, key: LineKey, hidden: boolean): ChartStyle {
+  const { channel, sensor } = parseLine(key);
+  if (sensor) {
+    const rest = (style.hidden_sensors ?? []).filter((k) => k !== key);
+    return { ...style, hidden_sensors: hidden ? [...rest, key].sort() : rest };
+  }
   const rest = (style.hidden_channels ?? []).filter((c) => c !== channel);
   return { ...style, hidden_channels: hidden ? [...rest, channel].sort((a, b) => a - b) : rest };
 }
 
-/** `style` with `channel`'s line in `color`. */
-export function withChannelColor(style: ChartStyle, channel: number, color: ChartColor): ChartStyle {
+/** `style` with line `key` in `color`. */
+export function withLineColor(style: ChartStyle, key: LineKey, color: ChartColor): ChartStyle {
+  const { channel, sensor } = parseLine(key);
+  if (sensor) return { ...style, sensor_colors: { ...(style.sensor_colors ?? {}), [key]: color } };
   const colors = [...style.colors];
   colors[channel] = color;
   return { ...style, colors };

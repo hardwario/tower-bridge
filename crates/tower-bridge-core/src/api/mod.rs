@@ -237,25 +237,55 @@ pub(crate) mod testing {
                     module: ModuleKind::ClimateModuleR2,
                     sensor: sensor.into(),
                     address,
+                    id: crate::model::sensor_id(sensor, address),
+                    primary: true,
                 })
+                .chain([Metric::Temperature, Metric::Humidity].map(|metric| {
+                    // A Humidity Tag next to the Climate Module.
+                    SensorSource {
+                        metric,
+                        channel: 0,
+                        module: ModuleKind::HumidityTag,
+                        sensor: "SHT20".into(),
+                        address: 0x40,
+                        id: "sht20-40".into(),
+                        primary: false,
+                    }
+                }))
                 .collect(),
+                warnings: Vec::new(),
             }
         }
         fn latest(&self) -> Vec<Reading> {
-            vec![Reading {
-                ts: NOW,
-                device: "SN1".into(),
-                channel: 0,
-                values: Values {
-                    temperature: Some(23.456),
-                    humidity: Some(41.25),
-                    illuminance: Some(320.4),
-                    pressure: Some(100_322.0),
-                    co2: None,
-                    voc: None,
+            vec![
+                Reading {
+                    ts: NOW,
+                    device: "SN1".into(),
+                    channel: 0,
+                    sensor: None,
+                    values: Values {
+                        temperature: Some(23.456),
+                        humidity: Some(41.25),
+                        illuminance: Some(320.4),
+                        pressure: Some(100_322.0),
+                        co2: None,
+                        voc: None,
+                    },
+                    altitude: Some(83.2),
                 },
-                altitude: Some(83.2),
-            }]
+                Reading {
+                    ts: NOW,
+                    device: "SN1".into(),
+                    channel: 0,
+                    sensor: Some("sht20-40".into()),
+                    values: Values {
+                        temperature: Some(5.5),
+                        humidity: Some(80.0),
+                        ..Values::default()
+                    },
+                    altitude: None,
+                },
+            ]
         }
         fn sample_interval_ms(&self) -> u64 {
             10_000
@@ -275,11 +305,12 @@ pub(crate) mod testing {
                     (from / 1000 + 60) as f64,
                     (from / 1000 + 120) as f64,
                 ],
-                channels: vec![0],
-                temperature: vec![series(22.0)],
-                humidity: vec![series(40.0)],
-                illuminance: vec![series(300.0)],
-                pressure: vec![series(100_000.0)],
+                channels: vec![0, 0],
+                sensors: vec![None, Some("sht20-40".into())],
+                temperature: vec![series(22.0), series(5.0)],
+                humidity: vec![series(40.0), series(80.0)],
+                illuminance: vec![series(300.0), Series::default()],
+                pressure: vec![series(100_000.0), Series::default()],
                 co2: Vec::new(),
                 voc: Vec::new(),
             })
@@ -295,6 +326,7 @@ pub(crate) mod testing {
             vec![ActiveAlert {
                 metric: Metric::Temperature,
                 channel: 0,
+                sensor: None,
                 bound: Bound::High,
                 since: NOW - 60_000,
                 threshold: 23.0,
@@ -306,6 +338,7 @@ pub(crate) mod testing {
                 ts: NOW - 60_000,
                 metric: "temperature".into(),
                 channel: 0,
+                sensor: None,
                 bound: "high".into(),
                 kind: "triggered".into(),
                 value: 23.4,

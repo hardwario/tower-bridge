@@ -63,7 +63,11 @@ impl Observer for LogObserver {
     }
 
     fn alert(&self, state: &ServiceState, ev: &AlertEvent) {
-        let text = output::alert(ev, state.settings().temperature_unit);
+        let text = output::alert(
+            ev,
+            state.settings().temperature_unit,
+            state.device.read().sources(),
+        );
         match ev.kind {
             AlertKind::Triggered => warn!("alert: {text}"),
             AlertKind::Recovered => info!("alert over: {text}"),

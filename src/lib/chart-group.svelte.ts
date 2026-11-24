@@ -1,3 +1,4 @@
+import { historyKeys, type LineKey } from "./series";
 import { api } from "./api";
 import { fill, t } from "./i18n/index.svelte";
 import { METRICS, type History, type Metric, type Series } from "./types";
@@ -78,10 +79,10 @@ export class ChartGroup {
   }
 }
 
-/** The series of `metric` measured on `channel`. */
-export function seriesOf(h: History | null, metric: Metric, channel: number): Series | null {
+/** The series of `metric` on line `key` (a channel's own, or a further sensor's). */
+export function seriesOf(h: History | null, metric: Metric, key: LineKey): Series | null {
   if (!h) return null;
-  const i = h.channels.indexOf(channel);
+  const i = historyKeys(h).indexOf(key);
   return i < 0 ? null : (h[metric][i] ?? null);
 }
 
@@ -180,15 +181,15 @@ export interface WindowStats {
   avg: number;
 }
 
-/** min / avg / max of one metric on one channel inside the zoom window (or the whole history). */
+/** min / avg / max of one metric on one line inside the zoom window (or the whole history). */
 export function windowStats(
   h: History | null,
   metric: Metric,
-  channel: number,
+  key: LineKey,
   zoom: [number, number] | null,
 ): WindowStats | null {
   if (!h) return null;
-  const s = seriesOf(h, metric, channel);
+  const s = seriesOf(h, metric, key);
   if (!s) return null;
   let min = Infinity;
   let max = -Infinity;

@@ -34,7 +34,9 @@ const INSTRUCTIONS: &str = "Readings from HARDWARIO TOWER sensors (a Climate Mod
 Module, a VOC-LP Tag) connected to this computer through a TOWER Bridge Module: temperature (°C), relative \
 humidity (%), illuminance (lx), barometric pressure (hPa), CO2 (ppm) and total volatile organic compounds \
 (TVOC, ppb). Sensors can sit on I2C channel 0 and 1, for example one indoors and one outdoors, so readings \
-come per channel with the module that measured them. Use get_current_readings for the present state, \
+come per channel with the module that measured them. When a channel has more than one sensor of a quantity \
+(a Humidity Tag next to a Climate Module), each further sensor comes as a reading of its own, named by \
+'sensor' (its part and I2C address, e.g. sht20-40) and 'source' (its module). Use get_current_readings for the present state, \
 get_history for trends and statistics over a time range, get_alerts for configured limits and recent \
 alerts, and get_device_status for the modules found, the Relay Module and the GPS position.";
 
@@ -136,7 +138,8 @@ pub fn tool_definitions(allow_control: bool) -> Vec<Value> {
             "title": "Current readings",
             "description": "Latest temperature (°C), relative humidity (%), illuminance (lx), barometric \
         pressure (hPa), estimated altitude (m), CO2 (ppm) and TVOC (ppb) of each I2C channel, as far as \
-        measured there, with the measuring module, the measurement time and any active alerts.",
+        measured there, and of each further sensor on a channel ('sensor'), with the measuring module, \
+        the measurement time and any active alerts.",
             "inputSchema": empty_schema(),
             "annotations": read_only,
         }),
@@ -144,7 +147,8 @@ pub fn tool_definitions(allow_control: bool) -> Vec<Value> {
             "name": "get_history",
             "title": "Reading history",
             "description": "Averaged readings over a time range plus min/avg/max statistics, per I2C \
-        channel. Use 'hours' for a range ending now, or 'from'/'to' for an absolute range.",
+        channel and further sensor on a channel ('sensor'). Use 'hours' for a range ending now, or \
+        'from'/'to' for an absolute range.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -367,17 +371,29 @@ fn relay_json(r: &RelayInfo) -> Value {
     v
 }
 
-/// The modules measuring on `channel`, e.g. `Humidity Tag, Lux Meter Tag`.
-fn source_name(sources: &[SensorSource], channel: u8) -> String {
-    let names: Vec<&str> = crate::model::modules(sources)
-        .into_iter()
-        .filter(|(c, _)| *c == channel)
-        .map(|(_, m)| m.name())
-        .collect();
-    if names.is_empty() {
-        format!("I2C channel {channel}")
-    } else {
-        names.join(", ")
+/// The modules measuring the values of `channel`'s reading, e.g. `Humidity
+/// Tag, Lux Meter Tag`, or the module of its further `sensor`.
+fn source_name(sources: &[SensorSource], channel: u8, sensor: Option<&str>) -> String {
+    let mut names: Vec<&str> = Vec::new();
+    for s in sources
+        .iter()
+        .filter(|s| s.channel == channel && s.series() == sensor)
+    {
+        if !names.contains(&s.module.name()) {
+            names.push(s.module.name());
+        }
+    }
+    match (names.is_empty(), sensor) {
+        (false, _) => names.join(", "),
+        (true, Some(id)) => format!("sensor {id} on I2C channel {channel}"),
+        (true, None) => format!("I2C channel {channel}"),
+    }
+}
+
+/// Put the further sensor of a series, if any, into `v`.
+fn put_sensor(v: &mut Map<String, Value>, sensor: Option<&str>) {
+    if let Some(id) = sensor {
+        v.insert("sensor".into(), json!(id));
     }
 }
 
@@ -563,16 +579,20 @@ impl McpServer {
             .active_alerts()
             .iter()
             .map(|a| {
-                json!({
+                let mut v = json!({
                     "metric": a.metric.as_str(),
                     "channel": a.channel,
-                    "source": source_name(sources, a.channel),
+                    "source": source_name(sources, a.channel, a.sensor.as_deref()),
                     "limit": if a.bound == Bound::High { "above" } else { "below" },
                     "threshold": friendly(a.metric, a.threshold),
                     "value": friendly(a.metric, a.value),
                     "unit": friendly_unit(a.metric),
                     "since": format_time(a.since),
-                })
+                });
+                if let Some(o) = v.as_object_mut() {
+                    put_sensor(o, a.sensor.as_deref());
+                }
+                v
             })
             .collect()
     }
@@ -597,7 +617,11 @@ impl McpServer {
                     .map(|r| {
                         let mut v = Map::new();
                         v.insert("channel".into(), json!(r.channel));
-                        v.insert("source".into(), json!(source_name(&sources, r.channel)));
+                        put_sensor(&mut v, r.sensor.as_deref());
+                        v.insert(
+                            "source".into(),
+                            json!(source_name(&sources, r.channel, r.sensor.as_deref())),
+                        );
                         for m in Metric::ALL {
                             if let Some(x) = r.values.get(m) {
                                 v.insert(friendly_key(m).into(), json!(friendly(m, x)));
@@ -670,10 +694,11 @@ impl McpServer {
         let sources = device.sources();
 
         let mut channels = Vec::new();
-        for &channel in &h.channels {
+        for (i, &channel) in h.channels.iter().enumerate() {
+            let sensor = h.sensor(i);
             let mut stats = Map::new();
             for &m in &metrics {
-                let Some(s) = h.series(m, channel) else {
+                let Some(s) = h.series_of(m, channel, sensor) else {
                     continue;
                 };
                 let avgs: Vec<f64> = s.avg.iter().flatten().copied().collect();
@@ -706,7 +731,9 @@ impl McpServer {
             for (i, t) in h.t.iter().enumerate() {
                 let mut p = Map::new();
                 for &m in &metrics {
-                    if let Some(Some(v)) = h.series(m, channel).and_then(|s| s.avg.get(i)) {
+                    if let Some(Some(v)) =
+                        h.series_of(m, channel, sensor).and_then(|s| s.avg.get(i))
+                    {
                         p.insert(friendly_key(m).into(), json!(friendly(m, *v)));
                     }
                 }
@@ -718,12 +745,16 @@ impl McpServer {
                 p.insert("time".into(), json!(format_time(start)));
                 points.push(Value::Object(p));
             }
-            channels.push(json!({
-                "channel": channel,
-                "source": source_name(sources, channel),
-                "stats": stats,
-                "points": points,
-            }));
+            let mut entry = Map::new();
+            entry.insert("channel".into(), json!(channel));
+            put_sensor(&mut entry, sensor);
+            entry.insert(
+                "source".into(),
+                json!(source_name(sources, channel, sensor)),
+            );
+            entry.insert("stats".into(), Value::Object(stats));
+            entry.insert("points".into(), json!(points));
+            channels.push(Value::Object(entry));
         }
 
         Ok(json!({
@@ -762,7 +793,7 @@ impl McpServer {
             .iter()
             .map(|e| {
                 let m = metric_from_str(&e.metric).unwrap_or(Metric::Temperature);
-                json!({
+                let mut v = json!({
                     "time": format_time(e.ts),
                     "metric": e.metric,
                     "channel": e.channel,
@@ -770,7 +801,11 @@ impl McpServer {
                     "event": if e.kind == "recovered" { "back_to_normal" } else { "triggered" },
                     "value": friendly(m, e.value),
                     "threshold": friendly(m, e.threshold),
-                })
+                });
+                if let Some(o) = v.as_object_mut() {
+                    put_sensor(o, e.sensor.as_deref());
+                }
+                v
             })
             .collect();
         Ok(json!({ "limits": limits, "active": active, "recent": recent }))
@@ -810,10 +845,33 @@ impl McpServer {
                         "module": s.module.name(),
                         "sensor": s.sensor,
                         "i2c_address": format!("0x{:02X}", s.address),
+                        "sensor_id": s.id,
+                        "primary": s.primary,
                     })
                 })
                 .collect();
             out["sensors"] = json!(sensors);
+            if let DeviceState::Ready { warnings, .. } = &device
+                && !warnings.is_empty()
+            {
+                let list: Vec<Value> = warnings
+                    .iter()
+                    .map(|w| {
+                        json!({
+                            "problem": "address_collision",
+                            "i2c_channel": w.channel,
+                            "i2c_address": format!("0x{:02X}", w.address),
+                            "sensor": w.sensor,
+                            "module": w.module.name(),
+                            "advice": format!(
+                                "Another device answers at this address and garbles the values; move the tag to I2C channel {}.",
+                                if w.channel == 0 { 1 } else { 0 }
+                            ),
+                        })
+                    })
+                    .collect();
+                out["warnings"] = json!(list);
+            }
         }
         out["relay"] = self.backend.relay().map_or(Value::Null, |r| relay_json(&r));
         out["gps"] = self.backend.gps().map_or(Value::Null, |g| json!(g));
@@ -1175,6 +1233,12 @@ mod tests {
         assert_eq!(reading["pressure_hpa"], 1003.22);
         assert_eq!(reading["channel"], 0);
         assert_eq!(reading["source"], "Climate Module R2");
+        assert!(reading.get("sensor").is_none(), "the channel's own reading");
+        let tag = &data["readings"][1];
+        assert_eq!(tag["channel"], 0);
+        assert_eq!(tag["sensor"], "sht20-40");
+        assert_eq!(tag["source"], "Humidity Tag");
+        assert_eq!(tag["humidity_pct"], 80.0);
         assert_eq!(data["active_alerts"][0]["limit"], "above");
         assert_eq!(data["active_alerts"][0]["channel"], 0);
         assert!(
@@ -1202,6 +1266,12 @@ mod tests {
             Some(2),
             "empty bucket skipped"
         );
+        let tag = &result(&r)["structuredContent"]["channels"][1];
+        assert_eq!(tag["channel"], 0);
+        assert_eq!(tag["sensor"], "sht20-40");
+        assert_eq!(tag["source"], "Humidity Tag");
+        assert_eq!(tag["stats"]["temperature_c"]["min"], 4.5);
+        assert!(tag["stats"].get("pressure_hpa").is_none());
 
         let r = s.handle(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
             "params":{"name":"get_history","arguments":{"metrics":["noise"]}}}));

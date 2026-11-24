@@ -342,11 +342,18 @@ mod tests {
         let v = json_body(&r);
         assert_eq!(v["readings"][0]["temperature"], 23.456);
         assert_eq!(v["readings"][0]["channel"], 0);
+        assert!(v["readings"][0].get("sensor").is_none());
+        assert_eq!(v["readings"][1]["channel"], 0);
+        assert_eq!(v["readings"][1]["sensor"], "sht20-40");
+        assert_eq!(v["readings"][1]["humidity"], 80.0);
         assert_eq!(v["stale"], false);
 
         let r = get(&server, "/api/v1/readings?hours=2&max_points=10", &[])?;
         assert_eq!(r.status, 200);
-        assert_eq!(json_body(&r)["bucket_ms"], 60_000);
+        let h = json_body(&r);
+        assert_eq!(h["bucket_ms"], 60_000);
+        assert_eq!(h["channels"], serde_json::json!([0, 0]));
+        assert_eq!(h["sensors"], serde_json::json!([null, "sht20-40"]));
 
         let r = get(
             &server,
@@ -374,6 +381,15 @@ mod tests {
         );
         assert!(text.contains(
             "tower_bridge_alert_active{metric=\"temperature\",channel=\"0\",bound=\"high\"} 1"
+        ));
+        assert!(
+            text.contains(
+                "tower_bridge_relative_humidity_percent{device=\"SN1\",channel=\"0\",sensor=\"sht20-40\",module=\"Humidity Tag\"} 80"
+            ),
+            "{text}"
+        );
+        assert!(text.contains(
+            "tower_bridge_alert_active{metric=\"humidity\",channel=\"0\",sensor=\"sht20-40\",module=\"Humidity Tag\",bound=\"low\"} 0"
         ));
 
         assert_eq!(get(&server, "/api/v1/openapi.json", &[])?.status, 200);
